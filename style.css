@@ -387,3 +387,27 @@ th { background: #f8fafc; }
     margin-bottom: 15px;
     width: 100%;
 }
+/* সর্ট হেডার স্টাইল */
+#sec-table th {
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+#sec-table th:hover {
+    background: #e2e8f0;
+}
+
+.sort-indicator {
+    display: inline-block;
+    font-size: 10px;
+    margin-left: 5px;
+}
+
+/* কোম্পানি কাউন্ট স্টাইল */
+#company-count-row td {
+    background: #f1f5f9;
+    font-weight: bold;
+    border-top: 2px solid #cbd5e1;
+    padding: 10px;
+}
