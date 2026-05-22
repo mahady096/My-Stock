@@ -17,3 +17,11 @@ firebase.initializeApp(firebaseConfig);
 // গ্লোবাল ভেরিয়েবল তৈরি (যা app.js সরাসরি ব্যবহার করবে)
 const auth = firebase.auth();
 const db = firebase.firestore();
+
+// 🔥 এই লাইনটি যোগ করুন - ওয়ার্নিং ফিক্স করার জন্য
+// settings এ merge: true ব্যবহার করুন যাতে আগের সেটিংস ওভাররাইড না হয়
+const settings = { 
+  host: 'firestore.googleapis.com',  // ডিফল্ট হোস্ট
+  ssl: true 
+};
+db.settings(settings); // merge ছাড়া সরাসরি সেট করলে ওয়ার্নিং যায়
