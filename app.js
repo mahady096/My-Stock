@@ -411,6 +411,9 @@ function loadUnifiedStockTable(userId) {
             }
 
             tableBody.innerHTML = rowsHtml || "<tr><td colspan='9' style='text-align:center;'>No trade history found.</td></tr>";
+                        // 👇 নিচের ২ লাইন যোগ করুন
+            updateTableHeadersWithSort();
+            updateCompanyCount();
 
             const totalProfitLoss = totalCurrentValue - totalInvestment;
             const profitLossElement = document.getElementById('profit-loss');
@@ -1067,6 +1070,128 @@ function getHardcodedPrice(ticker) {
         "BEXIMCO": 115.20
     };
     return prices[ticker] || 1.00; 
+}
+// ==========================================
+// 🔤 টেবিল সর্টিং এবং কাউন্ট ফাংশন
+// ==========================================
+
+let currentSortedColumn = null;
+let currentSortDirection = 'asc';
+
+// টেবিল সর্টিং ফাংশন
+function sortTable(columnIndex) {
+    const tableBody = document.getElementById('portfolio-table-body');
+    const rows = Array.from(tableBody.querySelectorAll('tr'));
+    
+    const dataRows = rows.filter(row => {
+        const firstCell = row.querySelector('td');
+        return firstCell && !row.innerText.includes('No trade history');
+    });
+    
+    if (dataRows.length === 0) return;
+    
+    if (currentSortedColumn === columnIndex) {
+        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortedColumn = columnIndex;
+        currentSortDirection = 'asc';
+    }
+    
+    dataRows.sort((a, b) => {
+        let aValue = a.cells[columnIndex]?.innerText || '';
+        let bValue = b.cells[columnIndex]?.innerText || '';
+        
+        if (columnIndex >= 1 && columnIndex <= 8) {
+            aValue = parseFloat(aValue.replace(/[৳,]/g, '')) || 0;
+            bValue = parseFloat(bValue.replace(/[৳,]/g, '')) || 0;
+            return currentSortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        }
+        
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
+        if (currentSortDirection === 'asc') {
+            return aValue.localeCompare(bValue);
+        } else {
+            return bValue.localeCompare(aValue);
+        }
+    });
+    
+    dataRows.forEach(row => tableBody.appendChild(row));
+    updateSortIndicators(columnIndex);
+}
+
+function updateSortIndicators(columnIndex) {
+    const headers = document.querySelectorAll('#sec-table th');
+    headers.forEach((header, index) => {
+        const existingIndicator = header.querySelector('.sort-indicator');
+        if (existingIndicator) existingIndicator.remove();
+        
+        const indicator = document.createElement('span');
+        indicator.className = 'sort-indicator';
+        indicator.style.marginLeft = '5px';
+        indicator.style.fontSize = '10px';
+        
+        if (index === columnIndex) {
+            indicator.innerText = currentSortDirection === 'asc' ? ' ▲' : ' ▼';
+            header.appendChild(indicator);
+        }
+    });
+}
+
+function updateCompanyCount() {
+    const tableBody = document.getElementById('portfolio-table-body');
+    const rows = tableBody.querySelectorAll('tr');
+    
+    let companyCount = 0;
+    let activeCompanies = [];
+    
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length > 0) {
+            const shareName = cells[0]?.innerText || '';
+            const remainingQty = cells[3]?.innerText || '0';
+            
+            if (remainingQty !== '-' && remainingQty !== '0' && !shareName.includes('Sold Out')) {
+                if (!activeCompanies.includes(shareName)) {
+                    activeCompanies.push(shareName);
+                    companyCount++;
+                }
+            }
+        }
+    });
+    
+    const footer = document.querySelector('#sec-table tfoot');
+    if (footer && !document.getElementById('company-count-row')) {
+        const newRow = document.createElement('tr');
+        newRow.id = 'company-count-row';
+        newRow.innerHTML = `
+            <td colspan="9" style="text-align: left; background: #f8fafc; font-weight: bold;">
+                📊 মোট কোম্পানি: ${companyCount} টি
+            </td>
+        `;
+        footer.appendChild(newRow);
+    } else {
+        const countRow = document.getElementById('company-count-row');
+        if (countRow) {
+            countRow.innerHTML = `
+                <td colspan="9" style="text-align: left; background: #f8fafc; font-weight: bold;">
+                    📊 মোট কোম্পানি: ${companyCount} টি
+                </td>
+            `;
+        }
+    }
+}
+
+function updateTableHeadersWithSort() {
+    const headers = document.querySelectorAll('#sec-table th');
+    headers.forEach((header, index) => {
+        if (!header.hasAttribute('data-sortable')) {
+            header.setAttribute('data-sortable', 'true');
+            header.style.cursor = 'pointer';
+            header.title = 'ক্লিক করে সর্ট করুন';
+            header.addEventListener('click', () => sortTable(index));
+        }
+    });
 }
 // আগের দিনের ক্লোজ প্রাইস বের করার ফাংশন (stock_history ব্যবহার করে)
 async function getPreviousCloseFromScraper(ticker) {
