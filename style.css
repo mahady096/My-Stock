@@ -1,0 +1,355 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    background-color: #f4f6f9;
+    color: #333;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* লগইন বক্সের ডিজাইন */
+.auth-box {
+    width: 350px;
+    margin: 100px auto;
+    padding: 30px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    text-align: center;
+}
+
+.auth-box input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.auth-box button {
+    width: 100%;
+    padding: 10px;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.error { color: red; font-size: 14px; margin-top: 10px; }
+
+/* মেইন অ্যাপ লেআউট (৩ কলাম গ্রিড) */
+#app-container {
+    display: grid;
+    grid-template-columns: 240px 1fr; /* ৩টির জায়গায় ২টি কলাম */
+    height: 100vh;
+    position: relative;
+    overflow: hidden;
+}
+
+/* সাইডবার সাধারণ ডিজাইন */
+.sidebar {
+    background: #1e293b;
+    color: white;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.3s ease;
+    z-index: 10;
+}
+
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #334155;
+    padding-bottom: 10px;
+}
+
+.sidebar h3 {
+    font-size: 18px;
+}
+
+/* ওপেন-ক্লোজ বাটনের স্টাইল */
+.close-btn {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 30px;
+    cursor: pointer;
+    line-height: 1;
+}
+.close-btn:hover { color: #ef4444; }
+
+.toggle-trigger {
+    background: #1e293b;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+/* বাম সাইডবার মেনু */
+.left-sidebar ul {
+    list-style: none;
+}
+
+.left-sidebar ul li {
+    padding: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    margin-bottom: 5px;
+}
+
+.left-sidebar ul li:hover, .left-sidebar ul li.active {
+    background: #334155;
+}
+
+.logout-btn {
+    margin-top: auto;
+    padding: 10px;
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* ডান সাইডবার (মার্কেট ওয়াচ) */
+.market-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid #334155;
+}
+.up { color: #10b981; }
+
+/* মূল কন্টেন্ট এরিয়া */
+.main-content {
+    padding: 20px;
+    overflow-y: auto;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+/* ড্যাশবোর্ড কার্ড */
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+}
+
+.card {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    font-weight: bold;
+}
+
+/* টেবিল ডিজাইন */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    margin-top: 20px;
+}
+
+th, td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+th { background: #f8fafc; }
+
+/* ট্রেড ফর্ম */
+.trade-form input {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+.trade-form button {
+    padding: 10px 20px;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.btn-buy { background: #10b981; margin-right: 5px;}
+.btn-sell { background: #ef4444; }
+
+/* মোবাইল রেসপনসিভনেস (Responsive Design) */
+@media (max-width: 768px) {
+    #app-container {
+        grid-template-columns: 1fr;
+    }
+    .sidebar {
+        position: absolute;
+        top: 0;
+        height: 100vh;
+        width: 260px;
+    }
+    .left-sidebar {
+        left: -260px; /* শুরুতে বামে লুকানো থাকবে */
+    }
+    .right-sidebar {
+        right: -260px; /* শুরুতে ডানে লুকানো থাকবে */
+    }
+    /* সাইডবার ওপেন করার ক্লাস */
+    .left-sidebar.active { left: 0; }
+    .right-sidebar.active { right: 0; }
+}
+@media (min-width: 769px) {
+    .close-btn, .toggle-trigger {
+        display: none !important; /* বড় স্ক্রিনে বাটন লুকানো থাকবে */
+    }
+}
+/* সাজেশন বক্সের স্টাইল */
+.suggestion-list {
+    position: absolute;
+    top: 45px; /* ইনপুট বক্সের ঠিক নিচে বসার জন্য */
+    left: 0;
+    width: 100%;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    max-height: 150px;
+    overflow-y: auto;
+    z-index: 100;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+/* প্রতিটা সাজেশনের আইটেম */
+.suggestion-item {
+    padding: 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+}
+
+.suggestion-item:hover {
+    background-color: #f1f5f9;
+    font-weight: bold;
+}
+<style>
+    /* টেবিলের ভেতরের ইনপুট বক্সকে আরও সুন্দর করার জন্য */
+    .trade-form input[type="number"] {
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 6px 10px;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    .trade-form input[type="number"]:focus {
+        border-color: #007bff;
+        box-shadow: 0 0 0 2px rgba(0,123,255,0.15);
+    }
+    /* লাভ ও ক্ষতির জন্য সুন্দর ব্যাকগ্রাউন্ড ব্যাজ (ঐচ্ছিক) */
+    .up { color: #10b981; font-weight: bold; }
+    .error { color: #ef4444; font-weight: bold; }
+</style>
+/* Sell Share টেবিলের জন্য বিশেষ ডিজাইন */
+#sell-holdings-container table {
+    width: 100%;
+    table-layout: fixed; /* কলামের উইডথ ফিক্সড রাখার জন্য */
+}
+
+/* ১ম ৫টি কলামের ফন্ট ছোট, প্যাডিং কম এবং বামে চাপানোর জন্য */
+#sell-holdings-container th.small-col,
+#sell-holdings-container td.small-col {
+    font-size: 11px !important;
+    padding: 6px 4px !important;
+    text-align: left !important;
+    width: 14%; /* ৫টি কলাম মিলে ৭০% জায়গা নেবে */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* শেষ কলামটি (Sell Details) প্রসারিত করার জন্য */
+#sell-holdings-container th:last-child,
+#sell-holdings-container td:last-child {
+    width: 30%; /* শেষ কলাম একাই ৩০% জায়গা নেবে */
+    padding: 6px 4px !important;
+}
+
+/* ইনপুট বক্স ও লেবেলের সুন্দর লেআউট */
+.sell-input-group {
+    display: flex;
+    gap: 6px;
+}
+
+.input-field-wrapper {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+/* ইনপুট বক্সের উপরের ছোট লেবেল (Qty / Price) */
+.input-field-wrapper label {
+    font-size: 9px;
+    color: #64748b;
+    margin-bottom: 2px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+/* ইনপুট বক্সের মডার্ন ডিজাইন */
+.input-field-wrapper input {
+    width: 100% !important;
+    padding: 5px 6px !important;
+    font-size: 12px !important;
+    margin: 0 !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 4px !important;
+    outline: none;
+    background-color: #f8fafc;
+}
+
+.input-field-wrapper input:focus {
+    border-color: #007bff !important;
+    background-color: #fff;
+    box-shadow: 0 0 0 2px rgba(0,123,255,0.1);
+}
+/* এক্সপ্যান্ডেবল লট রো এর স্টাইল */
+.lot-row {
+    background-color: #f8fafc !important;
+    font-size: 11px !important;
+}
+.lot-row td {
+    padding: 6px 10px !important;
+    border-bottom: 1px dashed #cbd5e1 !important;
+}
+.btn-expand {
+    background: none;
+    border: none;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    color: #007bff;
+}
+.hidden-row {
+    display: none;
+}

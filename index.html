@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Share Market Portfolio</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        #sell-holdings-container table {
+            width: 100%;
+            table-layout: fixed;
+        }
+
+        #sell-holdings-container th.small-col,
+        #sell-holdings-container td.small-col {
+            font-size: 11px !important;
+            padding: 6px 4px !important;
+            text-align: left !important;
+            width: 13% !important;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #sell-holdings-container th:last-child,
+        #sell-holdings-container td:last-child {
+            width: 35% !important;
+            padding: 6px 4px !important;
+        }
+
+        .sell-input-group {
+            display: flex;
+            gap: 4px;
+        }
+
+        .input-field-wrapper {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
+
+        .input-field-wrapper label {
+            font-size: 9px;
+            color: #64748b;
+            margin-bottom: 2px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .input-field-wrapper input {
+            width: 100% !important;
+            padding: 4px 5px !important;
+            font-size: 12px !important;
+            margin: 0 !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 4px !important;
+            outline: none;
+            background-color: #f8fafc;
+        }
+
+        .input-field-wrapper input:focus {
+            border-color: #007bff !important;
+            background-color: #fff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.1);
+        }
+
+        #sec-table table, #sec-analysis table, #sec-statement table {
+            width: 100%;
+            font-size: 12px !important;
+        }
+
+        #sec-table th, #sec-table td, 
+        #sec-analysis th, #sec-analysis td,
+        #sec-statement th, #sec-statement td {
+            padding: 6px 5px !important;
+        }
+
+        tfoot tr {
+            background-color: #f1f5f9;
+            font-weight: bold;
+            border-top: 2px solid #cbd5e1;
+        }
+
+        tfoot td {
+            padding: 8px 5px !important;
+            color: #1e293b;
+            font-size: 12px;
+        }
+        
+        .name-positive { color: #10b981 !important; font-weight: bold; }
+        .name-negative { color: #ef4444 !important; font-weight: bold; }
+        .name-default { color: #333333 !important; font-weight: bold; }
+        
+        .chart-box {
+            margin-top: 25px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        input::-webkit-outer-spin-button, 
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none; 
+            margin: 0;
+        }
+
+        /* 📋 LEDGER MODAL STYLES */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center; align-items: center;
+            z-index: 9999;
+        }
+        .modal-content {
+            background: white; padding: 20px;
+            border-radius: 8px; width: 90%; max-width: 500px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="login-container" class="auth-box">
+        <h2 id="auth-title">Portfolio Login</h2>
+        <input type="email" id="login-email" placeholder="Email" required>
+        <input type="password" id="login-password" placeholder="Password" required>
+        
+        <button id="btn-login">Login</button>
+        <button id="btn-signup" class="hidden" style="background: #10b981;">Create Account</button>
+        
+        <p id="toggle-auth-text" style="margin-top: 15px; font-size: 14px; cursor: pointer; color: #007bff;">
+            Don't have an account? Register here
+        </p>
+        <p id="auth-error" class="error"></p>
+    </div>
+
+    <div id="app-container" class="hidden">
+        
+        <aside id="left-sidebar" class="sidebar left-sidebar">
+            <div class="sidebar-header">
+                <h3>Navigation</h3>
+                <button class="close-btn" onclick="toggleLeftSidebar()">×</button>
+            </div>
+            <ul>
+                <li class="active" onclick="switchTab('dashboard')">Dashboard</li>
+                <li onclick="switchTab('buy')">Buy Share</li>
+                <li onclick="switchTab('sell')">Sell Share</li> 
+                <li onclick="switchTab('table')">Stock Table</li>
+                <li onclick="switchTab('analysis')">Analysis Stat</li>
+                <li onclick="switchTab('statement')">Statement</li>
+                <li onclick="switchTab('portfolio-analysis')">Portfolio Analysis</li>
+                <li onclick="confirmAndDeletePortfolio()" style="color: #ef4444; font-weight: bold; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.backgroundColor='rgba(239, 68, 68, 0.1)'" onmouseout="this.style.backgroundColor='transparent'">
+                    <span class="icon">🗑️</span> Delete Portfolio
+                </li>
+            </ul>
+            <button id="btn-logout" class="logout-btn">Logout</button>
+        </aside>
+
+        <main class="main-content">
+            <header>
+                <button class="toggle-trigger" onclick="toggleLeftSidebar()">☰ Menu</button>
+                <h2>Portfolio Dashboard</h2>
+                <button class="toggle-trigger" style="visibility: hidden;">Watchlist ☰</button>
+            </header>
+
+            <section id="sec-dashboard" class="tab-content">
+                <div class="cards">
+                    <div class="card">Total Investment: <span id="total-invest">৳০.০০</span></div>
+                    <div class="card">Current Value: <span id="current-value">৳০.০০</span></div>
+                    <div class="card">Profit/Loss: <span id="profit-loss">৳০.০০</span></div>
+                </div>
+
+                <div class="chart-box">
+                    <h4 style="margin-bottom: 10px; color: #475569; font-size: 14px;">Portfolio Growth (Investment vs Value)</h4>
+                    <div style="position: relative; height: 260px; width: 100%;">
+                        <canvas id="dashboardChart"></canvas>
+                    </div>
+                </div>
+            </section>
+            <section id="sec-portfolio-analysis" class="tab-content hidden">
+    <div style="padding: 10px 15px; background: #fff; border-bottom: 1px solid #e2e8f0; margin-bottom: 10px;">
+        <h3 style="color: #1e293b; font-size: 16px; font-weight: 600; margin: 0; text-align: center;">Lbsl</h3>
+    </div>
+
+    <style>
+        .bull-analysis-container {
+            background: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 13px;
+            color: #334155;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        /* হেডার রোর স্টাইল */
+        .bull-header {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            color: #1e293b;
+            padding: 10px 15px;
+            border-bottom: 1px solid #cbd5e1;
+            font-size: 12px;
+        }
+        .bull-col-code { width: 35%; text-align: left; }
+        .bull-col-value { width: 25%; text-align: right; }
+        .bull-col-daily { width: 20%; text-align: right; }
+        .bull-col-total { width: 20%; text-align: right; }
+
+        /* প্রধান শেয়ার ব্লকের স্টাইল */
+        .stock-block {
+            border-bottom: 1px solid #f1f5f9;
+            padding: 10px 15px;
+        }
+        .stock-main-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            cursor: pointer;
+            padding-bottom: 4px;
+        }
+        
+        /* সাব-লট রোর স্টাইল */
+        .lot-rows-container {
+            display: none; /* ডিফল্ট হাইড */
+            padding-top: 5px;
+            border-top: 1px dashed #f1f5f9;
+            animation: slideDown 0.2s ease-out;
+        }
+        .stock-lot-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 12px;
+            color: #475569;
+        }
+
+        /* প্লাস/মাইনাস এবং টেক্সট কন্ট্রোল */
+        .toggle-text {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 2px;
+            display: block;
+        }
+        .ticker-title {
+            font-weight: bold;
+            color: #000000;
+            font-size: 13px;
+        }
+        .bull-profit { color: #10b981 !important; }
+        .bull-loss { color: #ef4444 !important; }
+        .bull-neutral { color: #64748b !important; }
+
+        /* গ্র্যান্ড টোটাল বা ফুটার */
+        .bull-footer {
+            background: #fff;
+            padding: 15px;
+            border-top: 2px solid #cbd5e1;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        .bull-footer-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            padding: 4px 0;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-3px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+
+    <div class="bull-analysis-container">
+        <div class="bull-header">
+            <div class="bull-col-code">Code</div>
+            <div class="bull-col-value">Value/Cost</div>
+            <div class="bull-col-daily">Daily G/L</div>
+            <div class="bull-col-total">Total G/L</div>
+        </div>
+
+        <div id="bull-analysis-list">
+            <div style="text-align:center; padding: 20px; color:#64748b;">ডেটা লোড হচ্ছে...</div>
+        </div>
+
+        <div class="bull-footer">
+            <div class="bull-footer-row" style="color: #000;">
+                <span id="bull-footer-left-label">Portfolio Total</span>
+                <span id="bull-total-value">0.00</span>
+                <span id="bull-total-daily" class="bull-neutral">0.00</span>
+                <span id="bull-total-gl" class="bull-neutral">0.00</span>
+            </div>
+            <div class="bull-footer-row" style="font-size: 12px; color: #64748b; font-weight: normal; margin-top: 5px;">
+                <span>Total Cost: <b id="bull-total-cost">0.00</b></span>
+                <span id="bull-total-gl-percentage">0.00%</span>
+            </div>
+        </div>
+    </div>
+</section>
+            <section id="sec-buy" class="tab-content hidden">
+                <h3>Buy Shares</h3>
+                <div class="trade-form" style="position: relative;">
+                    <input type="text" id="trade-ticker" placeholder="Share Name (e.g., GP, SQURPHARMA)" autocomplete="off">
+                    <div id="suggestion-box" class="suggestion-list hidden"></div>
+                    <input type="number" id="trade-qty" placeholder="Quantity">
+                    <input type="number" id="trade-price" placeholder="Price">
+                    <button class="btn-buy">Buy</button>
+                </div>
+            </section>
+
+            <section id="sec-sell" class="tab-content hidden">
+                <h3>Sell Shares from Holdings</h3>
+                <div class="trade-form" style="position: relative; display: flex; gap: 10px; margin-bottom: 20px;">
+                    <div style="position: relative; flex: 1;">
+                        <input type="text" id="sell-ticker" placeholder="Enter Share Name to Sell (e.g., GP, ROBI)" autocomplete="off" style="margin-bottom: 0;">
+                        <div id="sell-suggestion-box" class="suggestion-list hidden"></div>
+                    </div>
+                    <button class="btn-sell" id="btn-execute-sell" style="padding: 0 20px; height: 42px;">Save / Sell</button>
+                </div>
+
+                <div id="sell-holdings-container" class="hidden">
+                    <h4>Your Current Holdings for <span id="selected-sell-ticker" style="color: #007bff;"></span></h4>
+                    <table>
+    <thead>
+    <tr>
+        <th class="small-col">Buy Price</th>
+        <th class="small-col">Available Qty</th>
+        <th class="small-col">Buy Date</th>
+        <th class="small-col">Sell Details</th>
+    </tr>
+</thead>
+                        <tbody id="sell-portfolio-table-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section id="sec-table" class="tab-content hidden">
+                <h3>Trading Ledger & Statement</h3>
+                <table style="margin-top: 15px;">
+                    <thead>
+                        <tr>
+                            <th>Share Name</th>
+                            <th>Total Buy Qty</th>
+                            <th>Avg Buy ৳</th>
+                            <th style="color: #007bff;">Remaining Qty</th> 
+                            <th>Current Live ৳</th>
+                            <th>Total Return (Unrealized)</th>
+                            <th>Sell Qty</th>
+                            <th>Sell Price ৳</th>
+                            <th>Realized Gain/Loss</th>
+                        </tr>
+                    </thead>
+                    <tbody id="portfolio-table-body"></tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="5" style="text-align: right; font-weight: bold;">Grand Totals:</td> 
+                            <td id="foot-total-unrealized">৳০.০০</td>
+                            <td colspan="2"></td>
+                            <td id="foot-total-realized">৳০.০০</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </section>
+
+            <section id="sec-analysis" class="tab-content hidden">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Analysis Stat - Share Ledger</h3>
+                    </div>
+                    <div class="trade-form" style="position: relative; max-width: 400px; margin-bottom: 20px;">
+                        <input type="text" id="analysis-ticker" placeholder="Search Share (e.g. GP, ROBI)" autocomplete="off" style="text-transform: uppercase;">
+                        <div id="analysis-suggestion-box" class="suggestion-list hidden"></div>
+                    </div>
+
+                    <div id="analysis-result-container" class="hidden">
+                        <h4>Analysis Ledger for: <span id="selected-analysis-ticker" style="color: #007bff;">-</span></h4>
+                        <div style="overflow-x: auto;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Buy Date</th>
+                                        <th>Buy Qty</th>
+                                        <th>Avg Buy ৳</th>
+                                        <th>Sell Qty</th>
+                                        <th>Avg Sell ৳</th>
+                                        <th>Realized G/L</th>
+                                        <th>Remaining Qty</th>
+                                        <th>Current Price ৳</th>
+                                        <th>Unrealized G/L</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="analysis-table-body"></tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td style="text-align: right; font-weight: bold;">Grand Totals:</td>
+                                        <td colspan="2" style="text-align: left;">
+                                            Rem. Share: <span id="foot-analysis-rem-qty" style="color: #007bff;">0</span>
+                                        </td>
+                                        <td colspan="3" style="text-align: right;">Total Buy Price:</td>
+                                        <td id="foot-analysis-total-cost" style="color: #10b981;">৳০.০০</td>
+                                        <td style="text-align: right;">Avg Buy Price:</td>
+                                        <td id="foot-analysis-avg-price" style="color: #007bff;">৳০.০০</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="sec-statement" class="tab-content hidden">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Share Transaction Statement</h3>
+                    </div>
+                    <div class="trade-form" style="position: relative; max-width: 400px; margin-top: 15px;">
+                        <input type="text" id="statement-ticker" placeholder="Search Share for Ledger (e.g. GP)" autocomplete="off" style="text-transform: uppercase;">
+                        <div id="statement-suggestion-box" class="suggestion-list hidden"></div>
+                    </div>
+
+                    <div id="statement-result-container" class="hidden" style="margin-top: 20px;">
+                        <h4>Statement Ledger for: <span id="selected-statement-ticker" style="color: #007bff;">-</span></h4>
+                        <table style="width: 100%; margin-top: 10px;">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Quantity</th>
+                                    <th>Price ৳</th>
+                                    <th>Total Amount ৳</th>
+                                    <th>Realized Profit ৳</th>
+                                    <th>Running Qty</th>
+                                               </tr>
+                            </thead>
+                            <tbody id="statement-table-body"></tbody>
+                            <tfoot>
+                                <tr>
+                                    <td>Remaining: <span id="foot-stmt-rem-qty" style="color:#007bff;">0</span></td>
+                                    <td>Cost: <span id="foot-stmt-total-buy">৳০.০০</span></td>
+                                    <td>Avg Buy: <span id="foot-stmt-avg-buy">৳০.০০</span></td>
+                                    <td>LTP: <span id="foot-stmt-ltp">৳০.০০</span></td>
+                                    <td colspan="3" style="text-align:right;">Unrealized Gain: <span id="foot-stmt-unrealized">৳০.০০</span></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <div id="ledger-modal" class="modal">
+        <div class="modal-content">
+            <h3 style="margin-top:0; display:flex; justify-content:between; align-items:center;">
+                Transactions for <span id="modal-ticker-title" style="color:#007bff; margin-left:5px;"></span>
+                <span onclick="closeLedgerModal()" style="cursor:pointer; font-size:20px; margin-left:auto;">&times;</span>
+            </h3>
+            <div id="modal-transaction-list" style="max-height:200px; overflow-y:auto; margin-bottom:15px;"></div>
+            
+            <div id="modal-edit-form" style="display:none; border-top:1px dashed #cbd5e1; padding-top:15px;">
+                <h4 id="edit-form-title" style="margin-top:0; color:#475569;">Edit Entry</h4>
+                <input type="hidden" id="edit-doc-id">
+                <input type="hidden" id="edit-doc-type">
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <div style="flex:1;">
+                        <label style="font-size:11px; font-weight:bold;">Quantity</label>
+                        <input type="number" id="edit-input-qty" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
+                    </div>
+                    <div style="flex:1;">
+                        <label style="font-size:11px; font-weight:bold;">Price ৳</label>
+                        <input type="number" id="edit-input-price" step="0.01" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
+                    </div>
+                </div>
+                <button onclick="saveEditedRecord()" style="background:#10b981; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">Update Record</button>
+            </div>
+        </div>
+    </div>
+<!-- Stock Detail Modal -->
+<!-- Stock Detail Modal -->
+<div id="stock-detail-modal" class="modal">
+    <div class="modal-content">
+        <h3 style="margin-top:0; display:flex; justify-content:space-between; align-items:center;">
+            <span>Stock Details: <span id="modal-stock-title" style="color:#007bff;"></span></span>
+            <span id="close-stock-modal" style="cursor:pointer; font-size:20px;">&times;</span>
+        </h3>
+        <div id="stock-modal-transaction-list" style="max-height:300px; overflow-y:auto; margin-bottom:15px;"></div>
+        <div id="stock-modal-edit-form" style="display:none; border-top:1px dashed #cbd5e1; padding-top:15px;">
+            <h4 id="stock-edit-form-title" style="margin-top:0;">Edit Entry</h4>
+            <input type="hidden" id="stock-edit-doc-id">
+            <input type="hidden" id="stock-edit-doc-type">
+            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                <div style="flex:1;">
+                    <label>Quantity</label>
+                    <input type="number" id="stock-edit-input-qty" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
+                </div>
+                <div style="flex:1;">
+                    <label>Price</label>
+                    <input type="number" id="stock-edit-input-price" step="0.01" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
+                </div>
+            </div>
+            <button onclick="saveModalEditedRecord()" style="background:#10b981; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">Update Record</button>
+        </div>
+    </div>
+</div>
+    <script src="firebase-config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
