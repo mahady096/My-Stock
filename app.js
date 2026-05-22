@@ -1,4 +1,48 @@
 // ==========================================
+// 📦 গিটহাব অ্যাকশনস ক্যাশ প্রাইস ফাংশন
+// ==========================================
+
+// ক্যাশ থেকে প্রাইস আনার ফাংশন
+async function getCachedPrice(ticker) {
+  try {
+    const doc = await db.collection('current_prices').doc(ticker).get();
+    if (doc.exists) {
+      const data = doc.data();
+      console.log(`📦 ${ticker} ক্যাশ প্রাইস: ৳${data.price}`);
+      return data.price;
+    }
+    return null;
+  } catch(e) {
+    return null;
+  }
+}
+
+// Buy ফর্মের জন্য পরিবর্তিত ফাংশন
+async function fetchLivePriceForBuy(ticker) {
+  // প্রথমে ক্যাশ চেক
+  const cached = await getCachedPrice(ticker);
+  if (cached) {
+    priceInput.value = cached;
+    console.log(`✅ ক্যাশ থেকে প্রাইস সেট: ${cached}`);
+    return;
+  }
+  
+  // ক্যাশ না থাকলে লাইভ কল
+  try {
+    const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.ltp) {
+        priceInput.value = data.ltp;
+        return;
+      }
+    }
+  } catch (e) { }
+  
+  priceInput.value = getHardcodedPrice(ticker);
+}
+
+// ==========================================
 // ১. DOM উপাদানসমূহ (HTML Elements)
 // ==========================================
 const loginContainer = document.getElementById('login-container');
@@ -432,16 +476,7 @@ tickerInput.addEventListener('input', () => {
     } else { suggestionBox.classList.add('hidden'); }
 });
 
-async function fetchLivePriceForBuy(ticker) {
-    try {
-        const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
-        if (response.ok) {
-            const data = await response.json();
-            if (data && data.ltp) { priceInput.value = data.ltp; return; }
-        }
-    } catch (e) { console.error(e); }
-    priceInput.value = getHardcodedPrice(ticker);
-}
+
 
 // ==========================================
 // ৮. সেল উইন্ডোর সাজেশন ও সেল এক্সিকিউশন লজিক
@@ -1651,3 +1686,534 @@ setTimeout(() => {
         });
     }
 }, 1000);
+
+// ==========================================
+// ১৯. ডাটা ডাউনলোড এবং আপলোড (Backup & Restore) - ক্রাশ-ফ্রি ফাইনাল ফিক্স
+// ==========================================
+
+// ১. বাটনে ক্লিক করলে মেমোরি ফ্রি রেখে কনফার্মেশন দেখানোর মেইন ফাংশন
+window.downloadPortfolioData = async function() {
+    // 🔥 ফিক্স: প্রথমে ইউজার চেক করুন
+    const currentUser = auth.currentUser;
+    
+    if (!currentUser) {
+        alert("অনুগ্রহ করে প্রথমে লগইন করুন।");
+        return;
+    }
+    
+    // শুরুতেই কনফার্মেশন
+    const confirmDownload = confirm("আপনি কি আপনার পোর্টফোলিও ডাটা ব্যাকআপ ডাউনলোড করতে চান?");
+    if (!confirmDownload) return;
+    
+    // লোডিং ইন্ডিকেটর দেখান (ঐচ্ছিক)
+    const loadingMsg = alert("ডাটা সংগ্রহ করা হচ্ছে, দয়া করে অপেক্ষা করুন...");
+    
+    try {
+        await executeSecureDownload(currentUser.uid);
+    } catch (error) {
+        console.error("ডাউনলোড এরর:", error);
+        alert("ডাটা ডাউনলোড করতে সমস্যা হয়েছে: " + error.message);
+    }
+};
+
+// ব্যাকগ্রাউন্ডে ডাটা প্রসেস এবং ডাউনলোডের আসল লজিক (ক্রাশ-প্রুফ)
+async function executeSecureDownload(currentUid) {
+    // 🔥 ফিক্স: currentUid চেক
+    if (!currentUid) {
+        throw new Error("User ID not found");
+    }
+    
+    try {
+        // ফায়ারস্টোর থেকে ডাটা আনা হচ্ছে
+        const portfoliosRef = db.collection('portfolios');
+        const salesRef = db.collection('sales_history');
+        
+        const [buySnapshot, sellSnapshot] = await Promise.all([
+            portfoliosRef.where('userId', '==', currentUid).get(),
+            salesRef.where('userId', '==', currentUid).get()
+        ]);
+
+        const buyData = [];
+        buySnapshot.forEach(doc => {
+            const data = doc.data();
+            
+            // 🔥 সুরক্ষিত কনভার্শন - সব ধরনের Timestamp হ্যান্ডল করবে
+            let formattedDate = null;
+            if (data.date) {
+                try {
+                    if (typeof data.date.toDate === 'function') {
+                        formattedDate = data.date.toDate().toISOString();
+                    } else if (data.date instanceof Date) {
+                        formattedDate = data.date.toISOString();
+                    } else if (typeof data.date === 'object' && data.date.seconds) {
+                        formattedDate = new Date(data.date.seconds * 1000).toISOString();
+                    } else if (typeof data.date === 'string') {
+                        formattedDate = data.date;
+                    } else {
+                        formattedDate = new Date().toISOString();
+                    }
+                } catch (e) {
+                    formattedDate = new Date().toISOString();
+                }
+            } else {
+                formattedDate = new Date().toISOString();
+            }
+            
+            // ✅ null বা undefined চেক
+            if (!data.shareName) {
+                console.warn("Invalid buy record skipped (no shareName):", data);
+                return;
+            }
+            
+            buyData.push({ 
+                id: doc.id, 
+                shareName: data.shareName,
+                quantity: Number(data.quantity) || 0,
+                buyPrice: Number(data.buyPrice) || 0,
+                date: formattedDate,
+                type: data.type || "BUY"
+            });
+        });
+
+        const sellData = [];
+        sellSnapshot.forEach(doc => {
+            const data = doc.data();
+            
+            // 🔥 সুরক্ষিত কনভার্শন
+            let formattedDate = null;
+            if (data.date) {
+                try {
+                    if (typeof data.date.toDate === 'function') {
+                        formattedDate = data.date.toDate().toISOString();
+                    } else if (data.date instanceof Date) {
+                        formattedDate = data.date.toISOString();
+                    } else if (typeof data.date === 'object' && data.date.seconds) {
+                        formattedDate = new Date(data.date.seconds * 1000).toISOString();
+                    } else if (typeof data.date === 'string') {
+                        formattedDate = data.date;
+                    } else {
+                        formattedDate = new Date().toISOString();
+                    }
+                } catch (e) {
+                    formattedDate = new Date().toISOString();
+                }
+            } else {
+                formattedDate = new Date().toISOString();
+            }
+            
+            if (!data.shareName) {
+                console.warn("Invalid sell record skipped (no shareName):", data);
+                return;
+            }
+            
+            sellData.push({ 
+                id: doc.id,
+                shareName: data.shareName,
+                quantitySold: Number(data.quantitySold) || 0,
+                sellPrice: Number(data.sellPrice) || 0,
+                buyPrice: Number(data.buyPrice) || 0,
+                profitOrLoss: Number(data.profitOrLoss) || 0,
+                date: formattedDate
+            });
+        });
+
+        const backupData = {
+            version: "1.1",
+            downloadedAt: new Date().toISOString(),
+            buyTransactions: buyData,
+            sellTransactions: sellData
+        };
+
+        // 🚀 নিরাপদ JSON স্ট্রিং তৈরি
+        const jsonString = JSON.stringify(backupData, null, 2);
+        
+        // 📥 ডাউনলোড
+        const blob = new Blob([jsonString], { type: "application/json;charset=utf-8" });
+        const downloadUrl = URL.createObjectURL(blob);
+        
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.href = downloadUrl;
+        downloadAnchor.download = `portfolio_backup_${new Date().toISOString().slice(0,10)}.json`;
+        
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        
+        // 🧹 মেমোরি ক্লিনআপ
+        setTimeout(() => {
+            if (document.body.contains(downloadAnchor)) {
+                document.body.removeChild(downloadAnchor);
+            }
+            URL.revokeObjectURL(downloadUrl);
+        }, 100);
+        
+        alert(`✅ সফলভাবে ${buyData.length + sellData.length} টি রেকর্ড ব্যাকআপ করা হয়েছে!`);
+
+    } catch (error) {
+        console.error("ডাটা ডাউনলোড করতে সমস্যা হয়েছে:", error);
+        throw error; // উপরের ফাংশনে এরর হ্যান্ডেল করার জন্য
+    }
+}
+
+// আপলোড ফাংশন - ইতিমধ্যে ভালো আছে, তবুও একটি স্মল ফিক্স
+window.uploadPortfolioData = function(event) {
+    const currentUser = auth.currentUser;
+    
+    if (!currentUser) {
+        alert("অনুগ্রহ করে প্রথমে লগইন করুন।");
+        event.target.value = '';
+        return;
+    }
+    
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const confirmUpload = confirm("আপনি কি নিশ্চিত যে এই ফাইলটি আপলোড করতে চান?");
+    if (!confirmUpload) {
+        event.target.value = ''; 
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        try {
+            const importedData = JSON.parse(e.target.result);
+            
+            // 🛡️ ভ্যালিডেশন
+            if (!importedData.buyTransactions || !importedData.sellTransactions) {
+                throw new Error("ভুল ফাইল ফরম্যাট!");
+            }
+
+            const batch = db.batch();
+            const MAX_BATCH_SIZE = 500;
+            
+            const totalRecords = importedData.buyTransactions.length + importedData.sellTransactions.length;
+            if (totalRecords > MAX_BATCH_SIZE) {
+                if (!confirm(`সতর্কতা: ${totalRecords} টি রেকর্ড আপলোড হতে সময় লাগবে। আপনি কি চালিয়ে যেতে চান?`)) {
+                    event.target.value = '';
+                    return;
+                }
+            }
+
+            // Buy ট্রানজেকশন
+            importedData.buyTransactions.forEach(item => {
+                if (!item.shareName) return;
+                const newDocRef = db.collection('portfolios').doc();
+                const cleanedItem = { 
+                    userId: currentUser.uid,
+                    shareName: item.shareName,
+                    quantity: Number(item.quantity) || 0,
+                    buyPrice: Number(item.buyPrice) || 0,
+                    type: "BUY",
+                    date: item.date ? new Date(item.date) : new Date()
+                };
+                batch.set(newDocRef, cleanedItem);
+            });
+
+            // Sell ট্রানজেকশন  
+            importedData.sellTransactions.forEach(item => {
+                if (!item.shareName) return;
+                const newDocRef = db.collection('sales_history').doc();
+                const cleanedItem = {
+                    userId: currentUser.uid,
+                    shareName: item.shareName,
+                    quantitySold: Number(item.quantitySold) || 0,
+                    sellPrice: Number(item.sellPrice) || 0,
+                    buyPrice: Number(item.buyPrice) || 0,
+                    profitOrLoss: Number(item.profitOrLoss) || 0,
+                    date: item.date ? new Date(item.date) : new Date()
+                };
+                batch.set(newDocRef, cleanedItem);
+            });
+
+            await batch.commit();
+            alert("✅ ডাটা সফলভাবে রিস্টোর করা হয়েছে!");
+            location.reload(); 
+
+        } catch (error) {
+            console.error("আপলোড ত্রুটি:", error);
+            alert("❌ ফাইল আপলোড করতে সমস্যা হয়েছে: " + error.message);
+        } finally {
+            event.target.value = '';
+        }
+    };
+    
+    reader.onerror = function() {
+        alert("ফাইল পড়া সম্ভব হয়নি!");
+        event.target.value = '';
+    };
+    
+    reader.readAsText(file);
+};
+// ==========================================
+// 🚨 ইমার্জেন্সি ফিক্স: ডাউনলোড ফাংশন রিডিফাইন (ক্রাশ সমাধান)
+// ==========================================
+
+// পুরনো ফাংশন ওভাররাইড করে নিরাপদ ভার্সন
+window.downloadPortfolioData = async function() {
+    console.log("ডাউনলোড ফাংশন কল হয়েছে");
+    
+    // Firebase রেডি চেক
+    if (!firebase || !auth || !db) {
+        alert("অ্যাপ লোড হচ্ছে, একটু পরে আবার চেষ্টা করুন।");
+        return;
+    }
+    
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        alert("দয়া করে আগে লগইন করুন!");
+        return;
+    }
+    
+    if (!confirm("আপনার পোর্টফোলিও ডাটা ব্যাকআপ ডাউনলোড করতে চান?")) {
+        return;
+    }
+    
+    // লোডিং ইন্ডিকেটর
+    const loadingBtn = document.getElementById('btn-download-data');
+    const originalText = loadingBtn ? loadingBtn.innerText : "ডাউনলোড";
+    if (loadingBtn) {
+        loadingBtn.innerText = "⏳ লোড হচ্ছে...";
+        loadingBtn.disabled = true;
+    }
+    
+    try {
+        // সরাসরি কোড এখানে লিখছি, আলাদা ফাংশন কল না করে
+        const portfoliosRef = db.collection('portfolios');
+        const salesRef = db.collection('sales_history');
+        
+        console.log("ডাটা সংগ্রহ শুরু...");
+        
+        const buySnapshot = await portfoliosRef.where('userId', '==', currentUser.uid).get();
+        const sellSnapshot = await salesRef.where('userId', '==', currentUser.uid).get();
+        
+        console.log(`পাওয়া গেছে: ${buySnapshot.size} buy, ${sellSnapshot.size} sell`);
+
+        const buyData = [];
+        buySnapshot.forEach(doc => {
+            const data = doc.data();
+            let formattedDate = new Date().toISOString();
+            
+            if (data.date) {
+                try {
+                    if (data.date.toDate) formattedDate = data.date.toDate().toISOString();
+                    else if (data.date.seconds) formattedDate = new Date(data.date.seconds * 1000).toISOString();
+                    else if (typeof data.date === 'string') formattedDate = data.date;
+                } catch(e) {}
+            }
+            
+            buyData.push({ 
+                shareName: data.shareName || '',
+                quantity: Number(data.quantity) || 0,
+                buyPrice: Number(data.buyPrice) || 0,
+                date: formattedDate,
+                type: "BUY"
+            });
+        });
+
+        const sellData = [];
+        sellSnapshot.forEach(doc => {
+            const data = doc.data();
+            let formattedDate = new Date().toISOString();
+            
+            if (data.date) {
+                try {
+                    if (data.date.toDate) formattedDate = data.date.toDate().toISOString();
+                    else if (data.date.seconds) formattedDate = new Date(data.date.seconds * 1000).toISOString();
+                    else if (typeof data.date === 'string') formattedDate = data.date;
+                } catch(e) {}
+            }
+            
+            sellData.push({ 
+                shareName: data.shareName || '',
+                quantitySold: Number(data.quantitySold) || 0,
+                sellPrice: Number(data.sellPrice) || 0,
+                buyPrice: Number(data.buyPrice) || 0,
+                profitOrLoss: Number(data.profitOrLoss) || 0,
+                date: formattedDate
+            });
+        });
+
+        const backupData = {
+            version: "1.1",
+            downloadedAt: new Date().toISOString(),
+            buyTransactions: buyData,
+            sellTransactions: sellData
+        };
+
+        const jsonString = JSON.stringify(backupData, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `portfolio_${new Date().toISOString().slice(0,10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 100);
+        
+        alert(`✅ সফল! ${buyData.length + sellData.length} টি রেকর্ড ডাউনলোড হয়েছে।`);
+        
+    } catch (error) {
+        console.error("ডাউনলোড এরর:", error);
+        alert("❌ ব্যাকআপ নিতে ব্যর্থ: " + (error.message || "অজানা ত্রুটি"));
+    } finally {
+        if (loadingBtn) {
+            loadingBtn.innerText = originalText;
+            loadingBtn.disabled = false;
+        }
+    }
+};
+
+// HTML এ বাটন সঠিকভাবে সেট করা হয়েছে কিনা চেক করুন
+document.addEventListener('DOMContentLoaded', function() {
+    const downloadBtn = document.getElementById('btn-download-data');
+    if (downloadBtn) {
+        console.log("ডাউনলোড বাটন পাওয়া গেছে, ইভেন্ট সংযুক্ত হচ্ছে");
+        // আগের onclick রিমুভ করে নতুন যোগ করছি
+        downloadBtn.removeAttribute('onclick');
+        downloadBtn.addEventListener('click', window.downloadPortfolioData);
+    } else {
+        console.warn("ডাউনলোড বাটন খুঁজে পাওয়া যায়নি!");
+    }
+});
+// ==========================================
+// 📥 Stock Table CSV ডাউনলোড ফাংশন
+// ==========================================
+
+function downloadTableAsCSV() {
+    // ১ম ধাপ: টেবিলের বডি খুঁজে বের করা
+    const tableBody = document.getElementById('portfolio-table-body');
+    
+    // চেক করা টেবিল আছে কিনা
+    if (!tableBody) {
+        alert("টেবিল ডাটা পাওয়া যায়নি!");
+        return;
+    }
+    
+    // টেবিলের সব সারি (row) সংগ্রহ করা
+    const rows = tableBody.querySelectorAll('tr');
+    
+    // চেক করা ডাটা আছে কিনা
+    if (rows.length === 0 || (rows.length === 1 && rows[0].innerText.includes('No trade history'))) {
+        alert("ডাউনলোড করার মতো ডাটা নেই!");
+        return;
+    }
+    
+    // ২য় ধাপ: CSV ফাইলের হেডার (কলামের নাম) তৈরি করা
+    const headers = [
+        "Share Name",           // শেয়ারের নাম
+        "Total Buy Qty",        // মোট কেনা পরিমাণ
+        "Avg Buy (৳)",          // গড় ক্রয়মূল্য
+        "Remaining Qty",        // অবশিষ্ট পরিমাণ
+        "Current Live (৳)",     // বর্তমান বাজার মূল্য
+        "Unrealized (৳)",       // অবাস্তায়িত লাভ/ক্ষতি
+        "Sell Qty",             // বিক্রিত পরিমাণ
+        "Sell Price (৳)",       // বিক্রয় মূল্য
+        "Realized (৳)"          // বাস্তায়িত লাভ/ক্ষতি
+    ];
+    
+    // ৩য় ধাপ: CSV ডাটা সংরক্ষণের জন্য একটি array তৈরি করা
+    const csvData = [];
+    
+    // হেডার যোগ করা (প্রথম লাইন)
+    csvData.push(headers.join(','));  // join(',') মানে কমা দিয়ে যুক্ত করা
+    
+    // ৪র্থ ধাপ: টেবিলের প্রতিটি সারি থেকে ডাটা নেওয়া
+    for (let row of rows) {
+        // সারির সব cell খুঁজে বের করা
+        const cells = row.querySelectorAll('td');
+        
+        // যদি cell না থাকে তাহলে跳过
+        if (cells.length === 0) continue;
+        
+        // ফুটারের সারি চিহ্নিত করা (যাতে ফুটার আলাদাভাবে যোগ করা যায়)
+        const rowText = row.innerText;
+        if (rowText.includes('Grand Totals')) continue;
+        
+        // প্রতিটি cell থেকে টেক্সট নেওয়া এবং ক্লিন করা
+        const rowData = [];
+        
+        for (let cell of cells) {
+            // cell এর ভিতরের টেক্সট নেওয়া
+            let text = cell.innerText || cell.textContent || '';
+            
+            // ৳ চিহ্ন এবং কমা রিমুভ করা (CSV ফাইলের জন্য ক্লিন ডাটা)
+            text = text.replace(/[৳,]/g, '').trim();
+            
+            // যদি খালি হয় বা '-' হয় তাহলে ফাঁকা রাখা
+            if (text === '' || text === '-') {
+                text = '';
+            }
+            
+            // CSV ফরম্যাটের জন্য সুরক্ষা (যদি টেক্সটে কমা বা উদ্ধৃতি চিহ্ন থাকে)
+            if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+                text = `"${text.replace(/"/g, '""')}"`;
+            }
+            
+            rowData.push(text);
+        }
+        
+        // ডাটা থাকলে CSV তে যোগ করা
+        if (rowData.length > 0 && rowData.some(cell => cell !== '')) {
+            csvData.push(rowData.join(','));
+        }
+    }
+    
+    // ৫ম ধাপ: ফুটার থেকে আনরিয়েলাইজড এবং রিয়েলাইজড ডাটা নেওয়া
+    const unrealizedElem = document.getElementById('foot-total-unrealized');
+    const realizedElem = document.getElementById('foot-total-realized');
+    
+    if (unrealizedElem && realizedElem) {
+        // ৳ চিহ্ন এবং কমা রিমুভ করা
+        let unrealized = unrealizedElem.innerText.replace(/[৳,]/g, '').trim();
+        let realized = realizedElem.innerText.replace(/[৳,]/g, '').trim();
+        
+        // খালি থাকলে 0 বসানো
+        if (unrealized === '' || unrealized === '-') unrealized = '0';
+        if (realized === '' || realized === '-') realized = '0';
+        
+        // একটি ফাঁকা লাইন এবং তারপর ফুটারের তথ্য যোগ করা
+        csvData.push('');  // ফাঁকা লাইন
+        csvData.push(`"Total Unrealized P/L","${unrealized}",,,,,"Total Realized P/L","${realized}",`);
+    }
+    
+    // ৬ষ্ঠ ধাপ: CSV ফাইল তৈরি করা এবং ডাউনলোড শুরু করা
+    const csvContent = csvData.join('\n');  // প্রতিটি লাইনের পরে নতুন লাইন
+    
+    // BOM (\uFEFF) যোগ করা হচ্ছে বাংলা অক্ষর সঠিকভাবে দেখানোর জন্য
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    
+    // ডাউনলোড লিংক তৈরি করা
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    // ফাইলের নাম তৈরি করা (বর্তমান তারিখ ও সময় সহ)
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}_${now.getHours()}-${now.getMinutes()}-${now.getSeconds()}`;
+    link.download = `stock_table_${timestamp}.csv`;
+    
+    link.href = url;
+    document.body.appendChild(link);
+    link.click();  // ডাউনলোড শুরু
+    
+    // ক্লিনআপ: লিংক এবং URL মেমোরি থেকে মুছে ফেলা
+    setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }, 100);
+    
+    // সফল বার্তা
+    alert("✅ CSV ফাইল ডাউনলোড শুরু হয়েছে!");
+}
+
+// পেজ লোড হওয়ার পর বাটনটি প্রস্তুত করা
+document.addEventListener('DOMContentLoaded', function() {
+    const downloadBtn = document.getElementById('btn-download-csv');
+    if (downloadBtn) {
+        console.log("✅ CSV ডাউনলোড বাটন প্রস্তুত");
+    }
+});
