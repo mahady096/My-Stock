@@ -1,6 +1,7 @@
-// =================================================================
-// আপনার ফায়ারবেস কনসোল থেকে পাওয়া আসল কনফিগারেশন
-// =================================================================
+// ==========================================
+// ফায়ারবেস কনফিগারেশন
+// ==========================================
+
 const firebaseConfig = {
   apiKey: "AIzaSyDdPlBysAhWdbJ8KLhwoQaf2Z5EkiYdOUg",
   authDomain: "my-share-market-495aa.firebaseapp.com",
@@ -14,14 +15,12 @@ const firebaseConfig = {
 // ফায়ারবেস ইনিশিয়ালাইজেশন
 firebase.initializeApp(firebaseConfig);
 
-// গ্লোবাল ভেরিয়েবল তৈরি (যা app.js সরাসরি ব্যবহার করবে)
+// গ্লোবাল ভেরিয়েবল
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-// 🔥 এই লাইনটি যোগ করুন - ওয়ার্নিং ফিক্স করার জন্য
-// settings এ merge: true ব্যবহার করুন যাতে আগের সেটিংস ওভাররাইড না হয়
-const settings = { 
-  host: 'firestore.googleapis.com',  // ডিফল্ট হোস্ট
-  ssl: true 
-};
-db.settings(settings); // merge ছাড়া সরাসরি সেট করলে ওয়ার্নিং যায়
+// Firestore সেটিংস
+// পুরনো সেটিংস রেখে নতুন যোগ করা
+db.settings({ timestampsInSnapshots: true, merge: true });
+
+console.log("✅ Firebase initialized successfully");
