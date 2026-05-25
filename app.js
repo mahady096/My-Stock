@@ -891,6 +891,14 @@ function updateDashboardChart(labels, investData, valueData) {
 // 📋 ইউনিফাইড স্টক টেবিল - অপটিমাইজড ভার্সন (কম রিড)
 // ==========================================
 
+// ==========================================
+// 📋 ইউনিফাইড স্টক টেবিল - সম্পূর্ণ ভার্সন (চার্ট সহ)
+// ==========================================
+
+// ==========================================
+// 📋 ইউনিফাইড স্টক টেবিল - সম্পূর্ণ ভার্সন (চার্ট সহ)
+// ==========================================
+
 let stockTableRefreshInterval = null;
 
 function loadUnifiedStockTable(userId) {
@@ -905,23 +913,159 @@ function loadUnifiedStockTable(userId) {
         return;
     }
     
-    // ডাটা লোড করার ফাংশন (পুরনো onSnapshot-এর পুরো লজিক এখানে বসবে)
     async function loadStockData() {
         try {
-            tableBody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Loading...</td></tr>";
-
-            // **এখানে আপনার পুরনো onSnapshot-এর ভিতরের সব কোড চলে আসবে।**
-            // শুধু db.collection("portfolios").where("userId", "==", userId).get() ব্যবহার করবেন।
-            // (নিচে সম্পূর্ণ ফাংশন দিচ্ছি)
+            tableBody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Loading...</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b>"
             
-            const portfolioSnapshot = await db.collection("portfolios").where("userId", "==", userId).get();
-            const salesSnapshot = await db.collection("sales_history").where("userId", "==", userId).get();
+            const [portfolioSnapshot, salesSnapshot] = await Promise.all([
+                db.collection("portfolios").where("userId", "==", userId).get(),
+                db.collection("sales_history").where("userId", "==", userId).get()
+            ]);
             
-            // ... আপনার পুরনো বাকি কোড (mergedPortfolio, price fetch, ইত্যাদি) ...
-
+            let mergedPortfolio = {};
+            let chartLots = [];
+            
+            // পোর্টফোলিও ডাটা প্রসেস
+            portfolioSnapshot.forEach(doc => {
+                const data = doc.data();
+                const ticker = data.shareName;
+                const totalCost = data.quantity * data.buyPrice;
+                
+                if (!mergedPortfolio[ticker]) {
+                    mergedPortfolio[ticker] = {
+                        shareName: ticker, buyQty: 0, totalBuyCost: 0, sellQty: 0, totalSellValue: 0, realizedProfit: 0   
+                    };
+                }
+                mergedPortfolio[ticker].buyQty += data.quantity;
+                mergedPortfolio[ticker].totalBuyCost += totalCost;
+                
+                const lotDate = data.date ? (data.date.toDate ? data.date.toDate() : new Date(data.date)) : new Date();
+                chartLots.push({ ticker: ticker, date: lotDate, totalCost: totalCost, currentValue: 0 });
+            });
+            
+            // সেলস ডাটা প্রসেস
+            salesSnapshot.forEach(doc => {
+                const data = doc.data();
+                const ticker = data.shareName;
+                if (!mergedPortfolio[ticker]) {
+                    mergedPortfolio[ticker] = { shareName: ticker, buyQty: 0, totalBuyCost: 0, sellQty: 0, totalSellValue: 0, realizedProfit: 0 };
+                }
+                mergedPortfolio[ticker].sellQty += data.quantitySold;
+                mergedPortfolio[ticker].totalSellValue += (data.quantitySold * data.sellPrice);
+                mergedPortfolio[ticker].realizedProfit += data.profitOrLoss;
+            });
+            
+            // প্রাইস ফেচ
+            const tickers = Object.keys(mergedPortfolio);
+            const pricePromises = tickers.map(async (ticker) => {
+                let price = 0;
+                try {
+                    const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
+                    if (response.ok) {
+                        const stockData = await response.json();
+                        if (stockData && stockData.ltp) price = stockData.ltp;
+                    }
+                } catch (err) { console.error(err); }
+                
+                if (price === 0) price = Number(getHardcodedPrice(ticker));
+                return { ticker, price };
+            });
+            
+            const priceResults = await Promise.all(pricePromises);
+            const priceMap = {};
+            priceResults.forEach(res => { priceMap[res.ticker] = res.price; });
+            
+            let totalInvestment = 0, totalCurrentValue = 0, totalUnrealized = 0, totalRealized = 0;
+            let rowsHtml = "";
+            
+            for (let ticker in mergedPortfolio) {
+                const item = mergedPortfolio[ticker];
+                const currentPrice = priceMap[ticker];
+                
+                let remainingQty = item.buyQty - item.sellQty; 
+                if (remainingQty < 0) remainingQty = 0; 
+                
+                let avgBuyPrice = item.buyQty > 0 ? (item.totalBuyCost / item.buyQty) : 0;
+                let currentLiveValue = remainingQty * currentPrice;
+                let unrealizedReturn = remainingQty > 0 ? (currentLiveValue - (remainingQty * avgBuyPrice)) : 0;
+                let avgSellPrice = item.sellQty > 0 ? (item.totalSellValue / item.sellQty) : 0;
+                
+                totalInvestment += (remainingQty * avgBuyPrice);
+                totalCurrentValue += currentLiveValue;
+                totalUnrealized += unrealizedReturn;
+                totalRealized += item.realizedProfit;
+                
+                const unresClass = unrealizedReturn >= 0 ? "up" : "error";
+                const resClass = item.realizedProfit >= 0 ? "up" : "error";
+                
+                let nameClass = "name-default"; 
+                let nameSuffix = "";
+                if (item.sellQty > 0) {
+                    if (item.realizedProfit > 0) nameClass = "name-positive";
+                    else if (item.realizedProfit < 0) nameClass = "name-negative";
+                    if (remainingQty === 0) nameSuffix = ` <span style="color:#ef4444; font-size:10px;">(Sold Out)</span>`;
+                }
+                
+                rowsHtml += `
+                    <tr style="cursor: pointer;" onclick="navigateToAnalysis('${item.shareName}')" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='transparent'">
+                        <td class="${nameClass}"><b>${item.shareName}</b>${nameSuffix}</td>
+                        <td>${item.buyQty > 0 ? item.buyQty : '-'}</td>
+                        <td>৳${avgBuyPrice.toFixed(2)}</td>
+                        <td style="color:#007bff; font-weight:bold;">${remainingQty > 0 ? remainingQty : '-'}</td>
+                        <td>${remainingQty > 0 ? `৳${currentPrice.toFixed(2)}` : '-'}</td>
+                        <td class="${remainingQty > 0 ? unresClass : ''}">${remainingQty > 0 ? `৳${unrealizedReturn.toFixed(2)}` : '-'}</td>
+                        <td>${item.sellQty > 0 ? item.sellQty : '-'}</td>
+                        <td>${item.sellQty > 0 ? `৳${avgSellPrice.toFixed(2)}` : '-'}</td>
+                        <td class="${item.sellQty > 0 ? resClass : ''}">${item.sellQty > 0 ? `৳${item.realizedProfit.toFixed(2)}` : '-'}</td>
+                    </tr>
+                `;
+                
+                chartLots.forEach(lot => {
+                    if(ticker === lot.ticker) {
+                        let lotOriginalQty = lot.totalCost / avgBuyPrice;
+                        lot.currentValue = lotOriginalQty * currentPrice;
+                    }
+                });
+            }
+            
+            tableBody.innerHTML = rowsHtml || "<tr><td colspan='9' style='text-align:center;'>No trade history found. </b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b>"
+            updateTableHeadersWithSort();
+            updateCompanyCount();
+            
+            const totalProfitLoss = totalCurrentValue - totalInvestment;
+            const profitLossElement = document.getElementById('profit-loss');
+            if(document.getElementById('total-invest')) document.getElementById('total-invest').innerText = `৳${totalInvestment.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
+            if(document.getElementById('current-value')) document.getElementById('current-value').innerText = `৳${totalCurrentValue.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`; 
+            if (profitLossElement) {
+                profitLossElement.innerText = `৳${totalProfitLoss.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
+                profitLossElement.style.color = totalProfitLoss >= 0 ? '#10b981' : '#ef4444';
+            }
+            
+            const footUnrealized = document.getElementById('foot-total-unrealized');
+            const footRealized = document.getElementById('foot-total-realized');
+            if(footUnrealized) footUnrealized.innerText = `৳${totalUnrealized.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
+            if(footRealized) footRealized.innerText = `৳${totalRealized.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
+            
+            // ✅ চার্ট আপডেট করার জন্য এই অংশটি যোগ করুন
+            if(chartLots.length > 0) {
+                chartLots.sort((a, b) => a.date - b.date);
+                let runningInvest = 0;
+                let runningValue = 0;
+                let labels = [], investData = [], valueData = [];
+                
+                chartLots.forEach(lot => {
+                    runningInvest += lot.totalCost;
+                    runningValue += (lot.currentValue > 0 ? lot.currentValue : lot.totalCost);
+                    labels.push(lot.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                    investData.push(Number(runningInvest.toFixed(2)));
+                    valueData.push(Number(runningValue.toFixed(2)));
+                });
+                updateDashboardChart(labels, investData, valueData);
+            }
+            
         } catch (error) {
             console.error("Error loading stock data:", error);
-            tableBody.innerHTML = "<tr><td colspan='9' style='text-align:center; color:#ef4444;'>Error loading data. Please refresh.</td></tr>";
+            tableBody.innerHTML = "<tr><td colspan='9' style='text-align:center; color:#ef4444;'>Error loading data. Please refresh.</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b>"
         }
     }
     
@@ -940,9 +1084,8 @@ function loadUnifiedStockTable(userId) {
             console.log('🔄 Auto-refreshing stock table...');
             loadStockData();
         }
-    }, 120000); // 2 মিনিট
+    }, 120000);
 }
-
 // ==========================================
 // ৭. বাই ফর্ম সাজেশন লজিক
 // ==========================================
