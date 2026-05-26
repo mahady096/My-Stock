@@ -333,26 +333,16 @@ async function calculateAndUpdatePortfolioValues(priceMap) {
     if (!user) return;
     
     try {
-        // সব পোর্টফোলিও ডাটা আনা
-        const portfolioSnapshot = await db.collection('portfolios')
-            .where('userId', '==', user.uid)
-            .get();
+        const portfolioSnapshot = await db.collection('portfolios').where('userId', '==', user.uid).get();
+        const salesSnapshot = await db.collection('sales_history').where('userId', '==', user.uid).get();
         
-        // সব সেলস ডাটা আনা
-        const salesSnapshot = await db.collection('sales_history')
-            .where('userId', '==', user.uid)
-            .get();
-        
-        // টিকার অনুযায়ী মোট বিক্রি বের করা
         const totalSoldMap = new Map();
         salesSnapshot.forEach(doc => {
             const data = doc.data();
             const ticker = data.shareName;
-            const current = totalSoldMap.get(ticker) || 0;
-            totalSoldMap.set(ticker, current + data.quantitySold);
+            totalSoldMap.set(ticker, (totalSoldMap.get(ticker) || 0) + data.quantitySold);
         });
         
-        // টিকার অনুযায়ী কেনা ডাটা গ্রুপ করা
         const buyLots = [];
         portfolioSnapshot.forEach(doc => {
             const data = doc.data();
@@ -364,10 +354,8 @@ async function calculateAndUpdatePortfolioValues(priceMap) {
             });
         });
         
-        // FIFO এর জন্য তারিখ অনুযায়ী সাজানো
         buyLots.sort((a, b) => a.date - b.date);
         
-        // FIFO পদ্ধতিতে বাকি শেয়ার ক্যালকুলেশন
         const remainingTracker = new Map();
         const sellRemaining = new Map();
         for (const [ticker, sold] of totalSoldMap) {
@@ -398,7 +386,6 @@ async function calculateAndUpdatePortfolioValues(priceMap) {
             }
         }
         
-        // Total Investment এবং Current Value ক্যালকুলেশন
         let totalInvestment = 0;
         let totalCurrentValue = 0;
         
@@ -414,7 +401,6 @@ async function calculateAndUpdatePortfolioValues(priceMap) {
         
         const totalProfitLoss = totalCurrentValue - totalInvestment;
         
-        // UI আপডেট
         const investElem = document.getElementById('total-invest');
         const valueElem = document.getElementById('current-value');
         const plElem = document.getElementById('profit-loss');
@@ -430,9 +416,7 @@ async function calculateAndUpdatePortfolioValues(priceMap) {
             plElem.style.color = totalProfitLoss >= 0 ? '#10b981' : '#ef4444';
         }
         
-        // 🔥 গ্লোবাল ভেরিয়েবল আপডেট করুন
         currentPortfolioTotalValue = totalCurrentValue;
-        
         updateTimestamp();
         console.log(`✅ FINAL: Investment=${totalInvestment.toFixed(2)}, Current=${totalCurrentValue.toFixed(2)}, P/L=${totalProfitLoss.toFixed(2)}`);
         
