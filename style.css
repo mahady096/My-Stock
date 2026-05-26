@@ -1098,3 +1098,249 @@ input, select, textarea {
 .modal-performance-table tr:last-child td {
     border-bottom: none;
 }
+/* ==========================================
+   মোবাইল সাইডবার স্টাইল
+   ========================================== */
+
+/* মোবাইল ডিভাইসের জন্য */
+@media (max-width: 768px) {
+    /* সাইডবার লুকানো থাকবে */
+    .left-sidebar {
+        position: fixed;
+        top: 0;
+        left: -280px;
+        width: 280px;
+        height: 100vh;
+        background: #1e293b;
+        z-index: 9999;
+        transition: left 0.3s ease;
+        padding: 20px;
+        box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+        overflow-y: auto;
+    }
+    
+    /* সাইডবার খোলা অবস্থায় */
+    .left-sidebar.active {
+        left: 0;
+    }
+    
+    /* মেনু বাটন সবসময় visible থাকবে */
+    .menu-trigger-btn {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    /* ওভারলে active অবস্থায় দেখাবে */
+    .sidebar-overlay.active {
+        display: block !important;
+    }
+    
+    /* main content এ padding যাতে বাটনের সাথে overlap না হয় */
+    .main-content {
+        padding-bottom: 80px;
+    }
+}
+
+/* ডেস্কটপে মেনু বাটন লুকান */
+@media (min-width: 769px) {
+    .menu-trigger-btn {
+        display: none !important;
+    }
+    .sidebar-overlay {
+        display: none !important;
+    }
+}
+/* সর্ট বাটন স্টাইল */
+#sort-portfolio-btn {
+    transition: all 0.2s ease;
+}
+
+#sort-portfolio-btn:hover {
+    background: rgba(255,255,255,0.3) !important;
+    transform: scale(1.02);
+}
+
+#sort-direction-icon {
+    display: inline-block;
+    transition: transform 0.1s ease;
+}
+/* হেডার হোভার ইফেক্ট */
+.bull-header {
+    transition: background 0.2s ease;
+}
+
+.bull-header:hover {
+    background: var(--hover-bg) !important;
+}
+
+.bull-col-code {
+    user-select: none;
+}
+
+#header-sort-icon {
+    display: inline-block;
+    transition: transform 0.1s ease;
+}
+/* ==========================================
+   📊 পোর্টফোলিও অ্যানালাইসিস টেবিল CSS ফিক্স
+   ========================================== */
+
+.bull-analysis-container {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    overflow-x: auto;
+    margin: 15px;
+    box-shadow: var(--card-shadow);
+}
+
+.bull-header {
+    display: flex;
+    justify-content: space-between;
+    background: var(--bg-tertiary);
+    padding: 12px 15px;
+    font-weight: bold;
+    font-size: 13px;
+    border-bottom: 2px solid var(--border-color);
+    position: sticky;
+    top: 0;
+}
+
+.bull-col-code {
+    width: 35%;
+    min-width: 120px;
+}
+
+.bull-col-value {
+    width: 25%;
+    text-align: right;
+    min-width: 100px;
+}
+
+.bull-col-daily {
+    width: 20%;
+    text-align: right;
+    min-width: 90px;
+}
+
+.bull-col-total {
+    width: 20%;
+    text-align: right;
+    min-width: 90px;
+}
+
+/* স্টক ব্লক */
+.stock-block {
+    border-bottom: 1px solid var(--border-color);
+    padding: 12px 15px;
+}
+
+.stock-main-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    cursor: pointer;
+    width: 100%;
+}
+
+.stock-main-row > div {
+    flex-shrink: 0;
+}
+
+/* লট রো */
+.lot-rows-container {
+    display: none;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.stock-lot-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stock-lot-row:last-child {
+    border-bottom: none;
+}
+
+.stock-lot-row > div {
+    flex-shrink: 0;
+}
+
+/* টগল টেক্সট */
+.toggle-text {
+    font-size: 11px;
+    color: var(--primary-color);
+    margin-top: 5px;
+    display: inline-block;
+    cursor: pointer;
+}
+
+.ticker-title {
+    font-weight: bold;
+    color: #2563eb;
+    font-size: 14px;
+}
+
+/* লাভ/লস কালার */
+.bull-profit {
+    color: #10b981 !important;
+}
+
+.bull-loss {
+    color: #ef4444 !important;
+}
+
+/* ফুটার */
+.bull-footer {
+    background: var(--bg-tertiary);
+    padding: 12px 15px;
+    border-top: 1px solid var(--border-color);
+    font-weight: bold;
+}
+
+.bull-footer-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+}
+
+.bull-footer-row:last-child {
+    margin-bottom: 0;
+}
+
+/* রেসপনসিভ */
+@media (max-width: 768px) {
+    .bull-col-code { width: 30%; min-width: 100px; }
+    .bull-col-value { width: 25%; min-width: 80px; }
+    .bull-col-daily { width: 22%; min-width: 70px; }
+    .bull-col-total { width: 23%; min-width: 80px; }
+    
+    .bull-header, .stock-main-row, .stock-lot-row {
+        font-size: 11px;
+    }
+    
+    .ticker-title {
+        font-size: 12px;
+    }
+}
+/* গ্রেডিয়েন্ট ব্যাকগ্রাউন্ড - সোনালী/নীল মিক্স */
+background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
+/* কেন্দ্রে সবকিছু সেন্টার করা */
+display: flex;
+justify-content: center;
+align-items: center;
+
+/* স্পিনিং অ্যানিমেশন - লোডিং ইন্ডিকেটর */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* fade out effect - আস্তে আস্তে disappear */
+transition: opacity 0.5s ease;

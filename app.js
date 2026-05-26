@@ -2116,6 +2116,162 @@ window.navigateToAnalysis = function(ticker) {
 // ==========================================
 // 🚀 পোর্টফোলিও অ্যানালাইসিস টেবিল (আপডেটেড - ডেইলি চেঞ্জ সহ)
 // ==========================================
+// ==========================================
+// 📊 পোর্টফোলিও অ্যানালাইসিস সর্টিং ফাংশন
+// ==========================================
+
+let currentPortfolioSortOrder = 'asc'; // 'asc' বা 'desc'
+let currentPortfolioData = []; // সর্টিংয়ের জন্য ডাটা স্টোর করব
+
+// এই ফাংশনটি ডাটা লোড হওয়ার সময় কল হবে
+function storePortfolioDataForSorting(dataArray) {
+    currentPortfolioData = dataArray;
+}
+
+// সর্টিং বাটন ক্লিক করলে এই ফাংশন কল হবে
+window.sortPortfolioAnalysis = function() {
+    if (currentPortfolioData.length === 0) {
+        console.log('No data to sort');
+        return;
+    }
+    
+    // সর্টিং অর্ডর টগল
+    currentPortfolioSortOrder = currentPortfolioSortOrder === 'asc' ? 'desc' : 'asc';
+    
+    // বাটনের টেক্সট আপডেট
+    const sortBtn = document.getElementById('sort-portfolio-btn');
+    if (sortBtn) {
+        sortBtn.innerHTML = currentPortfolioSortOrder === 'asc' ? '🔤 Sort A to Z' : '🔤 Sort Z to A';
+    }
+    
+    // ডাটা সর্ট করা
+    const sortedData = [...currentPortfolioData].sort((a, b) => {
+        const nameA = a.ticker.toUpperCase();
+        const nameB = b.ticker.toUpperCase();
+        
+        if (currentPortfolioSortOrder === 'asc') {
+            return nameA.localeCompare(nameB);
+        } else {
+            return nameB.localeCompare(nameA);
+        }
+    });
+    
+    // সর্টেড ডাটা রেন্ডার করা
+    renderPortfolioAnalysis(sortedData);
+};
+
+// আলাদা রেন্ডার ফাংশন ( থেকে আলাদা করে বের করা)
+function renderPortfolioAnalysis(portfolioData) {
+    const listContainer = document.getElementById('bull-analysis-list');
+    if (!listContainer) return;
+    const headerIcon = document.getElementById('header-sort-icon');
+    if (headerIcon && currentPortfolioSortOrder) {
+        headerIcon.textContent = currentPortfolioSortOrder === 'asc' ? '⬆️' : '⬇️';
+    }
+    if (portfolioData.length === 0) {
+        listContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: #94a3b8;">No active stocks found.</div>`;
+        return;
+    }
+    
+    let finalHtml = "";
+    let grandTotalCost = 0;
+    let grandTotalCurrentValue = 0;
+    let grandTotalDailyGL = 0;
+    
+    for (const item of portfolioData) {
+        const { ticker, avgBuyPrice, totalRemainingQty, totalCost, currentPrice, dailyChange, totalGL, totalGLPcnt, totalStockDailyGL, totalStockDailyPcnt, activeLotsForDisplay, livePriceClass, dailyGlClass, totalGlClass, blockId } = item;
+        
+        finalHtml += `
+            <div class="stock-block" id="parent-${blockId}">
+                <div class="stock-main-row" onclick="toggleBullLot('${blockId}'); openStockDetailModal('${ticker}');">
+                    <div class="bull-col-code">
+                        <div class="ticker-title" style="color: #2563eb; text-decoration: underline; cursor: pointer;">${ticker}</div>
+                        <div class="${livePriceClass}" style="font-weight:600; margin-top:2px;">
+                            ${currentPrice.toFixed(2)} 
+                            <span style="font-size:11px;">(${dailyChange >= 0 ? '+' : ''}${dailyChange.toFixed(2)})</span>
+                        </div>
+                        <div style="color: #64748b; font-size:12px; margin-top:3px;">
+                            ${avgBuyPrice.toFixed(2)} x ${totalRemainingQty} shares
+                        </div>
+                        <span class="toggle-text" id="btn-${blockId}">+ Show All</span>
+                    </div>
+                    <div class="bull-col-value" style="font-size:12px; font-weight:600; line-height: 1.4;">
+                        <div style="color:#000;">${(totalRemainingQty * currentPrice).toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                        <div style="color:#64748b; font-weight:normal; margin-top:14px;">${totalCost.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                    </div>
+                    <div class="bull-col-daily ${dailyGlClass}" style="font-size:12px; font-weight:500; line-height: 1.4;">
+                        <div>${totalStockDailyGL >= 0 ? '+' : ''}${totalStockDailyGL.toFixed(2)}</div>
+                        <div style="font-size:11px; margin-top:14px;">${totalStockDailyPcnt >= 0 ? '+' : ''}${totalStockDailyPcnt.toFixed(2)}%</div>
+                    </div>
+                    <div class="bull-col-total ${totalGlClass}" style="font-size:12px; font-weight:600; line-height: 1.4;">
+                        <div>${totalGL >= 0 ? '+' : ''}${totalGL.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                        <div style="font-size:11px; margin-top:14px;">${totalGLPcnt >= 0 ? '+' : ''}${totalGLPcnt.toFixed(2)}%</div>
+                    </div>
+                </div>
+                <div class="lot-rows-container" id="container-${blockId}" style="display:none;">
+        `;
+        
+        for (const lot of activeLotsForDisplay) {
+            const lotDailyClass = lot.dailyGL >= 0 ? "bull-profit" : "bull-loss";
+            const lotTotalClass = lot.totalGL >= 0 ? "bull-profit" : "bull-loss";
+            
+            finalHtml += `
+                <div class="stock-lot-row">
+                    <div class="bull-col-code" style="color: #64748b; padding-left: 5px;">
+                        <b>${lot.buyPrice.toFixed(2)}</b> x ${lot.qty} shares
+                    </div>
+                    <div class="bull-col-value">
+                        <div style="color:#000;">${lot.currentValue.toFixed(2)}</div>
+                        <div style="color:#64748b; font-size:11px;">${lot.cost.toFixed(2)}</div>
+                    </div>
+                    <div class="bull-col-daily ${lotDailyClass}">
+                        <div>${lot.dailyGL >= 0 ? '+' : ''}${lot.dailyGL.toFixed(2)}</div>
+                        <div style="font-size:11px;">${lot.dailyGLPcnt >= 0 ? '+' : ''}${lot.dailyGLPcnt.toFixed(2)}%</div>
+                    </div>
+                    <div class="bull-col-total ${lotTotalClass}">
+                        <div>${lot.totalGL >= 0 ? '+' : ''}${lot.totalGL.toFixed(2)}</div>
+                        <div style="font-size:11px;">${lot.totalGLPcnt >= 0 ? '+' : ''}${lot.totalGLPcnt.toFixed(2)}%</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        finalHtml += `</div></div>`;
+        
+        grandTotalCost += totalCost;
+        grandTotalCurrentValue += (totalRemainingQty * currentPrice);
+        grandTotalDailyGL += totalStockDailyGL;
+    }
+    
+    listContainer.innerHTML = finalHtml;
+    
+    // ফুটার আপডেট
+    let grandTotalGL = grandTotalCurrentValue - grandTotalCost;
+    let grandTotalGLPcnt = grandTotalCost > 0 ? (grandTotalGL / grandTotalCost) * 100 : 0;
+    
+    if(document.getElementById('bull-total-value')) 
+        document.getElementById('bull-total-value').innerText = grandTotalCurrentValue.toLocaleString('en-US', {minimumFractionDigits: 2});
+    if(document.getElementById('bull-total-cost')) 
+        document.getElementById('bull-total-cost').innerText = grandTotalCost.toLocaleString('en-US', {minimumFractionDigits: 2});
+    
+    const dglElem = document.getElementById('bull-total-daily');
+    if (dglElem) {
+        dglElem.innerText = (grandTotalDailyGL >= 0 ? "+" : "") + grandTotalDailyGL.toLocaleString('en-US', {minimumFractionDigits: 2});
+        dglElem.className = "bull-col-daily " + (grandTotalDailyGL >= 0 ? "bull-profit" : "bull-loss");
+    }
+    
+    const tglElem = document.getElementById('bull-total-gl');
+    if (tglElem) {
+        tglElem.innerText = (grandTotalGL >= 0 ? "+" : "") + grandTotalGL.toLocaleString('en-US', {minimumFractionDigits: 2});
+        tglElem.className = "bull-col-total " + (grandTotalGL >= 0 ? "bull-profit" : "bull-loss");
+    }
+    
+    const tglPcntElem = document.getElementById('bull-total-gl-percentage');
+    if (tglPcntElem) {
+        tglPcntElem.innerText = (grandTotalGLPcnt >= 0 ? "+" : "") + grandTotalGLPcnt.toFixed(2) + "%";
+        tglPcntElem.className = grandTotalGLPcnt >= 0 ? "bull-profit" : "bull-loss";
+    }
+}
 function loadPortfolioAnalysisTable(userId) {
     if (!db) return;
 
@@ -2124,9 +2280,6 @@ function loadPortfolioAnalysisTable(userId) {
         db.collection("sales_history").where("userId", "==", userId)
         .onSnapshot(async (salesSnapshot) => {
             
-            const listContainer = document.getElementById('bull-analysis-list');
-            if (!listContainer) return;
-
             let rawPortfolio = {};
             let totalSoldQtyMap = {};
             
@@ -2151,16 +2304,13 @@ function loadPortfolioAnalysisTable(userId) {
                 });
             });
 
-            let finalHtml = "";
-            let grandTotalCost = 0;
-            let grandTotalCurrentValue = 0;
-            let grandTotalDailyGL = 0;
+            // 🆕 সর্টিংয়ের জন্য ডাটা অ্যারেতে রাখব
+            const portfolioDataForSorting = [];
 
             for (let ticker in rawPortfolio) {
                 let lots = rawPortfolio[ticker].sort((a, b) => a.date - b.date);
                 let totalSold = totalSoldQtyMap[ticker] || 0;
 
-                // 🆕 NEW: স্ক্র্যাপার ডাটা থেকে ডেইলি চেঞ্জ সহ প্রাইস আনা
                 const stockData = await fetchStockWithDailyChange(ticker);
                 const currentPrice = stockData.currentPrice;
                 const dailyChange = stockData.dailyChange;
@@ -2169,13 +2319,14 @@ function loadPortfolioAnalysisTable(userId) {
                 let activeLotsForDisplay = [];
                 let totalRemainingQty = 0;
                 let totalCost = 0;
+                let remainingSold = totalSold;
 
                 lots.forEach(lot => {
                     let remQtyInLot = lot.originalQty;
-                    if (totalSold > 0) {
-                        let taken = Math.min(remQtyInLot, totalSold);
+                    if (remainingSold > 0) {
+                        let taken = Math.min(remQtyInLot, remainingSold);
                         remQtyInLot -= taken;
-                        totalSold -= taken;
+                        remainingSold -= taken;
                     }
 
                     if (remQtyInLot > 0) {
@@ -2185,6 +2336,8 @@ function loadPortfolioAnalysisTable(userId) {
                         let lotCurrentValue = remQtyInLot * currentPrice;
                         let lotTotalGL = lotCurrentValue - (remQtyInLot * lot.buyPrice);
                         let lotDailyGL = remQtyInLot * dailyChange;
+                        let lotGLPcnt = lot.buyPrice > 0 ? ((currentPrice - lot.buyPrice) / lot.buyPrice) * 100 : 0;
+                        let lotDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
 
                         activeLotsForDisplay.push({
                             qty: remQtyInLot,
@@ -2192,8 +2345,9 @@ function loadPortfolioAnalysisTable(userId) {
                             cost: remQtyInLot * lot.buyPrice,
                             currentValue: lotCurrentValue,
                             dailyGL: lotDailyGL,
+                            dailyGLPcnt: lotDailyPcnt,
                             totalGL: lotTotalGL,
-                            totalGLPcnt: ((currentPrice - lot.buyPrice) / lot.buyPrice) * 100
+                            totalGLPcnt: lotGLPcnt
                         });
                     }
                 });
@@ -2201,109 +2355,52 @@ function loadPortfolioAnalysisTable(userId) {
                 if (totalRemainingQty === 0) continue;
 
                 let avgBuyPrice = totalCost / totalRemainingQty;
-                let currentLiveValue = totalRemainingQty * currentPrice;
-                let totalGL = currentLiveValue - totalCost;
+                let totalGL = (totalRemainingQty * currentPrice) - totalCost;
                 let totalGLPcnt = totalCost > 0 ? (totalGL / totalCost) * 100 : 0;
                 let totalStockDailyGL = totalRemainingQty * dailyChange;
-                let totalStockDailyPcnt = (currentPrice - dailyChange) > 0 
-                    ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
-
-                grandTotalCost += totalCost;
-                grandTotalCurrentValue += currentLiveValue;
-                grandTotalDailyGL += totalStockDailyGL;
+                let totalStockDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
 
                 const livePriceClass = dailyChange >= 0 ? "bull-profit" : "bull-loss";
                 const dailyGlClass = totalStockDailyGL >= 0 ? "bull-profit" : "bull-loss";
                 const totalGlClass = totalGL >= 0 ? "bull-profit" : "bull-loss";
                 const blockId = `block-${ticker.replace(/[^a-zA-Z0-9]/g, '')}`;
 
-                finalHtml += `
-                    <div class="stock-block" id="parent-${blockId}">
-                        <div class="stock-main-row" onclick="toggleBullLot('${blockId}'); openStockDetailModal('${ticker}');">
-                            <div class="bull-col-code">
-                                <div class="ticker-title" style="color: #2563eb; text-decoration: underline; cursor: pointer;">${ticker}</div>
-                                <div class="${livePriceClass}" style="font-weight:600; margin-top:2px;">
-                                    ${currentPrice.toFixed(2)} 
-                                    <span style="font-size:11px;">(${dailyChange >= 0 ? '+' : ''}${dailyChange.toFixed(2)})</span>
-                                </div>
-                                <div style="color: #64748b; font-size:12px; margin-top:3px;">
-                                    ${avgBuyPrice.toFixed(2)} x ${totalRemainingQty} shares
-                                </div>
-                                <span class="toggle-text" id="btn-${blockId}">+ Show All</span>
-                            </div>
-                            <div class="bull-col-value" style="font-size:12px; font-weight:600; line-height: 1.4;">
-                                <div style="color:#000;">${currentLiveValue.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
-                                <div style="color:#64748b; font-weight:normal; margin-top:14px;">${totalCost.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
-                            </div>
-                            <div class="bull-col-daily ${dailyGlClass}" style="font-size:12px; font-weight:500; line-height: 1.4;">
-                                <div>${totalStockDailyGL >= 0 ? '+' : ''}${totalStockDailyGL.toFixed(2)}</div>
-                                <div style="font-size:11px; margin-top:14px;">${totalStockDailyPcnt >= 0 ? '+' : ''}${totalStockDailyPcnt.toFixed(2)}%</div>
-                            </div>
-                            <div class="bull-col-total ${totalGlClass}" style="font-size:12px; font-weight:600; line-height: 1.4;">
-                                <div>${totalGL >= 0 ? '+' : ''}${totalGL.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
-                                <div style="font-size:11px; margin-top:14px;">${totalGLPcnt >= 0 ? '+' : ''}${totalGLPcnt.toFixed(2)}%</div>
-                            </div>
-                        </div>
-                        <div class="lot-rows-container" id="container-${blockId}" style="display:none;">
-                `;
-
-                activeLotsForDisplay.forEach((lot) => {
-                    const lotDailyClass = lot.dailyGL >= 0 ? "bull-profit" : "bull-loss";
-                    const lotTotalClass = lot.totalGL >= 0 ? "bull-profit" : "bull-loss";
-                    
-                    finalHtml += `
-                        <div class="stock-lot-row">
-                            <div class="bull-col-code" style="color: #64748b; padding-left: 5px;">
-                                <b>${lot.buyPrice.toFixed(2)}</b> x ${lot.qty} shares
-                            </div>
-                            <div class="bull-col-value">
-                                <div style="color:#000;">${lot.currentValue.toFixed(2)}</div>
-                                <div style="color:#64748b; font-size:11px;">${lot.cost.toFixed(2)}</div>
-                            </div>
-                            <div class="bull-col-daily ${lotDailyClass}">
-                                <div>${lot.dailyGL >= 0 ? '+' : ''}${lot.dailyGL.toFixed(2)}</div>
-                                <div style="font-size:11px;">${dailyChangePcnt >= 0 ? '+' : ''}${dailyChangePcnt.toFixed(2)}%</div>
-                            </div>
-                            <div class="bull-col-total ${lotTotalClass}">
-                                <div>${lot.totalGL >= 0 ? '+' : ''}${lot.totalGL.toFixed(2)}</div>
-                                <div style="font-size:11px;">${lot.totalGLPcnt >= 0 ? '+' : ''}${lot.totalGLPcnt.toFixed(2)}%</div>
-                            </div>
-                        </div>
-                    `;
+                // 🆕 সর্টিংয়ের জন্য ডাটা সেভ
+                portfolioDataForSorting.push({
+                    ticker: ticker,
+                    avgBuyPrice: avgBuyPrice,
+                    totalRemainingQty: totalRemainingQty,
+                    totalCost: totalCost,
+                    currentPrice: currentPrice,
+                    dailyChange: dailyChange,
+                    dailyChangePcnt: dailyChangePcnt,
+                    totalGL: totalGL,
+                    totalGLPcnt: totalGLPcnt,
+                    totalStockDailyGL: totalStockDailyGL,
+                    totalStockDailyPcnt: totalStockDailyPcnt,
+                    activeLotsForDisplay: activeLotsForDisplay,
+                    livePriceClass: livePriceClass,
+                    dailyGlClass: dailyGlClass,
+                    totalGlClass: totalGlClass,
+                    blockId: blockId
                 });
-
-                finalHtml += `</div></div>`;
             }
-
-            listContainer.innerHTML = finalHtml || `<div style="text-align:center; padding: 20px; color: #94a3b8;">কোনো সক্রিয় শেয়ার পাওয়া যায়নি।</div>`;
-            await updatePerformanceSummary();
-
-            // ফুটার আপডেট
-            let grandTotalGL = grandTotalCurrentValue - grandTotalCost;
-            let grandTotalGLPcnt = grandTotalCost > 0 ? (grandTotalGL / grandTotalCost) * 100 : 0;
-
-            if(document.getElementById('bull-total-value')) 
-                document.getElementById('bull-total-value').innerText = grandTotalCurrentValue.toLocaleString('en-US', {minimumFractionDigits: 2});
-            if(document.getElementById('bull-total-cost')) 
-                document.getElementById('bull-total-cost').innerText = grandTotalCost.toLocaleString('en-US', {minimumFractionDigits: 2});
             
-            const dglElem = document.getElementById('bull-total-daily');
-            if (dglElem) {
-                dglElem.innerText = (grandTotalDailyGL >= 0 ? "+" : "") + grandTotalDailyGL.toLocaleString('en-US', {minimumFractionDigits: 2});
-                dglElem.className = "bull-col-daily " + (grandTotalDailyGL >= 0 ? "bull-profit" : "bull-loss");
-            }
-
-            const tglElem = document.getElementById('bull-total-gl');
-            if (tglElem) {
-                tglElem.innerText = (grandTotalGL >= 0 ? "+" : "") + grandTotalGL.toLocaleString('en-US', {minimumFractionDigits: 2});
-                tglElem.className = "bull-col-total " + (grandTotalGL >= 0 ? "bull-profit" : "bull-loss");
-            }
-
-            const tglPcntElem = document.getElementById('bull-total-gl-percentage');
-            if (tglPcntElem) {
-                tglPcntElem.innerText = (grandTotalGLPcnt >= 0 ? "+" : "") + grandTotalGLPcnt.toFixed(2) + "%";
-                tglPcntElem.className = grandTotalGLPcnt >= 0 ? "bull-profit" : "bull-loss";
-            }
+            // 🆕 ডাটা স্টোর করে রাখি (সর্টিংয়ের জন্য)
+            storePortfolioDataForSorting(portfolioDataForSorting);
+            
+            // 🆕 ডিফল্টভাবে A to Z সর্ট করে দেখানো
+            const sortedData = [...portfolioDataForSorting].sort((a, b) => 
+                a.ticker.toUpperCase().localeCompare(b.ticker.toUpperCase())
+            );
+            
+            // রেন্ডার করা
+            renderPortfolioAnalysis(sortedData);
+            
+            // বাটনের স্টেট রিসেট
+            currentPortfolioSortOrder = 'asc';
+            const sortBtn = document.getElementById('sort-portfolio-btn');
+            if (sortBtn) sortBtn.innerHTML = '🔤 Sort A to Z';
         });
     });
 }

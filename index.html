@@ -1,9 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Share Market Portfolio</title>
+    
+    <!-- ========== 👇 এই অংশটি যোগ করুন ========== -->
+    <!-- PWA manifest file link -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- iOS Safari এর জন্য app icon -->
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    
+    <!-- iOS Safari কে Web App mode এ খোলার জন্য -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="StockPulse">
+    
+    <!-- Android Chrome এর জন্য theme color -->
+    <meta name="theme-color" content="#667eea">
+    
+    <!-- সাধারণ mobile support -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <!-- ========== যোগ করা শেষ ========== -->
     <link rel="stylesheet" href="style.css">
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -129,6 +149,58 @@
 </head>
 <body>
 
+    <!-- ========== 👇 Splash Screen - এখানে যোগ করুন ========== -->
+    <div id="pwa-splash" style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        z-index: 99999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        transition: opacity 0.5s ease;
+    ">
+        <div style="text-align: center; color: white;">
+            <h1 style="font-size: 28px; margin-bottom: 20px;">📊 Stock Portfolio</h1>
+            <div style="
+                width: 50px;
+                height: 50px;
+                border: 3px solid rgba(255,255,255,0.3);
+                border-top-color: white;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin: 20px auto;
+            "></div>
+            <p style="margin-top: 20px; opacity: 0.8;">Loading your portfolio...</p>
+        </div>
+    </div>
+    
+    <style>
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+    
+    <script>
+        // Splash Screen隐藏 করার জন্য
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                var splash = document.getElementById('pwa-splash');
+                if (splash) {
+                    splash.style.opacity = '0';
+                    setTimeout(function() {
+                        if (splash) splash.remove();
+                    }, 500);
+                }
+            }, 800);  // 0.8秒后隐藏
+        });
+    </script>
+    <!-- ========== Splash Screen যোগ করা শেষ ========== -->
+    </div>
     <div id="login-container" class="auth-box">
         <h2 id="auth-title">Portfolio Login</h2>
         <input type="email" id="login-email" placeholder="Email" required>
@@ -148,8 +220,12 @@
         🌙
     </button>
 </div>
+
     <div id="app-container" class="hidden">
-        
+        <!-- মোবাইল মেনু বাটন -->
+
+<!-- ওভারলে (সাইডবার খোলা থাকলে পেছনে ডার্ক হবে) -->
+<div id="sidebar-overlay" onclick="toggleLeftSidebar()" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9998; display: none;"></div>
         <aside id="left-sidebar" class="sidebar left-sidebar">
             <div class="sidebar-header">
                 <h3>Navigation</h3>
@@ -285,106 +361,26 @@
 </section>
             <section id="sec-portfolio-analysis" class="tab-content hidden">
     <div style="padding: 10px 15px; background: #667eea; border-radius: 12px 12px 0 0; color: white;">
-        <h3 style="margin: 0; font-size: 16px;">📊 Portfolio Performance Dashboard</h3>
-        <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.9;">Real-time analysis from Firebase data</p>
-    </div>
-
-    <!-- 🆕 পারফরম্যান্স সারাংশ টেবিল -->
-    <div class="performance-summary" style="background: var(--bg-secondary); margin: 15px; border-radius: 12px; overflow: hidden; box-shadow: var(--card-shadow);">
-        <div style="padding: 12px 15px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border-color);">
-            <span style="font-weight: bold;">📈 Performance Summary</span>
-            <span style="font-size: 12px; color: var(--text-muted); margin-left: 10px;">Last updated: <span id="perf-update-time">-</span></span>
-        </div>
-        <div style="overflow-x: auto;">
-            <table class="performance-table" style="width: 100%; font-size: 13px; min-width: 600px;">
-                <thead>
-                    <tr style="background: var(--bg-tertiary);">
-                        <th style="padding: 12px;">Period</th>
-                        <th style="padding: 12px;">Today</th>
-                        <th style="padding: 12px;">5 Days</th>
-                        <th style="padding: 12px;">15 Days</th>
-                        <th style="padding: 12px;">30 Days</th>
-                        <th style="padding: 12px;">3 Months</th>
-                        <th style="padding: 12px;">6 Months</th>
-                        <th style="padding: 12px;">1 Year</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <td style="padding: 12px; font-weight: bold;">Portfolio Return</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="perf-today">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="perf-5d">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="perf-15d">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="perf-30d">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="perf-3m">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="perf-6m">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="perf-1y">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                    </tr>
-                    <tr style="background: var(--bg-tertiary);">
-                        <td style="padding: 12px; font-weight: bold;">Benchmark (DSEX)</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="bench-today">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="bench-5d">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="bench-15d">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="bench-30d">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="bench-3m">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="bench-6m">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="bench-1y">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 12px; font-weight: bold;">Difference</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="diff-today">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="diff-5d">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="diff-15d">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="diff-30d">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="diff-3m">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="diff-6m">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                        <td style="padding: 12px;" id="diff-1y">-</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td>
-                    </tr>
-                </tbody>
-            </table>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h3 style="margin: 0; font-size: 16px;">📊 Portfolio Performance Dashboard</h3>
+                <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.9;">Real-time analysis from Firebase data</p>
+            </div>
+            <!-- 🆕 সর্টিং ইন্ডিকেটর (শুধু দেখানোর জন্য) -->
+            <div style="background: rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 20px; font-size: 12px;">
+                <span>🔤 Click on <strong>Code</strong> column to sort</span>
+                <span id="sort-indicator-badge" style="margin-left: 5px;">⬆️ A→Z</span>
+            </div>
         </div>
     </div>
-
-    <style>
-        .bull-analysis-container {
-            background: var(--bg-secondary);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            font-size: 13px;
-            color: var(--text-primary);
-            max-width: 100%;
-            margin: 0 15px 15px 15px;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: var(--card-shadow);
-        }
-        .bull-header {
-            display: flex;
-            justify-content: space-between;
-            font-weight: bold;
-            padding: 12px 15px;
-            border-bottom: 1px solid var(--border-color);
-            font-size: 12px;
-            background: var(--bg-tertiary);
-        }
-        .bull-col-code { width: 35%; text-align: left; }
-        .bull-col-value { width: 25%; text-align: right; }
-        .bull-col-daily { width: 20%; text-align: right; }
-        .bull-col-total { width: 20%; text-align: right; }
-        .stock-block { border-bottom: 1px solid var(--border-color); padding: 10px 15px; }
-        .stock-main-row { display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; padding-bottom: 4px; }
-        .lot-rows-container { display: none; padding-top: 5px; border-top: 1px dashed var(--border-color); }
-        .stock-lot-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12px; color: var(--text-secondary); }
-        .toggle-text { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: block; }
-        .ticker-title { font-weight: bold; color: var(--primary-color); font-size: 13px; }
-        .bull-profit { color: #10b981 !important; }
-        .bull-loss { color: #ef4444 !important; }
-        .performance-table th, .performance-table td { text-align: center; }
-        .performance-table tr:hover td { background-color: var(--hover-bg); }
-    </style>
-
+    
+    <!-- বুল হেডার (এখানে Code সেল এ ক্লিক যোগ করতে হবে) -->
     <div class="bull-analysis-container">
-        <div class="bull-header">
-            <div class="bull-col-code">Code</div>
+        <div class="bull-header" style="cursor: pointer;" onclick="sortPortfolioAnalysis()">
+            <div class="bull-col-code" style="display: flex; align-items: center; gap: 5px;">
+                📋 Code 
+                <span id="header-sort-icon" style="font-size: 12px;">⬆️</span>
+            </div>
             <div class="bull-col-value">Value/Cost</div>
             <div class="bull-col-daily">Daily G/L</div>
             <div class="bull-col-total">Total G/L</div>
@@ -392,18 +388,7 @@
         <div id="bull-analysis-list">
             <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</div>
         </div>
-        <div class="bull-footer" style="background: var(--bg-tertiary); padding: 12px 15px; border-top: 1px solid var(--border-color);">
-            <div class="bull-footer-row" style="display: flex; justify-content: space-between; font-weight: bold;">
-                <span>Portfolio Total</span>
-                <span id="bull-total-value">0.00</span>
-                <span id="bull-total-daily" class="bull-neutral">0.00</span>
-                <span id="bull-total-gl" class="bull-neutral">0.00</span>
-            </div>
-            <div class="bull-footer-row" style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 5px;">
-                <span>Total Cost: <b id="bull-total-cost">0.00</b></span>
-                <span id="bull-total-gl-percentage">0.00%</span>
-            </div>
-        </div>
+        <!-- ফুটার অংশ আগের মতো থাকবে -->
     </div>
 </section>
 <!-- ==========================================
@@ -754,5 +739,88 @@
 </div>
     <script src="firebase-config.js"></script>
     <script src="app.js"></script>
+        <!-- ========== 👇 আপনার existing scripts এর পরে যোগ করুন ========== -->
+    
+    <!-- PWA Service Worker Registration -->
+    <script>
+        // ব্রাউজার Service Worker support করে কিনা চেক করা
+        if ('serviceWorker' in navigator) {
+            // পুরো পেজ লোড হওয়ার পর SW register করা
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('✅ Service Worker registered successfully:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('❌ Service Worker registration failed:', error);
+                    });
+            });
+        }
+        
+        // 📱 App Install Prompt (যখন ব্রাউজার App install করতে দেয়)
+        let deferredPrompt;
+        
+        // ব্রাউজার যখন install prompt দেখানোর জন্য ready হয়
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();  // ডিফল্ট prompt বন্ধ রাখা (পরে manually দেখাবো)
+            deferredPrompt = e;   // prompt কে store করে রাখা
+            console.log('📱 App can be installed - look for install button');
+            
+            // আপনি চাইলে এখানে একটি "Install App" বাটন দেখাতে পারেন
+            // আমরা পরে একটি ফ্লোটিং বাটন যোগ করব
+        });
+        
+        // Install বাটন ক্লিক করলে এই ফাংশন কল হবে (ঐচ্ছিক)
+        window.installPWA = function() {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();  // install prompt দেখানো
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('✅ User accepted the install prompt');
+                    } else {
+                        console.log('❌ User dismissed the install prompt');
+                    }
+                    deferredPrompt = null;
+                });
+            } else {
+                console.log('No install prompt available');
+            }
+        };
+        
+        // Optional: পেইজ লোডের পর install prompt ready কিনা চেক করা
+        setTimeout(() => {
+            if (deferredPrompt) {
+                console.log('💡 Tip: Call installPWA() to show install prompt');
+            }
+        }, 3000);
+    </script>
+    <!-- ========== যোগ করা শেষ ========== -->
+    <!-- Install App Floating Button (Optional) -->
+<button id="install-btn" style="position: fixed; bottom: 20px; left: 20px; background: #10b981; color: white; border: none; border-radius: 50px; padding: 12px 20px; cursor: pointer; z-index: 9999; display: none; align-items: center; gap: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
+    📲 Install App
+</button>
+
+<script>
+    // Install বাটন দেখানোর জন্য
+    const installBtn = document.getElementById('install-btn');
+    
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        if (installBtn) installBtn.style.display = 'flex';  // বাটন দেখানো
+    });
+    
+    if (installBtn) {
+        installBtn.addEventListener('click', () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(() => {
+                    if (installBtn) installBtn.style.display = 'none';
+                    deferredPrompt = null;
+                });
+            }
+        });
+    }
+</script>
 </body>
 </html>
