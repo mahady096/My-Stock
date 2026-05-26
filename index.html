@@ -359,14 +359,13 @@
         </div>
     </div>
 </section>
-            <section id="sec-portfolio-analysis" class="tab-content hidden">
+<section id="sec-portfolio-analysis" class="tab-content hidden">
     <div style="padding: 10px 15px; background: #667eea; border-radius: 12px 12px 0 0; color: white;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
                 <h3 style="margin: 0; font-size: 16px;">📊 Portfolio Performance Dashboard</h3>
                 <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.9;">Real-time analysis from Firebase data</p>
             </div>
-            <!-- 🆕 সর্টিং ইন্ডিকেটর (শুধু দেখানোর জন্য) -->
             <div style="background: rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 20px; font-size: 12px;">
                 <span>🔤 Click on <strong>Code</strong> column to sort</span>
                 <span id="sort-indicator-badge" style="margin-left: 5px;">⬆️ A→Z</span>
@@ -374,7 +373,7 @@
         </div>
     </div>
     
-    <!-- বুল হেডার (এখানে Code সেল এ ক্লিক যোগ করতে হবে) -->
+    <!-- 👇 বুল হেডার এবং সব কন্টেন্ট এই div-এর ভিতরে থাকতে হবে -->
     <div class="bull-analysis-container">
         <div class="bull-header" style="cursor: pointer;" onclick="sortPortfolioAnalysis()">
             <div class="bull-col-code" style="display: flex; align-items: center; gap: 5px;">
@@ -388,7 +387,37 @@
         <div id="bull-analysis-list">
             <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</div>
         </div>
-        <!-- ফুটার অংশ আগের মতো থাকবে -->
+    </div>
+    
+    <!-- 👇 সামারি কার্ডও এই সেকশনের ভিতরে থাকতে হবে -->
+    <div class="portfolio-summary-cards" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 15px; margin-top: 0;">
+        <!-- Card 1: Total Current Value -->
+        <div class="summary-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; padding: 16px; color: white; box-shadow: var(--card-shadow);">
+            <div style="font-size: 12px; opacity: 0.85; margin-bottom: 5px;">💰 Total Value</div>
+            <div style="font-size: 24px; font-weight: bold;" id="summary-total-value">৳0.00</div>
+            <div style="font-size: 11px; margin-top: 5px; opacity: 0.75;">Current Portfolio Value</div>
+        </div>
+        
+        <!-- Card 2: Total Cost -->
+        <div class="summary-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 16px; padding: 16px; color: white; box-shadow: var(--card-shadow);">
+            <div style="font-size: 12px; opacity: 0.85; margin-bottom: 5px;">📈 Total Cost</div>
+            <div style="font-size: 24px; font-weight: bold;" id="summary-total-cost">৳0.00</div>
+            <div style="font-size: 11px; margin-top: 5px; opacity: 0.75;">Total Investment</div>
+        </div>
+        
+        <!-- Card 3: Total Daily G/L -->
+        <div class="summary-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 16px; padding: 16px; color: white; box-shadow: var(--card-shadow);">
+            <div style="font-size: 12px; opacity: 0.85; margin-bottom: 5px;">📊 Daily P/L</div>
+            <div style="font-size: 24px; font-weight: bold;" id="summary-total-daily">৳0.00</div>
+            <div style="font-size: 11px; margin-top: 5px; opacity: 0.75;">Today's Gain/Loss</div>
+        </div>
+        
+        <!-- Card 4: Total G/L -->
+        <div class="summary-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); border-radius: 16px; padding: 16px; color: white; box-shadow: var(--card-shadow);">
+            <div style="font-size: 12px; opacity: 0.85; margin-bottom: 5px;">🎯 Total P/L</div>
+            <div style="font-size: 24px; font-weight: bold;" id="summary-total-gl">৳0.00</div>
+            <div style="font-size: 11px; margin-top: 5px; opacity: 0.75;">Overall Gain/Loss</div>
+        </div>
     </div>
 </section>
 <!-- ==========================================

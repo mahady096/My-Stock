@@ -1344,3 +1344,44 @@ align-items: center;
 
 /* fade out effect - আস্তে আস্তে disappear */
 transition: opacity 0.5s ease;
+/* ==========================================
+   📊 পোর্টফোলিও সামারি কার্ড স্টাইল
+   ========================================== */
+
+.portfolio-summary-cards {
+    margin-bottom: 20px;
+}
+
+.summary-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.summary-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+}
+
+/* রেসপনসিভ: মোবাইলে 2x2 গ্রিড */
+@media (max-width: 640px) {
+    .portfolio-summary-cards {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 10px;
+    }
+    
+    .summary-card {
+        padding: 12px !important;
+    }
+    
+    .summary-card div:first-child {
+        font-size: 10px;
+    }
+    
+    .summary-card div:nth-child(2) {
+        font-size: 18px !important;
+    }
+}
+
+/* ডার্ক মোড সাপোর্ট */
+[data-theme="dark"] .summary-card {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
