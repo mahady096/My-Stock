@@ -2413,7 +2413,8 @@ async function loadPortfolioAnalysisTable(userId) {
 
                     if (remQtyInLot > 0) {
                         totalRemainingQty += remQtyInLot;
-                        totalCost += (remQtyInLot * lot.buyPrice);
+                        const costWithCommission = (remQtyInLot * lot.buyPrice) + (lot.commission || 0);
+totalCost += costWithCommission;
                         
                         let lotCurrentValue = remQtyInLot * currentPrice;
                         let lotTotalGL = lotCurrentValue - (remQtyInLot * lot.buyPrice);
@@ -2541,10 +2542,11 @@ window.openStockDetailModal = async function(ticker) {
         portfolioSnapshot.forEach(doc => {
             const data = doc.data();
             buyLots.push({
-                qty: data.quantity,
-                buyPrice: data.buyPrice,
-                date: data.date ? new Date(data.date) : new Date()
-            });
+    qty: data.quantity,
+    buyPrice: data.buyPrice,
+    commission: data.commission || 0,  // ← এই লাইন যোগ করুন
+    date: data.date ? new Date(data.date) : new Date()
+});
         });
         
         buyLots.sort((a, b) => a.date - b.date);
