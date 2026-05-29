@@ -2,7 +2,7 @@
   "name": "Share Market Portfolio",
   "short_name": "StockPulse",
   "description": "DSE Share Market Portfolio Management System",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "display": "standalone",
   "theme_color": "#667eea",
   "background_color": "#ffffff",
