@@ -799,6 +799,89 @@
 </div>
     <script src="firebase-config.js"></script>
     <script src="app.js"></script>
+  <script>
+// ✅ PWA আপডেট চেকার
+let newWorker = null;
+
+// Service Worker আপডেট মনিটর করা
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(registration => {
+        registration.addEventListener('updatefound', () => {
+            newWorker = registration.installing;
+            console.log('🔄 New Service Worker found!');
+            
+            newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    // নতুন ভার্সন পেয়েছে
+                    showUpdateToast();
+                }
+            });
+        });
+    });
+    
+    // প্রতি 60 মিনিটে checking for updates
+    setInterval(() => {
+        navigator.serviceWorker.ready.then(registration => {
+            registration.update();
+            console.log('🔍 Checking for updates...');
+        });
+    }, 3600000); // 60 minutes
+}
+
+// আপডেট টোস্ট নোটিফিকেশন দেখান
+function showUpdateToast() {
+    const toast = document.createElement('div');
+    toast.innerHTML = `
+        <div style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); 
+                    background: #3b82f6; color: white; padding: 12px 20px; 
+                    border-radius: 12px; z-index: 10000; display: flex; gap: 12px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+            <span>🔄 New update available!</span>
+            <button onclick="updateApp()" style="background: white; color: #3b82f6; 
+                    border: none; padding: 4px 12px; border-radius: 6px; cursor: pointer;">
+                Update Now
+            </button>
+        </div>
+    `;
+    document.body.appendChild(toast);
+    
+    // 10 সেকেন্ড পর auto remove
+    setTimeout(() => {
+        if (toast.parentNode) toast.remove();
+    }, 10000);
+}
+
+// ম্যানুয়াল আপডেট ফাংশন
+function updateApp() {
+    if (newWorker) {
+        newWorker.postMessage({ action: 'skipWaiting' });
+        newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'activated') {
+                window.location.reload();
+            }
+        });
+    } else {
+        window.location.reload();
+    }
+}
+
+// Force Refresh বাটন (ঐচ্ছিক)
+function forceRefresh() {
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+            for (let registration of registrations) {
+                registration.unregister();
+                console.log('🗑️ Service Worker unregistered');
+            }
+        }).then(() => {
+            localStorage.clear();
+            window.location.reload();
+        });
+    } else {
+        window.location.reload();
+    }
+}
+</script>
         <!-- ========== 👇 আপনার existing scripts এর পরে যোগ করুন ========== -->
     
     <!-- PWA Service Worker Registration -->
