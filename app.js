@@ -763,7 +763,14 @@ window.switchTab = function(tabName) {
     if (window.event && window.event.currentTarget) {
         window.event.currentTarget.classList.add('active');
     }
+    // 👇 এই অংশটি যোগ করুন - history ট্যাবের জন্য
+    if (tabName === 'history') {
+        setTimeout(() => loadPortfolioHistory(), 100);
+    }
     
+    if(window.innerWidth <= 768) {
+        toggleLeftSidebar();
+    }
     if(window.innerWidth <= 768) {
         toggleLeftSidebar();
     }
@@ -948,22 +955,26 @@ function loadUnifiedStockTable(userId) {
                 mergedPortfolio[ticker].totalSellValue += (data.quantitySold * data.sellPrice);
                 mergedPortfolio[ticker].realizedProfit += data.profitOrLoss;
             });
-            
-            // প্রাইস ফেচ
             const tickers = Object.keys(mergedPortfolio);
-            const pricePromises = tickers.map(async (ticker) => {
-                let price = 0;
-                try {
-                    const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
-                    if (response.ok) {
-                        const stockData = await response.json();
-                        if (stockData && stockData.ltp) price = stockData.ltp;
-                    }
-                } catch (err) { console.error(err); }
-                
-                if (price === 0) price = Number(getHardcodedPrice(ticker));
-                return { ticker, price };
-            });
+// 5 টা করে প্যারালালে ফেচ করুন
+const batchSize = 5;
+const pricePromises = [];
+for (let i = 0; i < tickers.length; i += batchSize) {
+    const batch = tickers.slice(i, i + batchSize);
+    const batchPromises = batch.map(async (ticker) => {
+        let price = 0;
+        try {
+            const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
+            if (response.ok) {
+                const stockData = await response.json();
+                if (stockData && stockData.ltp) price = stockData.ltp;
+            }
+        } catch (err) { console.error(err); }
+        if (price === 0) price = Number(getHardcodedPrice(ticker));
+        return { ticker, price };
+    });
+    pricePromises.push(...batchPromises);
+}
             
             const priceResults = await Promise.all(pricePromises);
             const priceMap = {};
@@ -2215,10 +2226,9 @@ function renderPortfolioAnalysis(portfolioData) {
     let grandTotalDailyGL = 0;
     let grandTotalGL = 0;
     // গ্লোবাল ভেরিয়েবলে সেভ করুন
-  currentPortfolioTotalValue = grandTotalCurrentValue;
-
-// Dashboard এর Current Value আপডেট করুন
-  updateDashboardCurrentValue();
+// লুপ শেষ হওয়ার পর এই লাইনটি নিশ্চিত করুন
+currentPortfolioTotalValue = grandTotalCurrentValue;
+updateDashboardCurrentValue();
     
     for (const item of portfolioData) {
         const { ticker, avgBuyPrice, totalRemainingQty, totalCost, currentPrice, dailyChange, totalGL, totalGLPcnt, totalStockDailyGL, totalStockDailyPcnt, activeLotsForDisplay, livePriceClass, dailyGlClass, totalGlClass, blockId } = item;
@@ -2654,7 +2664,10 @@ await loadModalPerformanceTable(ticker);
 
 async function loadModalPerformanceTable(ticker) {
     try {
-        // বর্তমান প্রাইস
+        const user = auth.currentUser;
+        if (!user) return;
+        
+        // 1️⃣ বর্তমান প্রাইস
         let currentPrice = 0;
         if (currentPriceData && currentPriceData.has(ticker)) {
             currentPrice = currentPriceData.get(ticker);
@@ -2668,125 +2681,7 @@ async function loadModalPerformanceTable(ticker) {
             return;
         }
         
-        // বিভিন্ন সময়ের প্রাইস ক্যালকুলেশন
-        const periods = [
-            { name: 'today', days: 0 },
-            { name: '5d', days: 5 },
-            { name: '15d', days: 15 },
-            { name: '30d', days: 30 },
-            { name: '3m', days: 90 },
-            { name: '6m', days: 180 },
-            { name: '1y', days: 365 }
-        ];
-        
-        const returns = {};
-        
-        for (const period of periods) {
-            if (period.days === 0) {
-                returns[period.name] = 0;
-                continue;
-            }
-            
-            // নির্দিষ্ট দিন আগের তারিখ
-            const targetDate = new Date();
-            targetDate.setDate(targetDate.getDate() - period.days);
-            const targetDateStr = targetDate.toISOString().split('T')[0];
-            
-            // ঐ তারিখের প্রাইস
-            const pastPrice = await firebaseDataManager.getPriceByDate(ticker, targetDateStr);
-            
-            if (pastPrice && pastPrice > 0) {
-                const periodReturn = ((currentPrice - pastPrice) / pastPrice) * 100;
-                returns[period.name] = periodReturn;
-            } else {
-                returns[period.name] = null;
-            }
-        }
-        
-        // UI আপডেট ফাংশন
-        const updateCell = (id, value) => {
-            const elem = document.getElementById(id);
-            if (elem) {
-                if (value === null) {
-                    elem.innerHTML = '-';
-                    elem.style.color = '#64748b';
-                } else {
-                    const isPositive = value >= 0;
-                    elem.innerHTML = `${isPositive ? '+' : ''}${value.toFixed(2)}%`;
-                    elem.style.color = isPositive ? '#10b981' : '#ef4444';
-                    elem.style.fontWeight = 'bold';
-                }
-            }
-        };
-        
-        // টেবিল আপডেট
-        updateCell('modal-perf-today', returns.today);
-        updateCell('modal-perf-5d', returns['5d']);
-        updateCell('modal-perf-15d', returns['15d']);
-        updateCell('modal-perf-30d', returns['30d']);
-        updateCell('modal-perf-3m', returns['3m']);
-        updateCell('modal-perf-6m', returns['6m']);
-        updateCell('modal-perf-1y', returns['1y']);
-        
-        console.log(`✅ Modal performance table loaded for ${ticker}`);
-        
-    } catch (error) {
-        console.error('Error loading modal performance:', error);
-    }
-}
-// ==========================================
-// 📈 প্রাইস হিস্ট্রি চার্ট লোড ফাংশন
-// ==========================================
-
-// ==========================================
-// 📈 প্রাইস হিস্ট্রি চার্ট (এভারেজ বাই প্রাইস লাইন সহ)
-// ==========================================
-
-async function loadPriceHistoryChart(ticker) {
-    const canvas = document.getElementById('adv-stock-chart');
-    if (!canvas) return;
-    
-    // পুরনো চার্ট ডেস্ট্রয়
-    if (advChartInstance) {
-        advChartInstance.destroy();
-    }
-    
-    try {
-        const user = auth.currentUser;
-        if (!user) return;
-        
-        // 1️⃣ গত ৩০ দিনের প্রাইস ডাটা আনা
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - 30);
-        
-        const prices = [];
-        const labels = [];
-        const dates = [];
-        
-        // stock_history থেকে ডাটা আনা
-        for (let i = 0; i <= 30; i++) {
-            const checkDate = new Date(startDate);
-            checkDate.setDate(startDate.getDate() + i);
-            const dateStr = checkDate.toISOString().split('T')[0];
-            dates.push(checkDate);
-            
-            const price = await firebaseDataManager.getPriceByDate(ticker, dateStr);
-            if (price !== null) {
-                prices.push(price);
-                labels.push(dateStr.substring(5)); // MM-DD ফরম্যাট
-            } else {
-                // যদি ডাটা না থাকে, গত মানের সাথে যোগ
-                if (prices.length > 0) {
-                    prices.push(prices[prices.length - 1]);
-                } else {
-                    prices.push(0);
-                }
-                labels.push(dateStr.substring(5));
-            }
-        }
-        
-        // 2️⃣ ইউজারের এভারেজ বাই প্রাইস বের করা (কমিশন সহ)
+        // 2️⃣ ইউজারের Avg Buy Price বের করা (FIFO পদ্ধতিতে)
         let avgBuyPrice = 0;
         let totalRemainingQty = 0;
         let totalCost = 0;
@@ -2808,7 +2703,7 @@ async function loadPriceHistoryChart(ticker) {
             totalSold += doc.data().quantitySold;
         });
         
-        // FIFO পদ্ধতিতে বাকি শেয়ার ও এভারেজ প্রাইস (কমিশন সহ)
+        // FIFO পদ্ধতিতে buyLots তৈরি
         let buyLots = [];
         portfolioSnapshot.forEach(doc => {
             const data = doc.data();
@@ -2839,22 +2734,201 @@ async function loadPriceHistoryChart(ticker) {
         
         avgBuyPrice = totalRemainingQty > 0 ? totalCost / totalRemainingQty : 0;
         
-        // এভারেজ বাই প্রাইসের জন্য ডাটা অ্যারে তৈরি (সব তারিখের জন্য একই মান)
+        if (avgBuyPrice === 0) {
+            console.log('No holdings found for', ticker);
+            return;
+        }
+        
+        // 3️⃣ বিভিন্ন সময়ের প্রাইস ক্যালকুলেশন (stock_history থেকে)
+        const periods = [
+            { name: 'today', days: 0, label: 'Today vs Avg Buy' },
+            { name: '5d', days: 5, label: '5 Days vs Avg Buy' },
+            { name: '15d', days: 15, label: '15 Days vs Avg Buy' },
+            { name: '30d', days: 30, label: '30 Days vs Avg Buy' },
+            { name: '3m', days: 90, label: '3 Months vs Avg Buy' },
+            { name: '6m', days: 180, label: '6 Months vs Avg Buy' },
+            { name: '1y', days: 365, label: '1 Year vs Avg Buy' }
+        ];
+        
+        const returns = {};
+        
+        for (const period of periods) {
+            if (period.days === 0) {
+                // Today: বর্তমান প্রাইস vs Avg Buy Price
+                const periodReturn = ((currentPrice - avgBuyPrice) / avgBuyPrice) * 100;
+                returns[period.name] = periodReturn;
+                continue;
+            }
+            
+            // নির্দিষ্ট দিন আগের তারিখ
+            const targetDate = new Date();
+            targetDate.setDate(targetDate.getDate() - period.days);
+            const targetDateStr = targetDate.toISOString().split('T')[0];
+            
+            // ঐ তারিখের প্রাইস (stock_history থেকে)
+            const pastPrice = await firebaseDataManager.getPriceByDate(ticker, targetDateStr);
+            
+            if (pastPrice && pastPrice > 0) {
+                // ঐ তারিখের প্রাইস vs Avg Buy Price
+                const periodReturn = ((pastPrice - avgBuyPrice) / avgBuyPrice) * 100;
+                returns[period.name] = periodReturn;
+            } else {
+                returns[period.name] = null;
+            }
+        }
+        
+        // 🔥 বর্তমান প্রাইস vs Avg Buy (এক্সট্রা কার্ডের জন্য)
+        const currentReturnVsAvg = ((currentPrice - avgBuyPrice) / avgBuyPrice) * 100;
+        
+        // 4️⃣ UI আপডেট ফাংশন
+        const updateCell = (id, value) => {
+            const elem = document.getElementById(id);
+            if (elem) {
+                if (value === null || value === undefined) {
+                    elem.innerHTML = '-';
+                    elem.style.color = '#64748b';
+                } else {
+                    const isPositive = value >= 0;
+                    elem.innerHTML = `${isPositive ? '+' : ''}${value.toFixed(2)}%`;
+                    elem.style.color = isPositive ? '#10b981' : '#ef4444';
+                    elem.style.fontWeight = 'bold';
+                }
+            }
+        };
+        
+        // 5️⃣ টেবিল আপডেট
+        updateCell('modal-perf-today', returns.today);
+        updateCell('modal-perf-5d', returns['5d']);
+        updateCell('modal-perf-15d', returns['15d']);
+        updateCell('modal-perf-30d', returns['30d']);
+        updateCell('modal-perf-3m', returns['3m']);
+        updateCell('modal-perf-6m', returns['6m']);
+        updateCell('modal-perf-1y', returns['1y']);
+        
+        // 6️⃣ Avg Buy Info আপডেট (ঐচ্ছিক - যদি কোনো এলিমেন্ট থাকে)
+        const avgBuyInfoElem = document.getElementById('modal-avg-buy-info');
+        if (avgBuyInfoElem) {
+            avgBuyInfoElem.innerHTML = `Avg Buy: ৳${avgBuyPrice.toFixed(2)} | Current: ৳${currentPrice.toFixed(2)} | Return: ${currentReturnVsAvg >= 0 ? '+' : ''}${currentReturnVsAvg.toFixed(2)}%`;
+            avgBuyInfoElem.style.color = currentReturnVsAvg >= 0 ? '#10b981' : '#ef4444';
+        }
+        
+        console.log(`✅ Modal performance table loaded for ${ticker} | Avg Buy: ৳${avgBuyPrice.toFixed(2)} | Current: ৳${currentPrice.toFixed(2)}`);
+        
+    } catch (error) {
+        console.error('Error loading modal performance:', error);
+    }
+}
+// ==========================================
+
+async function loadPriceHistoryChart(ticker) {
+    const canvas = document.getElementById('adv-stock-chart');
+    if (!canvas) return;
+    
+    if (advChartInstance) {
+        advChartInstance.destroy();
+    }
+    
+    try {
+        const user = auth.currentUser;
+        if (!user) return;
+        
+        // 1️⃣ গত ৩০ দিনের প্রাইস ডাটা আনার চেষ্টা
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 30);
+        
+        const prices = [];
+        const labels = [];
+        
+        // 🔥 stock_history থেকে ডাটা আনা
+        let hasData = false;
+        for (let i = 0; i <= 30; i++) {
+            const checkDate = new Date(startDate);
+            checkDate.setDate(startDate.getDate() + i);
+            const dateStr = checkDate.toISOString().split('T')[0];
+            
+            const price = await firebaseDataManager.getPriceByDate(ticker, dateStr);
+            if (price !== null) {
+                prices.push(price);
+                labels.push(dateStr.substring(5));
+                hasData = true;
+            } else if (prices.length > 0) {
+                // আগের প্রাইস রাখুন
+                prices.push(prices[prices.length - 1]);
+                labels.push(dateStr.substring(5));
+            }
+        }
+        
+        // 🔥 যদি stock_history এ কোন ডাটা না থাকে, তাহলে শুধু Avg Buy Line দেখান
+        if (!hasData) {
+            console.log(`⚠️ No historical price data for ${ticker}, showing only avg buy line`);
+        }
+        
+        // 2️⃣ ইউজারের এভারেজ বাই প্রাইস বের করা
+        let avgBuyPrice = 0;
+        let totalRemainingQty = 0;
+        let totalCost = 0;
+        
+        const portfolioSnapshot = await db.collection('portfolios')
+            .where('userId', '==', user.uid)
+            .where('shareName', '==', ticker)
+            .get();
+        
+        const salesSnapshot = await db.collection('sales_history')
+            .where('userId', '==', user.uid)
+            .where('shareName', '==', ticker)
+            .get();
+        
+        let totalSold = 0;
+        salesSnapshot.forEach(doc => {
+            totalSold += doc.data().quantitySold;
+        });
+        
+        let buyLots = [];
+        portfolioSnapshot.forEach(doc => {
+            const data = doc.data();
+            const totalCostWithCommission = (data.quantity * data.buyPrice) + (data.commission || 0);
+            buyLots.push({
+                qty: data.quantity,
+                buyPrice: data.buyPrice,
+                totalCostWithCommission: totalCostWithCommission,
+                date: data.date ? new Date(data.date) : new Date()
+            });
+        });
+        
+        buyLots.sort((a, b) => a.date - b.date);
+        
+        let remainingSold = totalSold;
+        for (const lot of buyLots) {
+            let lotRemaining = lot.qty;
+            if (remainingSold > 0 && lotRemaining > 0) {
+                const taken = Math.min(lotRemaining, remainingSold);
+                lotRemaining -= taken;
+                remainingSold -= taken;
+            }
+            if (lotRemaining > 0) {
+                totalRemainingQty += lotRemaining;
+                totalCost += (lotRemaining * (lot.totalCostWithCommission / lot.qty));
+            }
+        }
+        
+        avgBuyPrice = totalRemainingQty > 0 ? totalCost / totalRemainingQty : 0;
+        
+        // এভারেজ বাই প্রাইস লাইন তৈরি
         const avgBuyLine = new Array(prices.length).fill(avgBuyPrice);
         
-        // 3️⃣ চার্টের রং নির্ধারণ (ডার্ক মোড সাপোর্ট)
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
         const textColor = isDark ? '#f1f5f9' : '#1e293b';
         const gridColor = isDark ? '#334155' : '#e2e8f0';
         
-        // 4️⃣ চার্ট তৈরি (২টি লাইন সহ)
+        // 🔥 চার্ট তৈরি
         advChartInstance = new Chart(canvas, {
             type: 'line',
             data: {
                 labels: labels,
                 datasets: [
                     {
-                        label: `${ticker} Price`,
+                        label: `${ticker} Price (Historical)`,
                         data: prices,
                         borderColor: '#3b82f6',
                         backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -2867,12 +2941,12 @@ async function loadPriceHistoryChart(ticker) {
                         pointBorderColor: isDark ? '#1e293b' : '#ffffff'
                     },
                     {
-                        label: `Avg Buy (${avgBuyPrice > 0 ? '৳' + avgBuyPrice.toFixed(2) : 'N/A'})`,
+                        label: `Your Avg Buy (${avgBuyPrice > 0 ? '৳' + avgBuyPrice.toFixed(2) : 'N/A'})`,
                         data: avgBuyLine,
                         borderColor: '#f59e0b',
                         backgroundColor: 'transparent',
                         borderWidth: 2,
-                        borderDash: [8, 6],  // ডটেড লাইন
+                        borderDash: [8, 6],
                         fill: false,
                         tension: 0,
                         pointRadius: 0,
@@ -2949,10 +3023,7 @@ async function loadPriceHistoryChart(ticker) {
             }
         });
         
-        // 5️⃣ চার্টের নিচে এভারেজ বাই ইনফো দেখানো (ঐচ্ছিক)
         updateChartAvgBuyInfo(ticker, avgBuyPrice, totalRemainingQty);
-        
-        console.log(`✅ Chart loaded for ${ticker} | Avg Buy: ৳${avgBuyPrice.toFixed(2)} | Qty: ${totalRemainingQty}`);
         
     } catch (error) {
         console.error('Chart loading error:', error);
@@ -4239,11 +4310,12 @@ async function updatePerformanceSummary() {
             }
             
             if (hasData && pastValue > 0) {
-                const periodReturn = ((totalCurrentValue - pastValue) / pastValue) * 100;
-                portfolioReturns[period.name] = periodReturn;
-            } else {
-                portfolioReturns[period.name] = currentReturn * (period.days / 365);
-            }
+    const periodReturn = ((totalCurrentValue - pastValue) / pastValue) * 100;
+    portfolioReturns[period.name] = periodReturn;
+} else {
+    // ডাটা না থাকলে null বা '-' দেখান
+    portfolioReturns[period.name] = null;
+}
         }
         
         // বেঞ্চমার্ক রিটার্ন (DSEX - Firebase থেকে)
@@ -4364,35 +4436,71 @@ async function updatePerformanceSummary() {
 // ==========================================
 
 async function forceLastUpdateTime() {
-    // নির্দিষ্ট সময় সেট করুন (২৪ মে, ২০২৬, বিকাল ৩টা)
-    const fixedTime = new Date('2026-05-24T15:00:00+06:00');
-    
-    const formatted = fixedTime.toLocaleString('bn-BD', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-    
-    console.log('Setting time to:', formatted);
-    
-    // এলিমেন্ট আপডেট
-    const dataDateValue = document.getElementById('data-date-value');
-    if (dataDateValue) {
-        dataDateValue.textContent = `📅 Data from: ${formatted} (328 records)`;
-    }
-    
-    const timestampElem = document.getElementById('update-timestamp');
-    if (timestampElem) {
-        timestampElem.innerHTML = `🔄 Data source: Firebase Cache | Last scraped: ${formatted}`;
-    }
-    
-    const dashTimeElem = document.getElementById('dash-perf-update-time');
-    if (dashTimeElem) {
-        dashTimeElem.innerText = formatted;
+    // 📆 Firebase stock_history থেকে সর্বশেষ তারিখ নাও
+    try {
+        const snapshot = await db.collection('stock_history')
+            .orderBy('date', 'desc')
+            .limit(1)
+            .get();
+        
+        let fixedTime;
+        if (!snapshot.empty) {
+            const latestDoc = snapshot.docs[0];
+            const latestDate = latestDoc.data().date;
+            fixedTime = new Date(latestDate);
+            fixedTime.setHours(15, 0, 0, 0); // বিকাল ৩টায় সেট করুন
+        } else {
+            // fallback: আজকের তারিখ
+            fixedTime = new Date();
+            fixedTime.setHours(15, 0, 0, 0);
+        }
+        
+        const formatted = fixedTime.toLocaleString('bn-BD', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        
+        console.log('Setting time to:', formatted);
+        
+        // এলিমেন্ট আপডেট
+        const dataDateValue = document.getElementById('data-date-value');
+        if (dataDateValue) {
+            dataDateValue.textContent = `📅 Data from: ${formatted} (328 records)`;
+        }
+        
+        const timestampElem = document.getElementById('update-timestamp');
+        if (timestampElem) {
+            timestampElem.innerHTML = `🔄 Data source: Firebase Cache | Last scraped: ${formatted}`;
+        }
+        
+        const dashTimeElem = document.getElementById('dash-perf-update-time');
+        if (dashTimeElem) {
+            dashTimeElem.innerText = formatted;
+        }
+        
+    } catch (error) {
+        console.error('Error getting last update time:', error);
+        // fallback: আজকের তারিখ দেখান
+        const fixedTime = new Date();
+        fixedTime.setHours(15, 0, 0, 0);
+        const formatted = fixedTime.toLocaleString('bn-BD', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        
+        const dataDateValue = document.getElementById('data-date-value');
+        if (dataDateValue) {
+            dataDateValue.textContent = `📅 Data from: ${formatted}`;
+        }
     }
 }
+
 
 // পেজ লোড হলে এবং 1 সেকেন্ড পর কল করুন
 document.addEventListener('DOMContentLoaded', function() {
@@ -5022,3 +5130,461 @@ if (btnExecuteSell) {
 
 // যখন stock table এ unrealized return দেখানো হবে, সেটা ইতিমধ্যে কমিশন সহ calculated
 // কারণ calculateAndUpdatePortfolioValues ফাংশনে totalInvestment এ কমিশন যোগ করা হয়েছে
+// ==========================================
+// 📊 পোর্টফোলিও ভ্যালু হিস্টোরি (প্রতিদিনের ডাটা) - সম্পূর্ণ নতুন ভার্সন
+// ==========================================
+
+let historyChartInstance = null;
+let currentHistoryMode = 'firebase';
+let currentHistoryData = [];
+
+async function loadPortfolioHistory() {
+    const user = auth.currentUser;
+    if (!user) {
+        console.log('No user logged in');
+        return;
+    }
+    
+    const tableBody = document.getElementById('history-table-body');
+    if (!tableBody) {
+        console.log('History table body not found');
+        return;
+    }
+    
+    tableBody.innerHTML = `<table><td colspan="6" style="text-align: center; padding: 40px;">Loading history data...<\/td><\/tr>`;
+    
+    try {
+        console.log('📊 Loading portfolio history...');
+        
+        const portfolioSnapshot = await db.collection('portfolios').where('userId', '==', user.uid).get();
+        const salesSnapshot = await db.collection('sales_history').where('userId', '==', user.uid).get();
+        
+        if (portfolioSnapshot.empty) {
+            tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 40px;">No transactions found. Start buying shares!<\/td><\/tr>`;
+            return;
+        }
+        
+        const buyLots = [];
+        portfolioSnapshot.forEach(doc => {
+            const data = doc.data();
+            const totalCostWithCommission = (data.quantity * data.buyPrice) + (data.commission || 0);
+            
+            let perUnitCost = totalCostWithCommission / data.quantity;
+            if (isNaN(perUnitCost) || !isFinite(perUnitCost)) {
+                perUnitCost = data.buyPrice;
+            }
+            
+            // ✅ সঠিকভাবে তারিখ পার্সিং
+            let buyDate = null;
+            if (data.date) {
+                if (typeof data.date.toDate === 'function') {
+                    buyDate = data.date.toDate();
+                } else if (data.date instanceof Date) {
+                    buyDate = data.date;
+                } else if (typeof data.date === 'string') {
+                    buyDate = new Date(data.date);
+                } else if (data.date.seconds) {
+                    buyDate = new Date(data.date.seconds * 1000);
+                }
+            }
+            
+            if (!buyDate || isNaN(buyDate.getTime())) {
+                buyDate = new Date();
+            }
+            
+            // 🔥 ডিবাগ: প্রতিটি লটের তারিখ দেখান
+            console.log(`Lot: ${data.shareName}, Date: ${buyDate.toISOString().split('T')[0]}`);
+            
+            buyLots.push({
+                ticker: data.shareName,
+                qty: data.quantity,
+                buyPrice: data.buyPrice,
+                totalCostWithCommission: totalCostWithCommission,
+                perUnitCost: perUnitCost,
+                date: buyDate,
+                buyDateStr: buyDate.toISOString().split('T')[0]
+            });
+        });
+        
+        console.log('Buy lots count:', buyLots.length);
+        
+        // ✅ সবচেয়ে পুরনো কেনার তারিখ বের করুন
+        let firstBuyDate = new Date(buyLots[0].date);
+        for (const lot of buyLots) {
+            if (lot.date < firstBuyDate) {
+                firstBuyDate = lot.date;
+            }
+        }
+        
+        console.log('First buy date (earliest):', firstBuyDate);
+        
+        const totalSoldMap = new Map();
+        salesSnapshot.forEach(doc => {
+            const data = doc.data();
+            totalSoldMap.set(data.shareName, (totalSoldMap.get(data.shareName) || 0) + data.quantitySold);
+        });
+        
+        buyLots.sort((a, b) => a.date - b.date);
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        // ✅ সঠিক ডে পার্থক্য ক্যালকুলেশন
+        let daysDiff = Math.ceil((today - firstBuyDate) / (1000 * 60 * 60 * 24));
+        
+        // 🔥 ফিক্স: যদি একই দিন হয়, অন্তত 1 দিন দেখান
+        if (daysDiff < 1) {
+            daysDiff = 1;
+        }
+        
+        const maxDays = 365;
+        const finalDays = Math.min(daysDiff, maxDays);
+        
+        console.log(`First buy: ${firstBuyDate.toISOString().split('T')[0]}, Today: ${today.toISOString().split('T')[0]}, Days: ${finalDays}`);
+        
+        const allDates = [];
+        for (let i = 0; i <= finalDays; i++) {
+            const date = new Date(firstBuyDate);
+            date.setDate(firstBuyDate.getDate() + i);
+            allDates.push(date);
+        }
+        
+        console.log(`Total dates to process: ${allDates.length}`);
+        
+        const dailyPortfolio = [];
+        let cumulativeLots = [];
+        
+        for (let idx = 0; idx < allDates.length; idx++) {
+            const currentDate = allDates[idx];
+            const dateStr = currentDate.toISOString().split('T')[0];
+            
+            // এই তারিখ পর্যন্ত কেনা লট যোগ করা
+            for (const lot of buyLots) {
+                const lotDate = new Date(lot.date);
+                lotDate.setHours(0, 0, 0, 0);
+                if (lotDate <= currentDate && !lot.added) {
+                    cumulativeLots.push({
+                        ...lot,
+                        remainingQty: lot.qty,
+                        added: true
+                    });
+                    lot.added = true;
+                }
+            }
+            
+            const tempSoldMap = new Map();
+            for (const [ticker, sold] of totalSoldMap) {
+                tempSoldMap.set(ticker, sold);
+            }
+            
+            let tempLots = cumulativeLots.map(lot => ({
+                ...lot,
+                remainingQty: lot.remainingQty
+            }));
+            
+            for (const lot of tempLots) {
+                let toSell = tempSoldMap.get(lot.ticker) || 0;
+                if (toSell > 0 && lot.remainingQty > 0) {
+                    const sellFromThisLot = Math.min(lot.remainingQty, toSell);
+                    lot.remainingQty -= sellFromThisLot;
+                    toSell -= sellFromThisLot;
+                    tempSoldMap.set(lot.ticker, toSell);
+                }
+            }
+            
+            let totalInvestment = 0;
+            let remainingStocks = [];
+            
+            for (const lot of tempLots) {
+                if (lot.remainingQty > 0 && lot.perUnitCost > 0 && isFinite(lot.perUnitCost)) {
+                    const lotCost = lot.remainingQty * lot.perUnitCost;
+                    totalInvestment += lotCost;
+                    remainingStocks.push({
+                        ticker: lot.ticker,
+                        qty: lot.remainingQty,
+                        avgCost: lot.perUnitCost
+                    });
+                }
+            }
+            
+            let totalCurrentValue = 0;
+            
+            for (const stock of remainingStocks) {
+                let currentPrice = 0;
+                
+                if (currentHistoryMode === 'live') {
+                    try {
+                        const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${stock.ticker}`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data && data.ltp) {
+                                currentPrice = data.ltp;
+                            }
+                        }
+                    } catch (err) {}
+                }
+                
+                if (currentPrice === 0) {
+                    try {
+                        const historicalPrice = await firebaseDataManager.getPriceByDate(stock.ticker, dateStr);
+                        if (historicalPrice && historicalPrice > 0) {
+                            currentPrice = historicalPrice;
+                        } else {
+                            currentPrice = stock.avgCost;
+                        }
+                    } catch (err) {
+                        currentPrice = stock.avgCost;
+                    }
+                }
+                
+                if (isNaN(currentPrice) || !isFinite(currentPrice)) {
+                    currentPrice = stock.avgCost;
+                }
+                
+                totalCurrentValue += stock.qty * currentPrice;
+            }
+            
+            const dailyPL = totalCurrentValue - totalInvestment;
+            const dailyPLPercent = totalInvestment > 0 ? (dailyPL / totalInvestment) * 100 : 0;
+            
+            if (totalInvestment > 0 && isFinite(totalInvestment)) {
+                dailyPortfolio.push({
+                    date: dateStr,
+                    totalInvestment: totalInvestment,
+                    totalCurrentValue: totalCurrentValue,
+                    dailyPL: dailyPL,
+                    dailyPLPercent: dailyPLPercent
+                });
+            }
+        }
+        
+        console.log(`✅ Calculated ${dailyPortfolio.length} days with data`);
+        
+        const startDateInput = document.getElementById('history-start-date');
+        const endDateInput = document.getElementById('history-end-date');
+        
+        let filteredData = [...dailyPortfolio];
+        
+        if (startDateInput && startDateInput.value) {
+            filteredData = filteredData.filter(item => item.date >= startDateInput.value);
+        }
+        if (endDateInput && endDateInput.value) {
+            filteredData = filteredData.filter(item => item.date <= endDateInput.value);
+        }
+        
+        currentHistoryData = filteredData;
+        renderHistoryTable(filteredData);
+        renderHistoryChart(filteredData);
+        
+        console.log(`✅ Portfolio history loaded: ${filteredData.length} days displayed`);
+        
+    } catch (error) {
+        console.error('Error loading portfolio history:', error);
+        tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 40px; color: #ef4444;">Error loading data: ${error.message}<\/td><\/tr>`;
+    }
+}
+
+function renderHistoryTable(data) {
+    const tableBody = document.getElementById('history-table-body');
+    if (!tableBody) return;
+    
+    if (data.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 40px;">No data available for selected date range.<\/td><\/tr>`;
+        // ফুটার রিসেট
+        const footerInvest = document.getElementById('history-footer-invest');
+        const footerValue = document.getElementById('history-footer-value');
+        const footerPL = document.getElementById('history-footer-pl');
+        const footerPLPct = document.getElementById('history-footer-plpct');
+        if (footerInvest) footerInvest.innerHTML = '-';
+        if (footerValue) footerValue.innerHTML = '-';
+        if (footerPL) footerPL.innerHTML = '-';
+        if (footerPLPct) footerPLPct.innerHTML = '-';
+        return;
+    }
+    
+    let html = '';
+    let totalInvestment = 0;
+    let totalCurrentValue = 0;
+    
+    for (let i = 0; i < data.length; i++) {
+        const item = data[i];
+        const plClass = item.dailyPL >= 0 ? 'positive-pl' : 'negative-pl';
+        const plPctClass = item.dailyPLPercent >= 0 ? 'positive-pl' : 'negative-pl';
+        
+        totalInvestment += item.totalInvestment;
+        totalCurrentValue += item.totalCurrentValue;
+        
+        html += `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 12px; font-weight: 500;">${formatDate(item.date)}</td>
+                <td style="padding: 12px; text-align: right;">৳${item.totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}</td>
+                <td style="padding: 12px; text-align: right;">৳${item.totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}</td>
+                <td style="padding: 12px; text-align: right;" class="${plClass}">${item.dailyPL >= 0 ? '+' : ''}৳${item.dailyPL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}</td>
+                <td style="padding: 12px; text-align: right;" class="${plPctClass}">${item.dailyPLPercent >= 0 ? '+' : ''}${item.dailyPLPercent.toFixed(2)}%</td>
+                <td style="padding: 12px; text-align: center;">${item.dailyPL >= 0 ? '✅' : '📉'}</td>
+            </tr>
+        `;
+    }
+    
+    tableBody.innerHTML = html;
+    
+    // ফুটার আপডেট
+    const finalPL = totalCurrentValue - totalInvestment;
+    const finalPLPct = totalInvestment > 0 ? (finalPL / totalInvestment) * 100 : 0;
+    
+    const footerInvest = document.getElementById('history-footer-invest');
+    const footerValue = document.getElementById('history-footer-value');
+    const footerPL = document.getElementById('history-footer-pl');
+    const footerPLPct = document.getElementById('history-footer-plpct');
+    
+    if (footerInvest) footerInvest.innerHTML = `৳${totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    if (footerValue) footerValue.innerHTML = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    if (footerPL) {
+        footerPL.innerHTML = `${finalPL >= 0 ? '+' : ''}৳${finalPL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        footerPL.style.color = finalPL >= 0 ? '#10b981' : '#ef4444';
+    }
+    if (footerPLPct) {
+        footerPLPct.innerHTML = `${finalPLPct >= 0 ? '+' : ''}${finalPLPct.toFixed(2)}%`;
+        footerPLPct.style.color = finalPLPct >= 0 ? '#10b981' : '#ef4444';
+    }
+}
+
+function renderHistoryChart(data) {
+    const canvas = document.getElementById('historyChart');
+    if (!canvas) return;
+    
+    if (historyChartInstance) {
+        historyChartInstance.destroy();
+        historyChartInstance = null;
+    }
+    
+    if (data.length === 0) return;
+    
+    const labels = data.map(item => formatDateShort(item.date));
+    const investData = data.map(item => item.totalInvestment);
+    const valueData = data.map(item => item.totalCurrentValue);
+    
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const textColor = isDark ? '#f1f5f9' : '#1e293b';
+    const gridColor = isDark ? '#334155' : '#e2e8f0';
+    
+    historyChartInstance = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Total Investment',
+                    data: investData,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2.5,
+                    tension: 0.2,
+                    fill: false,
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                },
+                {
+                    label: 'Current Value',
+                    data: valueData,
+                    borderColor: '#10b981',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2.5,
+                    tension: 0.2,
+                    fill: false,
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { 
+                        color: textColor,
+                        font: { size: 11 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `${context.dataset.label}: ৳${context.raw.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { 
+                        color: textColor, 
+                        maxRotation: 45,
+                        font: { size: 10 }
+                    },
+                    grid: { color: gridColor }
+                },
+                y: {
+                    ticks: { 
+                        color: textColor,
+                        callback: function(value) {
+                            return '৳' + value.toLocaleString();
+                        }
+                    },
+                    grid: { color: gridColor }
+                }
+            }
+        }
+    });
+}
+
+function filterHistoryByDate() {
+    console.log('📅 Filtering by date...');
+    loadPortfolioHistory();
+}
+
+function resetHistoryFilter() {
+    console.log('🔄 Resetting date filter...');
+    const startInput = document.getElementById('history-start-date');
+    const endInput = document.getElementById('history-end-date');
+    if (startInput) startInput.value = '';
+    if (endInput) endInput.value = '';
+    loadPortfolioHistory();
+}
+
+function setHistoryMode(mode) {
+    console.log(`🔘 Switching history mode to: ${mode}`);
+    currentHistoryMode = mode;
+    const firebaseBtn = document.getElementById('history-firebase-mode');
+    const liveBtn = document.getElementById('history-live-mode');
+    
+    if (firebaseBtn && liveBtn) {
+        if (mode === 'firebase') {
+            firebaseBtn.classList.add('active');
+            firebaseBtn.style.background = '#10b981';
+            liveBtn.classList.remove('active');
+            liveBtn.style.background = '#64748b';
+        } else {
+            liveBtn.classList.add('active');
+            liveBtn.style.background = '#10b981';
+            firebaseBtn.classList.remove('active');
+            firebaseBtn.style.background = '#64748b';
+        }
+    }
+    loadPortfolioHistory();
+}
+
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('bn-BD', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function formatDateShort(dateStr) {
+    const date = new Date(dateStr);
+    return `${date.getDate()}/${date.getMonth() + 1}`;
+}

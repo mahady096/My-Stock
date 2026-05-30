@@ -240,6 +240,8 @@
                 <li onclick="switchTab('statement')">Statement</li>
                 <li onclick="switchTab('portfolio-analysis')">Portfolio Analysis</li>
                 <li onclick="switchTab('dividend')">💰 Dividend Analysis</li>
+                <!-- এখানে যোগ করুন (অন্যান্য li-এর মতো) -->
+<li onclick="switchTab('history')">📊 Value History</li>
                 <li onclick="confirmAndDeletePortfolio()" style="color: #ef4444; font-weight: bold; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.backgroundColor='rgba(239, 68, 68, 0.1)'" onmouseout="this.style.backgroundColor='transparent'">
                     <span class="icon">🗑️</span> Delete Portfolio
                 </li>
@@ -677,7 +679,77 @@
                     </div>
                 </div>
             </section>
-
+<!-- 📊 PORTFOLIO VALUE HISTORY TABLE -->
+<section id="sec-history" class="tab-content hidden">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h3 style="color: white; margin: 0 0 5px 0;">📈 Portfolio Value History</h3>
+                <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Track your portfolio growth day by day</p>
+            </div>
+            <button id="refresh-history-btn" onclick="loadPortfolioHistory()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer;">
+                🔄 Refresh
+            </button>
+        </div>
+    </div>
+    
+    <!-- ফিল্টার ও কন্ট্রোল -->
+    <div style="background: var(--bg-secondary); border-radius: 12px; padding: 15px; margin-bottom: 20px; box-shadow: var(--card-shadow);">
+        <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <span style="font-size: 13px; color: var(--text-secondary);">📅 From:</span>
+                <input type="date" id="history-start-date" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+                <span style="font-size: 13px; color: var(--text-secondary);">To:</span>
+                <input type="date" id="history-end-date" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+                <button onclick="filterHistoryByDate()" style="padding: 6px 12px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer;">Apply</button>
+                <button onclick="resetHistoryFilter()" style="padding: 6px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">Reset</button>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button id="history-firebase-mode" class="history-mode-btn active" onclick="setHistoryMode('firebase')" style="padding: 6px 12px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;">💾 Firebase Data</button>
+                <button id="history-live-mode" class="history-mode-btn" onclick="setHistoryMode('live')" style="padding: 6px 12px; background: #64748b; color: white; border: none; border-radius: 6px; cursor: pointer;">📡 Live API</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- টেবিল -->
+    <div style="background: var(--bg-secondary); border-radius: 12px; overflow-x: auto; box-shadow: var(--card-shadow);">
+        <table id="portfolio-history-table" style="width: 100%; min-width: 700px;">
+            <thead>
+                <tr style="background: var(--bg-tertiary);">
+                    <th style="padding: 14px 12px;">📅 Date</th>
+                    <th style="padding: 14px 12px; text-align: right;">💰 Total Investment (৳)</th>
+                    <th style="padding: 14px 12px; text-align: right;">📊 Current Value (৳)</th>
+                    <th style="padding: 14px 12px; text-align: right;">📈 Daily P/L (৳)</th>
+                    <th style="padding: 14px 12px; text-align: right;">📉 Daily P/L (%)</th>
+                    <th style="padding: 14px 12px; text-align: center;">ℹ️ Info</th>
+                </tr>
+            </thead>
+            <tbody id="history-table-body">
+                <tr>
+                    <td colspan="6" style="text-align: center; padding: 40px;">Loading portfolio history...</td>
+                </tr>
+            </tbody>
+            <tfoot id="history-table-footer" style="background: var(--bg-tertiary); font-weight: bold;">
+                <tr>
+                    <td style="padding: 12px;"><strong>Summary</strong></td>
+                    <td id="history-footer-invest" style="padding: 12px; text-align: right;">-</td>
+                    <td id="history-footer-value" style="padding: 12px; text-align: right;">-</td>
+                    <td id="history-footer-pl" style="padding: 12px; text-align: right;">-</td>
+                    <td id="history-footer-plpct" style="padding: 12px; text-align: right;">-</td>
+                    <td style="padding: 12px; text-align: center;">-</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    
+    <!-- চার্ট ভিউ -->
+    <div style="margin-top: 20px; background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow);">
+        <h4 style="margin-bottom: 15px;">📈 Portfolio Growth Chart</h4>
+        <div style="position: relative; height: 280px;">
+            <canvas id="historyChart"></canvas>
+        </div>
+    </div>
+</section>
         </main>
     </div>
 
@@ -938,6 +1010,10 @@ function forceRefresh() {
         }, 3000);
     </script>
     <!-- ========== যোগ করা শেষ ========== -->
+ <!-- ==========================================
+     📊 PORTFOLIO VALUE HISTORY TABLE
+     ========================================== -->
+
     <!-- Install App Floating Button (Optional) -->
 <button id="install-btn" style="position: fixed; bottom: 20px; left: 20px; background: #10b981; color: white; border: none; border-radius: 50px; padding: 12px 20px; cursor: pointer; z-index: 9999; display: none; align-items: center; gap: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
     📲 Install App
