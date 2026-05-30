@@ -214,70 +214,16 @@ const firebaseDataManager = new FirebaseDataManager();
 // ==========================================
 // 🎯 DASHBOARD DATA LOADER (Firebase + API Hybrid)
 // ==========================================
-
-let currentDataMode = 'live';  // 'firebase' or 'live'
+let currentDataMode = 'firebase';  // ← এভাবে পরিবর্তন করুন
 let currentPriceData = new Map();
 let lastDataLoadTime = null;
 let currentPortfolioTotalValue = 0;  // 👈 এই লাইন যোগ করুন
-
-// loadDashboardData ফাংশনের ভিতরে, যেখানে updateDataStatusIndicator কল করা হয়েছে
-async function loadDashboardData() {
-    const user = auth.currentUser;
-    if (!user) {
-        console.log('No user logged in');
-        return false;
-    }
-    
-    showDataLoading(true);
-    
-    try {
-        let priceMap;
-        
-        if (currentDataMode === 'firebase') {
-            console.log('📦 Loading from Firebase...');
-            priceMap = await firebaseDataManager.loadLatestPrices();
-            
-            if (priceMap && priceMap.size > 0) {
-                currentPriceData = priceMap;
-                await updateDataStatusIndicator('firebase', firebaseDataManager.getDataStatus()); // await যোগ করুন
-                console.log(`✅ Dashboard loaded from Firebase: ${priceMap.size} stocks`);
-            } else {
-                console.log('⚠️ No Firebase data, falling back to API...');
-                currentDataMode = 'live';
-                priceMap = await loadFromAPI(user);
-                updateDataStatusIndicator('live', { source: 'api', lastUpdate: new Date().toISOString() });
-            }
-        } else {
-            console.log('📡 Loading from Live API...');
-            priceMap = await loadFromAPI(user);
-            updateDataStatusIndicator('live', { source: 'api', lastUpdate: new Date().toISOString() });
-        }
-        
-        if (priceMap && priceMap.size > 0) {
-    await calculateAndUpdatePortfolioValues(priceMap);
-    
-    // 🆕 Portfolio Analysis ট্যাব ভিজিবল থাকলে সেটাও আপডেট করুন
-    const analysisSection = document.getElementById('sec-portfolio-analysis');
-    if (analysisSection && !analysisSection.classList.contains('hidden') && auth.currentUser) {
-    console.log('🔄 Syncing Portfolio Analysis with Dashboard data...');
-    // সামান্য দেরি করে কল করুন যেন UI ঠিকমত আপডেট হয়
-    setTimeout(() => {
-        loadPortfolioAnalysisTable(auth.currentUser.uid);
-    }, 100);
-}
-    
-    lastDataLoadTime = new Date();
-    return true;
-}
-        
-        return false;
-        
-    } catch (error) {
-        console.error('Dashboard load error:', error);
-        return false;
-    } finally {
-        showDataLoading(false);
-    }
+function getTodayDate() {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }
 
 // API থেকে ডাটা লোড
@@ -916,7 +862,7 @@ function loadUnifiedStockTable(userId) {
     
     async function loadStockData() {
         try {
-            tableBody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Loading...</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b>"
+            tableBody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Loading...</td></tr>';
             
             const [portfolioSnapshot, salesSnapshot] = await Promise.all([
                 db.collection("portfolios").where("userId", "==", userId).get(),
@@ -1516,14 +1462,7 @@ window.toggleRightSidebar = function() {
 // 📅 DATE PICKER DEFAULT VALUE SET
 // ==========================================
 
-// আজকের তারিখ YYYY-MM-DD ফরম্যাটে পাওয়া
-function getTodayDate() {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
+
 
 // Buy Date Picker ডিফল্ট সেট করা
 const tradeDateInput = document.getElementById('trade-date');
@@ -2301,11 +2240,13 @@ updateDashboardCurrentValue();
     
     listContainer.innerHTML = finalHtml;
     
-// 🔥 Update Summary Cards - Dashboard এর মতো bn-BD ফরম্যাট ব্যবহার করুন
+// Update Summary Cards with Percentages
 const totalValueCard = document.getElementById('summary-total-value');
 const totalCostCard = document.getElementById('summary-total-cost');
 const totalDailyCard = document.getElementById('summary-total-daily');
+const totalDailyPctCard = document.getElementById('summary-total-daily-pct');  // 👈 নতুন
 const totalGLCard = document.getElementById('summary-total-gl');
+const totalGLPctCard = document.getElementById('summary-total-gl-pct');  // 👈 নতুন
 
 if (totalValueCard) {
     totalValueCard.innerHTML = `৳${grandTotalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
@@ -2313,38 +2254,67 @@ if (totalValueCard) {
 if (totalCostCard) {
     totalCostCard.innerHTML = `৳${grandTotalCost.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
 }
+
+// 📊 Daily P/L - টাকা দেখানো
 if (totalDailyCard) {
     const formatted = grandTotalDailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 });
     totalDailyCard.innerHTML = `${grandTotalDailyGL >= 0 ? '+' : ''}৳${formatted}`;
     totalDailyCard.style.color = grandTotalDailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
 }
+
+// 📊 Daily P/L - শতকরা (%) দেখানো (নতুন)
+if (totalDailyPctCard && grandTotalCost > 0) {
+    const dailyPercent = (grandTotalDailyGL / grandTotalCost) * 100;
+    totalDailyPctCard.innerHTML = `${dailyPercent >= 0 ? '+' : ''}${dailyPercent.toFixed(2)}%`;
+    totalDailyPctCard.style.color = dailyPercent >= 0 ? '#90ffb0' : '#ffaaaa';
+} else if (totalDailyPctCard) {
+    totalDailyPctCard.innerHTML = '(0.00%)';
+}
+
+// 🎯 Total P/L - টাকা দেখানো
 if (totalGLCard) {
     const formatted = grandTotalGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 });
     totalGLCard.innerHTML = `${grandTotalGL >= 0 ? '+' : ''}৳${formatted}`;
     totalGLCard.style.color = grandTotalGL >= 0 ? '#90ffb0' : '#ffaaaa';
 }
-    if (totalGLCard) {
-        const glColor = grandTotalGL >= 0 ? '#90ffb0' : '#ffaaaa';
-        totalGLCard.innerHTML = `${grandTotalGL >= 0 ? '+' : ''}৳${grandTotalGL.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-        totalGLCard.style.color = grandTotalGL >= 0 ? '#90ffb0' : '#ffaaaa';
-    }
-    
+
+// 🎯 Total P/L - শতকরা (%) দেখানো (নতুন)
+if (totalGLPctCard && grandTotalCost > 0) {
+    const totalPercent = (grandTotalGL / grandTotalCost) * 100;
+    totalGLPctCard.innerHTML = `${totalPercent >= 0 ? '+' : ''}${totalPercent.toFixed(2)}%`;
+    totalGLPctCard.style.color = totalPercent >= 0 ? '#90ffb0' : '#ffaaaa';
+} else if (totalGLPctCard) {
+    totalGLPctCard.innerHTML = '(0.00%)';
+}
+    updateDashboardCardsFromAnalysis(grandTotalCost, grandTotalCurrentValue, grandTotalDailyGL, grandTotalGL);
     // Update existing footer (যদি থাকে)
     const existingFooter = document.querySelector('.bull-footer');
     if (existingFooter) {
         existingFooter.style.display = 'none';
     }
 }
+// ==========================================
+// 🚀 পোর্টফোলিও অ্যানালাইসিস টেবিল - Firebase → Live API → 0
+// ==========================================
+
 async function loadPortfolioAnalysisTable(userId) {
-  if (!currentPriceData || currentPriceData.size === 0) {
-        console.log('📦 Loading prices before portfolio analysis...');
-        if (currentDataMode === 'firebase') {
-            currentPriceData = await firebaseDataManager.loadLatestPrices();
+    if (!userId) {
+        console.log('No userId provided');
+        return;
+    }
+    
+    // 🔥 স্টেপ 1: Firebase থেকে প্রাইস লোড করার চেষ্টা
+    if (!currentPriceData || currentPriceData.size === 0) {
+        console.log('📦 Step 1: Loading from Firebase...');
+        currentPriceData = await firebaseDataManager.loadLatestPrices();
+        
+        if (!currentPriceData || currentPriceData.size === 0) {
+            console.log('⚠️ No Firebase data found');
         } else {
-            const user = auth.currentUser;
-            if (user) currentPriceData = await loadFromAPI(user);
+            console.log(`✅ Loaded ${currentPriceData.size} stocks from Firebase`);
         }
     }
+    
     if (!db) return;
 
     db.collection("portfolios").where("userId", "==", userId)
@@ -2377,35 +2347,73 @@ async function loadPortfolioAnalysisTable(userId) {
             });
 
             const portfolioDataForSorting = [];
+            
+            // ইউনিক টিকার লিস্ট বের করা
+            const uniqueTickers = Object.keys(rawPortfolio);
+            
+            // 🔥 স্টেপ 2: যেসব টিকারের Firebase এ প্রাইস নেই, তাদের জন্য Live API কল
+            const missingTickers = uniqueTickers.filter(ticker => !currentPriceData.has(ticker));
+            
+            if (missingTickers.length > 0) {
+                console.log(`📡 Step 2: Fetching ${missingTickers.length} missing tickers from Live API...`);
+                
+                // ব্যাচ আকারে API কল (রেট লিমিট এড়াতে)
+                const batchSize = 3;
+                for (let i = 0; i < missingTickers.length; i += batchSize) {
+                    const batch = missingTickers.slice(i, i + batchSize);
+                    await Promise.all(batch.map(async (ticker) => {
+                        try {
+                            const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
+                            if (response.ok) {
+                                const data = await response.json();
+                                if (data && data.ltp) {
+                                    currentPriceData.set(ticker, data.ltp);
+                                    console.log(`✅ Live API: ${ticker} = ${data.ltp}`);
+                                } else {
+                                    // 🔥 স্টেপ 3: Live API তাও না পেলে 0 সেট করুন
+                                    currentPriceData.set(ticker, 0);
+                                    console.log(`⚠️ Live API: No price for ${ticker}, setting to 0`);
+                                }
+                            } else {
+                                currentPriceData.set(ticker, 0);
+                                console.log(`⚠️ Live API failed for ${ticker}, setting to 0`);
+                            }
+                        } catch (err) {
+                            currentPriceData.set(ticker, 0);
+                            console.log(`❌ Live API error for ${ticker}, setting to 0`);
+                        }
+                    }));
+                    
+                    // রেট লিমিট এড়াতে সামান্য দেরি
+                    if (i + batchSize < missingTickers.length) {
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                }
+            }
 
             for (let ticker in rawPortfolio) {
                 let lots = rawPortfolio[ticker].sort((a, b) => a.date - b.date);
                 let totalSold = totalSoldQtyMap[ticker] || 0;
 
-                // 🔥 FIXED: currentPrice একবারই declare করা হয়েছে
+                // 🔥 প্রাইস নেওয়া: Firebase → Live API → 0 (ইতিমধ্যে সেট করা আছে)
                 let currentPrice = currentPriceData.get(ticker) || 0;
                 let dailyChange = 0;
                 let dailyChangePcnt = 0;
+                let priceSource = 'Unknown';
                 
                 if (currentPrice > 0) {
-                    // currentPriceData থেকে পেলে গতকালের প্রাইস বের করুন
+                    // প্রাইস পেয়েছে, গতকালের প্রাইস বের করুন
                     const previousClose = await firebaseDataManager.getPreviousClose(ticker);
                     if (previousClose && previousClose > 0) {
                         dailyChange = currentPrice - previousClose;
                         dailyChangePcnt = (dailyChange / previousClose) * 100;
                     }
+                    priceSource = currentPriceData.has(ticker) && currentPriceData.get(ticker) > 0 ? 
+                        (currentPriceData.get(ticker) === currentPrice ? 'Firebase/Live' : 'Unknown') : 'Live API';
                 } else {
-                    // currentPriceData এ না থাকলে API কল
-                    try {
-                        const stockData = await fetchStockWithDailyChange(ticker);
-                        currentPrice = stockData.currentPrice;
-                        dailyChange = stockData.dailyChange;
-                        dailyChangePcnt = stockData.dailyChangePcnt;
-                        currentPriceData.set(ticker, currentPrice);
-                    } catch (err) {
-                        console.error(`Failed to fetch price for ${ticker}:`, err);
-                        continue;
-                    }
+                    // 🔥 স্টেপ 3 শেষ: 0 পেয়েছে
+                    priceSource = 'No Data (0)';
+                    console.log(`⚠️ ${ticker}: No price found anywhere, using 0`);
                 }
 
                 let activeLotsForDisplay = [];
@@ -2424,7 +2432,7 @@ async function loadPortfolioAnalysisTable(userId) {
                     if (remQtyInLot > 0) {
                         totalRemainingQty += remQtyInLot;
                         const costWithCommission = (remQtyInLot * lot.buyPrice) + (lot.commission || 0);
-totalCost += costWithCommission;
+                        totalCost += costWithCommission;
                         
                         let lotCurrentValue = remQtyInLot * currentPrice;
                         let lotTotalGL = lotCurrentValue - (remQtyInLot * lot.buyPrice);
@@ -2474,7 +2482,8 @@ totalCost += costWithCommission;
                     livePriceClass: livePriceClass,
                     dailyGlClass: dailyGlClass,
                     totalGlClass: totalGlClass,
-                    blockId: blockId
+                    blockId: blockId,
+                    priceSource: priceSource
                 });
             }
             
@@ -4564,62 +4573,7 @@ function updateDashboardCurrentValue() {
         console.log(`📊 Dashboard updated from Portfolio Analysis: ৳${currentPortfolioTotalValue.toFixed(2)}`);
     }
 }
-async function loadDashboardData() {
-    const user = auth.currentUser;
-    if (!user) {
-        console.log('No user logged in');
-        return false;
-    }
-    
-    showDataLoading(true);
-    
-    try {
-        let priceMap;
-        
-        if (currentDataMode === 'firebase') {
-            console.log('📦 Loading from Firebase...');
-            priceMap = await firebaseDataManager.loadLatestPrices();
-            
-            if (priceMap && priceMap.size > 0) {
-                currentPriceData = priceMap;
-                await updateDataStatusIndicator('firebase', firebaseDataManager.getDataStatus());
-                console.log(`✅ Dashboard loaded from Firebase: ${priceMap.size} stocks`);
-            } else {
-                console.log('⚠️ No Firebase data, falling back to API...');
-                currentDataMode = 'live';
-                priceMap = await loadFromAPI(user);
-                updateDataStatusIndicator('live', { source: 'api', lastUpdate: new Date().toISOString() });
-            }
-        } else {
-            console.log('📡 Loading from Live API...');
-            priceMap = await loadFromAPI(user);
-            updateDataStatusIndicator('live', { source: 'api', lastUpdate: new Date().toISOString() });
-        }
-        
-        if (priceMap && priceMap.size > 0) {
-            await calculateAndUpdatePortfolioValues(priceMap);
-            
-            const analysisSection = document.getElementById('sec-portfolio-analysis');
-            if (analysisSection && !analysisSection.classList.contains('hidden') && auth.currentUser) {
-                console.log('🔄 Syncing Portfolio Analysis with Dashboard data...');
-                setTimeout(() => {
-                    loadPortfolioAnalysisTable(auth.currentUser.uid);
-                }, 100);
-            }
-            
-            lastDataLoadTime = new Date();
-            return true;
-        }
-        
-        return false;
-        
-    } catch (error) {
-        console.error('Dashboard load error:', error);
-        return false;
-    } finally {
-        showDataLoading(false);
-    }
-}
+
 
 // ব্যাকগ্রাউন্ডে Portfolio Analysis লোড করার ফাংশন (UI আপডেট ছাড়া)
 async function loadPortfolioAnalysisInBackground(userId) {
@@ -5588,3 +5542,223 @@ function formatDateShort(dateStr) {
     const date = new Date(dateStr);
     return `${date.getDate()}/${date.getMonth() + 1}`;
 }
+
+// ==========================================
+// 🆕 ড্যাশবোর্ডের কার্ড আপডেট (Portfolio Analysis এর ভ্যালু দিয়ে)
+// ==========================================
+
+function updateDashboardCardsFromAnalysis(totalCost, totalValue, dailyGL, totalGL) {
+    // Card 1: Total Value
+    const valueElem = document.getElementById('dash-total-value');
+    if (valueElem) {
+        valueElem.innerHTML = `৳${totalValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    }
+    
+    // Card 2: Total Investment
+    const costElem = document.getElementById('dash-total-cost');
+    if (costElem) {
+        costElem.innerHTML = `৳${totalCost.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    }
+    
+    // Card 3: Daily P/L (টাকা + %)
+    const dailyElem = document.getElementById('dash-total-daily');
+    const dailyPctElem = document.getElementById('dash-total-daily-pct');
+    
+    if (dailyElem) {
+        const dailyFormatted = dailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 });
+        dailyElem.innerHTML = `${dailyGL >= 0 ? '+' : ''}৳${dailyFormatted}`;
+        dailyElem.style.color = dailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    
+    if (dailyPctElem && totalCost > 0) {
+        const dailyPercent = (dailyGL / totalCost) * 100;
+        dailyPctElem.innerHTML = `${dailyPercent >= 0 ? '+' : ''}${dailyPercent.toFixed(2)}%`;
+        dailyPctElem.style.color = dailyPercent >= 0 ? '#90ffb0' : '#ffaaaa';
+    } else if (dailyPctElem) {
+        dailyPctElem.innerHTML = '(0.00%)';
+    }
+    
+    // Card 4: Total P/L (টাকা + %)
+    const totalElem = document.getElementById('dash-total-gl');
+    const totalPctElem = document.getElementById('dash-total-gl-pct');
+    
+    if (totalElem) {
+        const totalFormatted = totalGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 });
+        totalElem.innerHTML = `${totalGL >= 0 ? '+' : ''}৳${totalFormatted}`;
+        totalElem.style.color = totalGL >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    
+    if (totalPctElem && totalCost > 0) {
+        const totalPercent = (totalGL / totalCost) * 100;
+        totalPctElem.innerHTML = `${totalPercent >= 0 ? '+' : ''}${totalPercent.toFixed(2)}%`;
+        totalPctElem.style.color = totalPercent >= 0 ? '#90ffb0' : '#ffaaaa';
+    } else if (totalPctElem) {
+        totalPctElem.innerHTML = '(0.00%)';
+    }
+    
+    console.log(`📊 Dashboard updated from Portfolio Analysis: Value=${totalValue.toFixed(2)}, Cost=${totalCost.toFixed(2)}, Daily=${dailyGL.toFixed(2)}, Total=${totalGL.toFixed(2)}`);
+}
+// ==========================================
+// 🚀 ফ্লোটিং লোডিং ইন্ডিকেটর - শতকরা (%) সহ
+// ==========================================
+
+// ==========================================
+// 🚀 ফ্লোটিং লোডিং ইন্ডিকেটর - শতকরা (%) সহ
+// ==========================================
+
+class LoadingIndicator {
+    constructor() {
+        this.loaderDiv = document.getElementById('floating-loader');
+        this.overlay = document.getElementById('loader-overlay');
+        this.percentElem = document.getElementById('loader-percent');
+        this.statusTextElem = document.getElementById('loader-status-text');
+        this.subTextElem = document.getElementById('loader-sub-text');
+        this.progressCircle = document.getElementById('loader-progress-circle');
+        this.currentPercent = 0;
+        this.currentStep = '';
+    }
+    
+    show() {
+        if (this.loaderDiv) {
+            this.loaderDiv.style.display = 'flex';
+            this.overlay.style.display = 'block';
+            this.currentPercent = 0;
+            this.updatePercent(0);
+        }
+    }
+    
+    hide() {
+        if (this.loaderDiv) {
+            this.loaderDiv.style.display = 'none';
+            this.overlay.style.display = 'none';
+        }
+    }
+    
+    updatePercent(percent, statusText, subText) {
+        if (!this.loaderDiv || this.loaderDiv.style.display !== 'flex') return;
+        
+        this.currentPercent = Math.min(Math.max(percent, 0), 100);
+        
+        if (this.percentElem) {
+            this.percentElem.innerText = `${Math.floor(this.currentPercent)}%`;
+        }
+        
+        const circumference = 219.9;
+        const offset = circumference - (this.currentPercent / 100) * circumference;
+        if (this.progressCircle) {
+            this.progressCircle.style.strokeDashoffset = offset;
+            if (this.currentPercent < 50) {
+                this.progressCircle.style.stroke = '#ef4444';
+            } else if (this.currentPercent < 80) {
+                this.progressCircle.style.stroke = '#f59e0b';
+            } else {
+                this.progressCircle.style.stroke = '#10b981';
+            }
+        }
+        
+        if (statusText && this.statusTextElem) {
+            this.statusTextElem.innerHTML = statusText;
+        }
+        
+        if (subText && this.subTextElem) {
+            this.subTextElem.innerHTML = subText;
+        }
+    }
+    
+    updateStep(step, percent) {
+        this.currentStep = step;
+        const steps = {
+            'firebase': { status: '📦 Loading from Firebase...', sub: 'Fetching cached stock prices', percent: 20 },
+            'api': { status: '📡 Fetching from Live API...', sub: 'Getting real-time market data', percent: 40 },
+            'portfolio': { status: '📊 Processing portfolio...', sub: 'Calculating buy/sell lots', percent: 60 },
+            'analysis': { status: '📈 Generating analysis...', sub: 'Preparing portfolio insights', percent: 80 },
+            'complete': { status: '✅ Done!', sub: 'Portfolio loaded successfully', percent: 100 }
+        };
+        
+        const stepData = steps[step] || steps.firebase;
+        this.updatePercent(stepData.percent, stepData.status, stepData.sub);
+    }
+}
+
+// গ্লোবাল ইন্সট্যান্স
+const loadingIndicator = new LoadingIndicator();
+
+// ==========================================
+// 🔄 loadDashboardData ফাংশন (শুধু একবার ডিক্লেয়ার)
+// ==========================================
+
+async function loadDashboardData() {
+    const user = auth.currentUser;
+    if (!user) {
+        console.log('No user logged in');
+        return false;
+    }
+    
+    loadingIndicator.show();
+    loadingIndicator.updateStep('firebase', 20);
+    
+    try {
+        let priceMap;
+        
+        if (currentDataMode === 'firebase') {
+            console.log('📦 Loading from Firebase...');
+            loadingIndicator.updatePercent(30, '📦 Loading from Firebase...', 'Fetching cached stock prices');
+            
+            priceMap = await firebaseDataManager.loadLatestPrices();
+            
+            if (priceMap && priceMap.size > 0) {
+                currentPriceData = priceMap;
+                await updateDataStatusIndicator('firebase', firebaseDataManager.getDataStatus());
+                console.log(`✅ Dashboard loaded from Firebase: ${priceMap.size} stocks`);
+            } else {
+                console.log('⚠️ No Firebase data, falling back to API...');
+                loadingIndicator.updatePercent(40, '📡 Switching to Live API...', 'No cached data found');
+                currentDataMode = 'live';
+                priceMap = await loadFromAPI(user);
+                updateDataStatusIndicator('live', { source: 'api', lastUpdate: new Date().toISOString() });
+            }
+        } else {
+            console.log('📡 Loading from Live API...');
+            loadingIndicator.updatePercent(40, '📡 Loading from Live API...', 'Getting real-time market data');
+            priceMap = await loadFromAPI(user);
+            updateDataStatusIndicator('live', { source: 'api', lastUpdate: new Date().toISOString() });
+        }
+        
+        if (priceMap && priceMap.size > 0) {
+            loadingIndicator.updatePercent(60, '📊 Calculating portfolio...', 'Processing buy/sell lots');
+            await calculateAndUpdatePortfolioValues(priceMap);
+            
+            loadingIndicator.updatePercent(80, '📈 Generating analysis...', 'Preparing portfolio insights');
+            
+            const analysisSection = document.getElementById('sec-portfolio-analysis');
+            if (analysisSection && !analysisSection.classList.contains('hidden') && auth.currentUser) {
+                console.log('🔄 Syncing Portfolio Analysis with Dashboard data...');
+                setTimeout(() => {
+                    loadPortfolioAnalysisTable(auth.currentUser.uid);
+                }, 100);
+            }
+            
+            loadingIndicator.updatePercent(100, '✅ Done!', 'Portfolio loaded successfully');
+            
+            setTimeout(() => {
+                loadingIndicator.hide();
+            }, 500);
+            
+            lastDataLoadTime = new Date();
+            return true;
+        }
+        
+        loadingIndicator.hide();
+        return false;
+        
+    } catch (error) {
+        console.error('Dashboard load error:', error);
+        loadingIndicator.updatePercent(100, '❌ Error!', 'Failed to load portfolio data');
+        setTimeout(() => {
+            loadingIndicator.hide();
+        }, 1000);
+        return false;
+    }
+}
+
+console.log('✅ loadDashboardData initialized successfully');
