@@ -214,8 +214,8 @@ const firebaseDataManager = new FirebaseDataManager();
 // ==========================================
 // 🎯 DASHBOARD DATA LOADER (Firebase + API Hybrid)
 // ==========================================
-let currentDataMode = 'live';
-//let currentDataMode = 'firebase';  // ← এভাবে পরিবর্তন করুন
+//let currentDataMode = 'live';
+let currentDataMode = 'firebase';  // ← এভাবে পরিবর্তন করুন
 let currentPriceData = new Map();
 let lastDataLoadTime = null;
 let currentPortfolioTotalValue = 0;  // 👈 এই লাইন যোগ করুন
