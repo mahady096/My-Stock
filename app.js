@@ -214,7 +214,8 @@ const firebaseDataManager = new FirebaseDataManager();
 // ==========================================
 // 🎯 DASHBOARD DATA LOADER (Firebase + API Hybrid)
 // ==========================================
-let currentDataMode = 'firebase';  // ← এভাবে পরিবর্তন করুন
+let currentDataMode = 'live';
+//let currentDataMode = 'firebase';  // ← এভাবে পরিবর্তন করুন
 let currentPriceData = new Map();
 let lastDataLoadTime = null;
 let currentPortfolioTotalValue = 0;  // 👈 এই লাইন যোগ করুন
@@ -991,11 +992,36 @@ for (let i = 0; i < tickers.length; i += batchSize) {
                 profitLossElement.innerText = `৳${totalProfitLoss.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
                 profitLossElement.style.color = totalProfitLoss >= 0 ? '#10b981' : '#ef4444';
             }
-            
-            const footUnrealized = document.getElementById('foot-total-unrealized');
-            const footRealized = document.getElementById('foot-total-realized');
-            if(footUnrealized) footUnrealized.innerText = `৳${totalUnrealized.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
-            if(footRealized) footRealized.innerText = `৳${totalRealized.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
+const footUnrealized = document.getElementById('foot-total-unrealized');
+const footRealized = document.getElementById('foot-total-realized');
+const footTotalInvest = document.getElementById('foot-total-invest');
+const footTotalCurrentValue = document.getElementById('foot-total-current-value');
+const footRemainingQty = document.getElementById('foot-total-remaining-qty');
+
+if(footUnrealized) {
+    footUnrealized.innerText = `${totalUnrealized >= 0 ? '+' : ''}৳${totalUnrealized.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
+    footUnrealized.style.color = totalUnrealized >= 0 ? '#10b981' : '#ef4444';
+}
+if(footRealized) {
+    footRealized.innerText = `${totalRealized >= 0 ? '+' : ''}৳${totalRealized.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
+    footRealized.style.color = totalRealized >= 0 ? '#10b981' : '#ef4444';
+}
+if (footTotalInvest) {
+    footTotalInvest.innerText = `৳${totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+}
+if (footTotalCurrentValue) {
+    footTotalCurrentValue.innerText = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+}
+if (footRemainingQty) {
+    let totalRemainingShares = 0;
+    for (let ticker in mergedPortfolio) {
+        const item = mergedPortfolio[ticker];
+        let remainingQty = item.buyQty - item.sellQty;
+        if (remainingQty < 0) remainingQty = 0;
+        totalRemainingShares += remainingQty;
+    }
+    footRemainingQty.innerText = totalRemainingShares.toLocaleString('bn-BD');
+}
             
             // ✅ চার্ট আপডেট করার জন্য এই অংশটি যোগ করুন
             if(chartLots.length > 0) {
