@@ -340,7 +340,6 @@
                 <h2>Portfolio Dashboard</h2>
                 <button class="toggle-trigger" style="visibility: hidden;">Watchlist ☰</button>
             </header>
-
 <section id="sec-dashboard" class="tab-content">
     <!-- ডাটা সোর্স ইন্ডিকেটর -->
     <div class="data-source-indicator" id="data-source-indicator">
@@ -353,14 +352,40 @@
             <span id="data-date-value">Loading...</span>
         </div>
         <div class="mode-buttons">
-            <button id="btn-firebase-mode" class="mode-btn active" onclick="setFirebaseMode()">
-                💾 Firebase
-            </button>
-            <button id="btn-live-mode" class="mode-btn" onclick="setLiveMode()">
-                📡 Live API
-            </button>
+            <button id="btn-firebase-mode" class="mode-btn active" onclick="setFirebaseMode()">💾 Firebase</button>
+            <button id="btn-live-mode" class="mode-btn" onclick="setLiveMode()">📡 Live API</button>
         </div>
     </div>
+
+    <!-- ✅ এই ব্লকটি যোগ করুন (ডাটা সোর্স ইন্ডিকেটরের পরেই) -->
+    <div class="manual-reload-container" style="display: flex; justify-content: space-between; align-items: center; margin: 15px 0;">
+        <div class="auto-refresh-control" style="display: flex; align-items: center; gap: 15px;">
+            <label class="switch">
+                <input type="checkbox" id="autoRefreshToggle" checked>
+                <span class="slider"></span>
+            </label>
+            <span style="font-size: 13px; color: var(--text-secondary);">
+                🔄 Auto Refresh (30 min)
+            </span>
+            <span id="next-refresh-timer" style="font-size: 11px; color: var(--text-muted);"></span>
+        </div>
+        <button id="btn-manual-reload" onclick="manualReloadDashboard()" style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        ">
+            🔄 Manual Refresh
+        </button>
+    </div>
+
     
 <!-- 🆕 পোর্টফোলিও অ্যানালাইসিসের ৪টি কার্ড (ড্যাশবোর্ডে আনা হলো) -->
 <div class="portfolio-summary-cards" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px;">

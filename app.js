@@ -1,12 +1,64 @@
 // ==========================================
+// =========================================
 // ==========================================
+// ==========================================
+// 🚦 API RATE LIMITER - Firebase Read কমানোর জন্য
+// ==========================================
+
+class APIRateLimiter {
+    constructor(maxRequestsPerSecond = 3) {
+        this.queue = [];
+        this.processing = false;
+        this.minDelay = 1000 / maxRequestsPerSecond;
+        this.lastCall = 0;
+    }
+    
+    async request(fn) {
+        return new Promise((resolve, reject) => {
+            this.queue.push({ fn, resolve, reject });
+            this.process();
+        });
+    }
+    
+    async process() {
+        if (this.processing || this.queue.length === 0) return;
+        this.processing = true;
+        
+        while (this.queue.length > 0) {
+            const now = Date.now();
+            const timeToWait = Math.max(0, this.minDelay - (now - this.lastCall));
+            
+            if (timeToWait > 0) {
+                await new Promise(r => setTimeout(r, timeToWait));
+            }
+            
+            const { fn, resolve, reject } = this.queue.shift();
+            this.lastCall = Date.now();
+            
+            try {
+                const result = await fn();
+                resolve(result);
+            } catch (error) {
+                reject(error);
+            }
+        }
+        
+        this.processing = false;
+    }
+}
+
+const apiLimiter = new APIRateLimiter(3); // প্রতি সেকেন্ডে 3টি API কল
+
+// ==========================================
+// 🗄️ FIREBASE DATA MANAGER - ডাটা লোড করার কোর সিস্টেম
+// ===========================================
 // 🗄️ FIREBASE DATA MANAGER - ডাটা লোড করার কোর সিস্টেম
 // ==========================================
 
 class FirebaseDataManager {
     constructor() {
         this.cache = new Map();
-        this.cacheTTL = 300000; // 5 মিনিট
+        this.cacheTTL = 1800000; // 5 মিনিট
         this.dataInfo = {
             source: 'firebase',
             lastUpdate: null,
@@ -133,6 +185,18 @@ async getFormattedLastUpdate() {
             };
             
             console.log(`✅ Loaded ${latestPrices.size} stocks from Firebase`);
+            if (latestPrices && latestPrices.size > 0) {
+            try {
+                const toStore = {};
+                latestPrices.forEach((price, ticker) => {
+                    toStore[ticker] = price;
+                });
+                localStorage.setItem('cachedPrices', JSON.stringify({
+                    data: toStore,
+                    timestamp: Date.now()
+                }));
+            } catch(e) {}
+        }
             return latestPrices;
             
         } catch (error) {
@@ -214,8 +278,8 @@ const firebaseDataManager = new FirebaseDataManager();
 // ==========================================
 // 🎯 DASHBOARD DATA LOADER (Firebase + API Hybrid)
 // ==========================================
-//let currentDataMode = 'live';
-let currentDataMode = 'firebase';  // ← এভাবে পরিবর্তন করুন
+let currentDataMode = 'live';
+//let currentDataMode = 'firebase';  // ← এভাবে পরিবর্তন করুন
 let currentPriceData = new Map();
 let lastDataLoadTime = null;
 let currentPortfolioTotalValue = 0;  // 👈 এই লাইন যোগ করুন
@@ -242,22 +306,30 @@ async function loadFromAPI(user) {
         
         const priceMap = new Map();
         
+        // 🔥 Rate limiter ব্যবহার করে API কল করুন
         for (const ticker of tickers) {
             try {
-                const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data && data.ltp) {
-                        priceMap.set(ticker, data.ltp);
-                    }
+                const data = await apiLimiter.request(async () => {
+                    const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
+                });
+                
+                if (data && data.ltp) {
+                    priceMap.set(ticker, data.ltp);
+                    console.log(`📡 API: ${ticker} = ${data.ltp}`);
                 }
-                // API রেট লিমিট এড়াতে সামান্য দেরি
-                await new Promise(resolve => setTimeout(resolve, 100));
             } catch (error) {
                 console.warn(`Failed to fetch ${ticker}:`, error);
+                // Fallback to hardcoded price
+                const hardcoded = getHardcodedPrice(ticker);
+                if (hardcoded > 0) {
+                    priceMap.set(ticker, hardcoded);
+                }
             }
         }
         
+        console.log(`✅ API loaded ${priceMap.size} prices`);
         return priceMap;
         
     } catch (error) {
@@ -489,12 +561,14 @@ function showToast(message, type = 'info') {
 
 // অটো রিফ্রেশ (শুধু Firebase মোডে)
 let autoRefreshInterval = null;
+let autoRefreshEnabled = true;  // ✅ এই লাইন যোগ করুন
+let isManualReloading = false;   // ✅ এই লাইন যোগ করুন
 
 function startAutoRefresh() {
     if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+    if (!autoRefreshEnabled) return;  // ✅ এই লাইন যোগ করুন
     
     autoRefreshInterval = setInterval(() => {
-        // পেজ ভিজিবল থাকলেই শুধু রিফ্রেশ করবে
         if (!document.hidden && currentDataMode === 'firebase' && auth.currentUser) {
             const dashboardSection = document.getElementById('sec-dashboard');
             if (dashboardSection && !dashboardSection.classList.contains('hidden')) {
@@ -761,10 +835,18 @@ document.getElementById('trade-qty').value = "";
 priceInput.value = "";
 if (tradeDateInput) tradeDateInput.value = getTodayDate();
 
-// 🔥 চার্ট রিফ্রেশ করার জন্য পেজ রিলোড
-setTimeout(() => {
-    location.reload();
-}, 500);
+// setTimeout(() => {
+//     location.reload();  // ← কমেন্ট করে দিন অথবা ডিলিট করুন
+// }, 500);
+
+// ✅ এর জায়গায় শুধু affected টেবিল রিফ্রেশ করুন
+if (auth.currentUser) {
+    // শুধু affected ফাংশন কল করুন
+    loadUnifiedStockTable(auth.currentUser.uid);
+    loadPortfolioAnalysisTable(auth.currentUser.uid);
+    loadDashboardData();  // ড্যাশবোর্ড আপডেটের জন্য
+    showToast(`${shareName} purchased successfully!`, 'success');
+}
 
         } catch (error) {
             console.error("ডাটা সেভ করতে সমস্যা হয়েছে: ", error);
@@ -1061,7 +1143,7 @@ if (footRemainingQty) {
             console.log('🔄 Auto-refreshing stock table...');
             loadStockData();
         }
-    }, 120000);
+    }, 600000);
 }
 // ==========================================
 // ৭. বাই ফর্ম সাজেশন লজিক
@@ -1222,7 +1304,6 @@ if (btnExecuteSell) {
 
         if (!user) return alert("দয়া করে প্রথমে লগইন করুন!");
         if (!ticker || currentActiveLots.length === 0) return alert("দয়া করে একটি বৈধ শেয়ার সিলেক্ট করুন।");
-        const sellDateInput = document.getElementById('sell-trade-date');
         let selectedDate = sellDateInput ? sellDateInput.value : getTodayDate();
         if (!selectedDate) selectedDate = getTodayDate();
         const transactionDate = new Date(selectedDate);
@@ -1300,18 +1381,21 @@ sellTickerInput.value = "";
 sellHoldingsContainer.classList.add('hidden');
 if (sellDateInput) sellDateInput.value = getTodayDate();
 
-// 🔥 চার্ট রিফ্রেশ করার জন্য পেজ রিলোড
-setTimeout(() => {
-    location.reload();
-}, 500);
-            
-            // মূল পোর্টফোলিও টেবিল রিয়েল-টাইমে আপডেট করা
-            if (auth.currentUser) {
+// setTimeout(() => {
+//     location.reload();  // ← কমেন্ট করে দিন অথবা ডিলিট করুন
+// }, 500);
+
+// ✅ এর জায়গায় শুধু affected টেবিল রিফ্রেশ করুন
+if (auth.currentUser) {
                 loadUnifiedStockTable(auth.currentUser.uid);
+                loadPortfolioAnalysisTable(auth.currentUser.uid);
+                loadDashboardData();
+                showToast(`Successfully sold ${totalSoldSuccessfully} shares of ${ticker}`, 'success');
             }
+            
         } catch (error) {
             console.error("সেল এক্সিকিউট করতে সমস্যা:", error);
-            alert("দুঃখিত, কারিগরি ত্রুটির কারণে বিক্রি সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।");
+            alert("দুঃখিত, কারিগরি ত্রুটির কারণে বিক্রি সম্পন্ন করা যায়নি।");
         }
     });
 }
@@ -2323,39 +2407,52 @@ if (totalGLPctCard && grandTotalCost > 0) {
 // 🚀 পোর্টফোলিও অ্যানালাইসিস টেবিল - Firebase → Live API → 0
 // ==========================================
 
+// ==========================================
+// 🚀 পোর্টফোলিও অ্যানালাইসিস টেবিল - অপটিমাইজড ভার্সন (NO onSnapshot)
+// ==========================================
+
+let portfolioAnalysisInterval = null;
+let isAnalysisLoading = false;
+
 async function loadPortfolioAnalysisTable(userId) {
     if (!userId) {
         console.log('No userId provided');
         return;
     }
     
-    // 🔥 স্টেপ 1: Firebase থেকে প্রাইস লোড করার চেষ্টা
-    if (!currentPriceData || currentPriceData.size === 0) {
-        console.log('📦 Step 1: Loading from Firebase...');
-        currentPriceData = await firebaseDataManager.loadLatestPrices();
-        
-        if (!currentPriceData || currentPriceData.size === 0) {
-            console.log('⚠️ No Firebase data found');
-        } else {
-            console.log(`✅ Loaded ${currentPriceData.size} stocks from Firebase`);
-        }
+    // আগের interval বন্ধ করুন
+    if (portfolioAnalysisInterval) {
+        clearInterval(portfolioAnalysisInterval);
+        portfolioAnalysisInterval = null;
     }
     
-    if (!db) return;
-
-    db.collection("portfolios").where("userId", "==", userId)
-    .onSnapshot((portfolioSnapshot) => {
-        db.collection("sales_history").where("userId", "==", userId)
-        .onSnapshot(async (salesSnapshot) => {
+    // ডাটা fetch এবং রেন্ডার করার ফাংশন
+    async function fetchAndRenderAnalysis() {
+        if (isAnalysisLoading) {
+            console.log('⏸️ Analysis already loading, skipping...');
+            return;
+        }
+        
+        isAnalysisLoading = true;
+        
+        try {
+            console.log('📊 Fetching portfolio analysis data...');
             
-            let rawPortfolio = {};
+            // 🔥 Manual fetch - onSnapshot এর বদলে
+            const [portfolioSnapshot, salesSnapshot] = await Promise.all([
+                db.collection("portfolios").where("userId", "==", userId).get(),
+                db.collection("sales_history").where("userId", "==", userId).get()
+            ]);
+            
+            // সেলস ডাটা প্রসেস - totalSoldQtyMap তৈরি
             let totalSoldQtyMap = {};
-            
             salesSnapshot.forEach(doc => {
                 const data = doc.data();
                 totalSoldQtyMap[data.shareName] = (totalSoldQtyMap[data.shareName] || 0) + data.quantitySold;
             });
-
+            
+            // পোর্টফোলিও ডাটা প্রসেস - rawPortfolio তৈরি
+            let rawPortfolio = {};
             portfolioSnapshot.forEach(doc => {
                 const data = doc.data();
                 const ticker = data.shareName;
@@ -2368,85 +2465,55 @@ async function loadPortfolioAnalysisTable(userId) {
                 rawPortfolio[ticker].push({
                     date: data.date ? (data.date.toDate ? data.date.toDate() : new Date(data.date)) : new Date(),
                     originalQty: Number(data.quantity || 0),
-                    buyPrice: Number(data.buyPrice || 0)
+                    buyPrice: Number(data.buyPrice || 0),
+                    commission: data.commission || 0
                 });
             });
-
-            const portfolioDataForSorting = [];
             
-            // ইউনিক টিকার লিস্ট বের করা
+            const portfolioDataForSorting = [];
             const uniqueTickers = Object.keys(rawPortfolio);
             
-            // 🔥 স্টেপ 2: যেসব টিকারের Firebase এ প্রাইস নেই, তাদের জন্য Live API কল
-            const missingTickers = uniqueTickers.filter(ticker => !currentPriceData.has(ticker));
-            
-            if (missingTickers.length > 0) {
-                console.log(`📡 Step 2: Fetching ${missingTickers.length} missing tickers from Live API...`);
+            // 🔥 প্রাইস ডাটা প্রস্তুত করুন
+            for (let ticker of uniqueTickers) {
+                // প্রাইস নেওয়ার চেষ্টা
+                let currentPrice = currentPriceData.get(ticker) || 0;
                 
-                // ব্যাচ আকারে API কল (রেট লিমিট এড়াতে)
-                const batchSize = 3;
-                for (let i = 0; i < missingTickers.length; i += batchSize) {
-                    const batch = missingTickers.slice(i, i + batchSize);
-                    await Promise.all(batch.map(async (ticker) => {
-                        try {
+                // প্রাইস না থাকলে API থেকে আনার চেষ্টা (rate limited)
+                if (currentPrice === 0) {
+                    try {
+                        const data = await apiLimiter.request(async () => {
                             const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
-                            if (response.ok) {
-                                const data = await response.json();
-                                if (data && data.ltp) {
-                                    currentPriceData.set(ticker, data.ltp);
-                                    console.log(`✅ Live API: ${ticker} = ${data.ltp}`);
-                                } else {
-                                    // 🔥 স্টেপ 3: Live API তাও না পেলে 0 সেট করুন
-                                    currentPriceData.set(ticker, 0);
-                                    console.log(`⚠️ Live API: No price for ${ticker}, setting to 0`);
-                                }
-                            } else {
-                                currentPriceData.set(ticker, 0);
-                                console.log(`⚠️ Live API failed for ${ticker}, setting to 0`);
-                            }
-                        } catch (err) {
-                            currentPriceData.set(ticker, 0);
-                            console.log(`❌ Live API error for ${ticker}, setting to 0`);
+                            return response.json();
+                        });
+                        if (data && data.ltp) {
+                            currentPrice = data.ltp;
+                            currentPriceData.set(ticker, currentPrice);
                         }
-                    }));
-                    
-                    // রেট লিমিট এড়াতে সামান্য দেরি
-                    if (i + batchSize < missingTickers.length) {
-                        await new Promise(resolve => setTimeout(resolve, 200));
+                    } catch (err) {
+                        console.warn(`Failed to fetch price for ${ticker}`);
                     }
                 }
-            }
-
-            for (let ticker in rawPortfolio) {
+                
+                // এখনও না পেলে hardcoded ব্যবহার
+                if (currentPrice === 0) {
+                    currentPrice = getHardcodedPrice(ticker);
+                }
+                
+                // Daily change calculation
+                let dailyChange = 0;
+                const previousClose = await firebaseDataManager.getPreviousClose(ticker);
+                if (previousClose && previousClose > 0 && currentPrice > 0) {
+                    dailyChange = currentPrice - previousClose;
+                }
+                
                 let lots = rawPortfolio[ticker].sort((a, b) => a.date - b.date);
                 let totalSold = totalSoldQtyMap[ticker] || 0;
-
-                // 🔥 প্রাইস নেওয়া: Firebase → Live API → 0 (ইতিমধ্যে সেট করা আছে)
-                let currentPrice = currentPriceData.get(ticker) || 0;
-                let dailyChange = 0;
-                let dailyChangePcnt = 0;
-                let priceSource = 'Unknown';
                 
-                if (currentPrice > 0) {
-                    // প্রাইস পেয়েছে, গতকালের প্রাইস বের করুন
-                    const previousClose = await firebaseDataManager.getPreviousClose(ticker);
-                    if (previousClose && previousClose > 0) {
-                        dailyChange = currentPrice - previousClose;
-                        dailyChangePcnt = (dailyChange / previousClose) * 100;
-                    }
-                    priceSource = currentPriceData.has(ticker) && currentPriceData.get(ticker) > 0 ? 
-                        (currentPriceData.get(ticker) === currentPrice ? 'Firebase/Live' : 'Unknown') : 'Live API';
-                } else {
-                    // 🔥 স্টেপ 3 শেষ: 0 পেয়েছে
-                    priceSource = 'No Data (0)';
-                    console.log(`⚠️ ${ticker}: No price found anywhere, using 0`);
-                }
-
                 let activeLotsForDisplay = [];
                 let totalRemainingQty = 0;
                 let totalCost = 0;
                 let remainingSold = totalSold;
-
+                
                 lots.forEach(lot => {
                     let remQtyInLot = lot.originalQty;
                     if (remainingSold > 0) {
@@ -2454,7 +2521,7 @@ async function loadPortfolioAnalysisTable(userId) {
                         remQtyInLot -= taken;
                         remainingSold -= taken;
                     }
-
+                    
                     if (remQtyInLot > 0) {
                         totalRemainingQty += remQtyInLot;
                         const costWithCommission = (remQtyInLot * lot.buyPrice) + (lot.commission || 0);
@@ -2465,7 +2532,7 @@ async function loadPortfolioAnalysisTable(userId) {
                         let lotDailyGL = remQtyInLot * dailyChange;
                         let lotGLPcnt = lot.buyPrice > 0 ? ((currentPrice - lot.buyPrice) / lot.buyPrice) * 100 : 0;
                         let lotDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
-
+                        
                         activeLotsForDisplay.push({
                             qty: remQtyInLot,
                             buyPrice: lot.buyPrice,
@@ -2478,20 +2545,20 @@ async function loadPortfolioAnalysisTable(userId) {
                         });
                     }
                 });
-
+                
                 if (totalRemainingQty === 0) continue;
-
+                
                 let avgBuyPrice = totalCost / totalRemainingQty;
                 let totalGL = (totalRemainingQty * currentPrice) - totalCost;
                 let totalGLPcnt = totalCost > 0 ? (totalGL / totalCost) * 100 : 0;
                 let totalStockDailyGL = totalRemainingQty * dailyChange;
                 let totalStockDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
-
+                
                 const livePriceClass = dailyChange >= 0 ? "bull-profit" : "bull-loss";
                 const dailyGlClass = totalStockDailyGL >= 0 ? "bull-profit" : "bull-loss";
                 const totalGlClass = totalGL >= 0 ? "bull-profit" : "bull-loss";
                 const blockId = `block-${ticker.replace(/[^a-zA-Z0-9]/g, '')}`;
-
+                
                 portfolioDataForSorting.push({
                     ticker: ticker,
                     avgBuyPrice: avgBuyPrice,
@@ -2499,7 +2566,7 @@ async function loadPortfolioAnalysisTable(userId) {
                     totalCost: totalCost,
                     currentPrice: currentPrice,
                     dailyChange: dailyChange,
-                    dailyChangePcnt: dailyChangePcnt,
+                    dailyChangePcnt: (dailyChange / (currentPrice - dailyChange)) * 100,
                     totalGL: totalGL,
                     totalGLPcnt: totalGLPcnt,
                     totalStockDailyGL: totalStockDailyGL,
@@ -2509,7 +2576,7 @@ async function loadPortfolioAnalysisTable(userId) {
                     dailyGlClass: dailyGlClass,
                     totalGlClass: totalGlClass,
                     blockId: blockId,
-                    priceSource: priceSource
+                    priceSource: currentPrice > 0 ? 'API/Cache' : 'Hardcoded'
                 });
             }
             
@@ -2521,11 +2588,21 @@ async function loadPortfolioAnalysisTable(userId) {
             
             renderPortfolioAnalysis(sortedData);
             
-            currentPortfolioSortOrder = 'asc';
-            const sortBtn = document.getElementById('sort-portfolio-btn');
-            if (sortBtn) sortBtn.innerHTML = '🔤 Sort A to Z';
-        });
-    });
+            console.log(`✅ Portfolio analysis rendered: ${portfolioDataForSorting.length} stocks`);
+            
+        } catch (error) {
+            console.error('Error fetching analysis:', error);
+        } finally {
+            isAnalysisLoading = false;
+        }
+    }
+    
+    // প্রথমবার fetch
+    await fetchAndRenderAnalysis();
+    
+    // প্রতি 5 মিনিটে রিফ্রেশ (Snapshot listener এর বদলে)
+    portfolioAnalysisInterval = setInterval(fetchAndRenderAnalysis, 300000);
+    console.log('✅ Portfolio analysis auto-refresh set to 5 minutes');
 }
 
 window.toggleBullLot = function(blockId) {
@@ -4465,7 +4542,70 @@ async function updatePerformanceSummary() {
     } catch (error) {
         console.error('Performance summary error:', error);
     }
+}   
+// ==========================================
+// 🔄 ম্যানুয়াল রিলোড বাটন ফাংশন
+// ==========================================
+
+async function manualReloadDashboard() {
+    const user = auth.currentUser;
+    if (!user) {
+        showToast('Please login first', 'error');
+        return;
+    }
+    
+    if (isManualReloading) {
+        showToast('Already reloading...', 'info');
+        return;
+    }
+    
+    isManualReloading = true;
+    const reloadBtn = document.getElementById('btn-manual-reload');
+    const originalText = reloadBtn ? reloadBtn.innerHTML : '';
+    
+    try {
+        if (reloadBtn) {
+            reloadBtn.innerHTML = '⏳ Loading...';
+            reloadBtn.disabled = true;
+            reloadBtn.style.opacity = '0.7';
+        }
+        
+        showToast('🔄 Manual refresh started...', 'info');
+        
+        // Cache clear করে fresh data আনুন
+        firebaseDataManager.clearCache();
+        localStorage.removeItem('cachedPrices');
+        
+        // সব ডাটা রিলোড করুন
+        await loadDashboardData();
+        await loadUnifiedStockTable(user.uid);
+        await loadPortfolioAnalysisTable(user.uid);
+        await updateTimestamp();
+        
+        showToast('✅ Dashboard refreshed successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Manual reload error:', error);
+        showToast('❌ Refresh failed. Please try again.', 'error');
+    } finally {
+        if (reloadBtn) {
+            reloadBtn.innerHTML = originalText;
+            reloadBtn.disabled = false;
+            reloadBtn.style.opacity = '1';
+        }
+        isManualReloading = false;
+    }
 }
+
+// কীবোর্ড শর্টকাট Ctrl+R / Cmd+R
+document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+        e.preventDefault();
+        if (auth.currentUser) {
+            manualReloadDashboard();
+        }
+    }
+});
 // ==========================================
 // 📅 ফোর্স লাস্ট আপডেট টাইম ফিক্স
 // ==========================================
@@ -4541,20 +4681,80 @@ async function forceLastUpdateTime() {
 document.addEventListener('DOMContentLoaded', function() {
     setTimeout(forceLastUpdateTime, 1000);
 });
+// ==========================================
+// 🎛️ Auto-refresh টগল কন্ট্রোল
+// ==========================================
+
+function initAutoRefreshToggle() {
+    const toggle = document.getElementById('autoRefreshToggle');
+    if (!toggle) return;
+    
+    toggle.addEventListener('change', (e) => {
+        autoRefreshEnabled = e.target.checked;
+        if (autoRefreshEnabled) {
+            startAutoRefresh();
+            showToast('Auto-refresh enabled (every 30 min)', 'info');
+        } else {
+            stopAutoRefresh();
+            showToast('Auto-refresh disabled. Use Manual Refresh button.', 'warning');
+        }
+    });
+}
+
+// টাইমার দেখানোর ফাংশন
+function updateRefreshTimer() {
+    const timerElem = document.getElementById('next-refresh-timer');
+    if (!timerElem || !autoRefreshEnabled || !lastDataLoadTime) return;
+    
+    const now = Date.now();
+    const lastRefresh = lastDataLoadTime?.getTime() || now;
+    const nextRefresh = lastRefresh + 1800000;
+    const remaining = Math.max(0, nextRefresh - now);
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+    
+    timerElem.textContent = `Next: ${minutes}m ${seconds}s`;
+}
+
+// পেজ লোড হলে টগল ইনিশিয়ালাইজ করুন
+document.addEventListener('DOMContentLoaded', () => {
+    initAutoRefreshToggle();
+    
+    // প্রতি সেকেন্ডে টাইমার আপডেট
+    if (document.getElementById('next-refresh-timer')) {
+        setInterval(updateRefreshTimer, 1000);
+    }
+});
 // পেজ হাইড/শো হলে অটো-রিফ্রেশ রিস্টার্ট
+// ==========================================
+// 📱 পেজ হাইড/শো হলে অটো-রিফ্রেস কন্ট্রোল (NO EXTRA RELOAD)
+// ==========================================
+
+let visibilityTimeout = null;
+
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+        // টাইমার ক্লিয়ার করুন
+        if (visibilityTimeout) clearTimeout(visibilityTimeout);
+        
+        // auto-refresh পজ করুন
         if (autoRefreshInterval) {
             clearInterval(autoRefreshInterval);
             autoRefreshInterval = null;
             console.log('⏸️ Auto-refresh paused (page hidden)');
         }
     } else {
-        startAutoRefresh();
-        if (auth.currentUser) {
-            console.log('▶️ Auto-refresh resumed (page visible)');
-            loadDashboardData();
-        }
+        // ডিবাউন্স: 2 সেকেন্ড অপেক্ষা করুন (বারবার অন/অফ হলে)
+        visibilityTimeout = setTimeout(() => {
+            if (autoRefreshEnabled && currentDataMode === 'firebase') {
+                startAutoRefresh();
+                console.log('▶️ Auto-refresh resumed (page visible) - No data reload');
+            }
+            // 🔥 loadDashboardData() কল করবেন না!
+        }, 2000);
+        
+        // শুধু টাইমস্ট্যাম্প আপডেট করুন
+        updateTimestamp();
     }
 });
 // ম্যানুয়ালি সিঙ্ক করার ফাংশন
@@ -5788,3 +5988,39 @@ async function loadDashboardData() {
 }
 
 console.log('✅ loadDashboardData initialized successfully');
+// ==========================================
+// 🧹 CLEANUP ON PAGE UNLOAD - মেমোরি লিক প্রতিরোধ
+// ==========================================
+
+window.addEventListener('beforeunload', () => {
+    console.log('🧹 Cleaning up resources...');
+    
+    // Clear portfolio analysis interval
+    if (portfolioAnalysisInterval) {
+        clearInterval(portfolioAnalysisInterval);
+        portfolioAnalysisInterval = null;
+        console.log('✅ Cleared portfolio analysis interval');
+    }
+    
+    // Clear stock table refresh interval
+    if (stockTableRefreshInterval) {
+        clearInterval(stockTableRefreshInterval);
+        stockTableRefreshInterval = null;
+        console.log('✅ Cleared stock table refresh interval');
+    }
+    
+    // Clear auto refresh interval
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+        console.log('✅ Cleared auto refresh interval');
+    }
+    
+    // Clear Firebase cache
+    if (firebaseDataManager) {
+        firebaseDataManager.clearCache();
+        console.log('✅ Cleared Firebase cache');
+    }
+    
+    console.log('✅ All resources cleaned up');
+});
