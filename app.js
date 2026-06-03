@@ -1545,15 +1545,33 @@ buyLots.sort((a, b) => {
     }
 }
 
-// ৩. সেল এক্সিকিউশন বাটন ক্লিক লজিক
+// ==========================================
+// 🔄 সেল ফাংশন - একবারেই এক্সিকিউট হবে (ডাবল প্রিভেনশন সহ)
+// ==========================================
+
 if (btnExecuteSell) {
-    btnExecuteSell.addEventListener('click', async () => {
+    // পুরনো সব লিসেনার রিমুভ করতে ক্লোন করুন
+    const newSellBtn = btnExecuteSell.cloneNode(true);
+    btnExecuteSell.parentNode.replaceChild(newSellBtn, btnExecuteSell);
+    
+    // নতুন লিসেনার যোগ করুন
+    newSellBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // চেক করুন আগেই প্রসেসিং হচ্ছে কিনা
+        if (newSellBtn.hasAttribute('data-processing')) {
+            console.log('⏸️ Already processing, please wait...');
+            return;
+        }
+        
         const user = auth.currentUser;
         const ticker = sellTickerInput.value.trim().toUpperCase();
 
         if (!user) return alert("দয়া করে প্রথমে লগইন করুন!");
         if (!ticker || currentActiveLots.length === 0) return alert("দয়া করে একটি বৈধ শেয়ার সিলেক্ট করুন।");
         
+        const sellDateInput = document.getElementById('sell-trade-date');
         let selectedDate = sellDateInput ? sellDateInput.value : getTodayDate();
         if (!selectedDate) selectedDate = getTodayDate();
         const transactionDate = new Date(selectedDate);
@@ -1563,83 +1581,120 @@ if (btnExecuteSell) {
             return;
         }
 
-        let totalSoldSuccessfully = 0;
-        const batch = db.batch();
-
-        // প্রথম ধাপ: ইনপুট ভ্যালিডেশন চেক
-        for (let lot of currentActiveLots) {
-            const qtyField = document.getElementById(`input-sell-qty-${lot.docId}`);
-            const priceField = document.getElementById(`input-sell-price-${lot.docId}`);
-            
-            if (qtyField && priceField) {
-                const sellQty = Number(qtyField.value) || 0;
-                const sellPrice = Number(priceField.value) || 0;
-
-                if (sellQty > 0) {
-                    if (sellQty > lot.availableQty) {
-                        alert(`দুঃখিত! এই লটে সর্বোচ্চ ${lot.availableQty} টি শেয়ার অবশিষ্ট আছে।`);
-                        return;
-                    }
-                    if (sellPrice <= 0) {
-                        alert("দয়া করে সঠিক বিক্রয় মূল্য দিন।");
-                        return;
-                    }
-                }
-            }
-        }
-
-        // দ্বিতীয় ধাপ: বিক্রয় রেকর্ড প্রস্তুত
-        for (let lot of currentActiveLots) {
-            const qtyField = document.getElementById(`input-sell-qty-${lot.docId}`);
-            const priceField = document.getElementById(`input-sell-price-${lot.docId}`);
-            
-            if (qtyField && priceField) {
-                const sellQty = Number(qtyField.value) || 0;
-                const sellPrice = Number(priceField.value) || 0;
-
-                if (sellQty > 0) {
-                    const saleRecordRef = db.collection("sales_history").doc();
-                    
-                    batch.set(saleRecordRef, {
-                        userId: user.uid,
-                        shareName: ticker,
-                        quantitySold: sellQty,
-                        buyPrice: lot.buyPrice,
-                        sellPrice: sellPrice,
-                        profitOrLoss: (sellPrice - lot.buyPrice) * sellQty,
-                        date: transactionDate,
-                        createdAt: new Date()
-                    });
-
-                    totalSoldSuccessfully += sellQty;
-                }
-            }
-        }
-
-        if (totalSoldSuccessfully === 0) {
-            return alert("দয়া করে অন্তত যেকোনো একটি লটে বিক্রয়ের পরিমাণ লিখুন।");
-        }
-
-        // তৃতীয় ধাপ: ডেটাবেজে সাবমিট
+        // প্রসেসিং শুরু
+        newSellBtn.setAttribute('data-processing', 'true');
+        
         try {
-            await batch.commit();
+            let totalSoldSuccessfully = 0;
+            let totalSellValue = 0;
+            let totalCommissionAmount = 0;
+            const batch = db.batch();
+
+            // প্রথম ধাপ: ইনপুট ভ্যালিডেশন চেক
+            for (let lot of currentActiveLots) {
+                const qtyField = document.getElementById(`input-sell-qty-${lot.docId}`);
+                const priceField = document.getElementById(`input-sell-price-${lot.docId}`);
+                
+                if (qtyField && priceField) {
+                    const sellQty = Number(qtyField.value) || 0;
+                    const sellPrice = Number(priceField.value) || 0;
+
+                    if (sellQty > 0) {
+                        if (sellQty > lot.availableQty) {
+                            alert(`দুঃখিত! এই লটে সর্বোচ্চ ${lot.availableQty} টি শেয়ার অবশিষ্ট আছে।`);
+                            newSellBtn.removeAttribute('data-processing');
+                            return;
+                        }
+                        if (sellPrice <= 0) {
+                            alert("দয়া করে সঠিক বিক্রয় মূল্য দিন।");
+                            newSellBtn.removeAttribute('data-processing');
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // দ্বিতীয় ধাপ: বিক্রয় রেকর্ড প্রস্তুত (কমিশন সহ)
+            for (let lot of currentActiveLots) {
+                const qtyField = document.getElementById(`input-sell-qty-${lot.docId}`);
+                const priceField = document.getElementById(`input-sell-price-${lot.docId}`);
+                
+                if (qtyField && priceField) {
+                    const sellQty = Number(qtyField.value) || 0;
+                    const sellPrice = Number(priceField.value) || 0;
+
+                    if (sellQty > 0) {
+                        const saleValue = sellQty * sellPrice;
+                        const commission = commissionManager.calculateCommission(saleValue);
+                        const netValue = saleValue - commission;
+                        
+                        totalSellValue += saleValue;
+                        totalCommissionAmount += commission;
+                        
+                        const saleRecordRef = db.collection("sales_history").doc();
+                        
+                        batch.set(saleRecordRef, {
+                            userId: user.uid,
+                            shareName: ticker,
+                            quantitySold: sellQty,
+                            buyPrice: lot.buyPrice,
+                            sellPrice: sellPrice,
+                            profitOrLoss: (sellPrice - lot.buyPrice) * sellQty,
+                            date: transactionDate,
+                            createdAt: new Date(),
+                            commission: commission,
+                            commissionPercent: commissionManager.getPercent(),
+                            netReceived: netValue
+                        });
+
+                        totalSoldSuccessfully += sellQty;
+                    }
+                }
+            }
+
+            if (totalSoldSuccessfully === 0) {
+                alert("দয়া করে অন্তত যেকোনো একটি লটে বিক্রয়ের পরিমাণ লিখুন।");
+                newSellBtn.removeAttribute('data-processing');
+                return;
+            }
+
+            // কনফার্মেশন মেসেজ
+            const commissionPercent = commissionManager.getPercent();
+            let confirmMsg = `Sell Order Summary:\n`;
+            confirmMsg += `📊 Share: ${ticker}\n`;
+            confirmMsg += `📦 Total Sell Qty: ${totalSoldSuccessfully}\n`;
+            confirmMsg += `💰 Total Sell Value: ৳${totalSellValue.toFixed(2)}\n`;
+            if (commissionPercent > 0) {
+                confirmMsg += `💸 Commission (${commissionPercent}%): ৳${totalCommissionAmount.toFixed(2)}\n`;
+                confirmMsg += `───────────────────────────────\n`;
+                confirmMsg += `💵 Net Receivable: ৳${(totalSellValue - totalCommissionAmount).toFixed(2)}\n`;
+            }
             
-            // রিসেট ফর্ম
+            if (!confirm(confirmMsg)) {
+                newSellBtn.removeAttribute('data-processing');
+                return;
+            }
+
+            await batch.commit();
+            alert(`✅ সফলভাবে ${totalSoldSuccessfully} টি ${ticker} শেয়ার বিক্রয় রেকর্ড করা হয়েছে।`);
+
+            // ফর্ম রিসেট
             sellTickerInput.value = "";
             sellHoldingsContainer.classList.add('hidden');
             if (sellDateInput) sellDateInput.value = getTodayDate();
 
-            // ✅ শুধু affected টেবিল আপডেট করুন - পেজ রিলোড ছাড়া
+            // টেবিল রিফ্রেশ
             if (auth.currentUser) {
-                loadUnifiedStockTable(auth.currentUser.uid);
-                loadPortfolioAnalysisTable(auth.currentUser.uid);
-                loadDashboardData();
-                showToast(`Successfully sold ${totalSoldSuccessfully} shares of ${ticker}`, 'success');
+                await loadUnifiedStockTable(auth.currentUser.uid);
+                await loadPortfolioAnalysisTable(auth.currentUser.uid);
+                await loadDashboardData();
             }
             
         } catch (error) {
             console.error("সেল এক্সিকিউট করতে সমস্যা:", error);
             alert("দুঃখিত, কারিগরি ত্রুটির কারণে বিক্রি সম্পন্ন করা যায়নি।");
+        } finally {
+            newSellBtn.removeAttribute('data-processing');
         }
     });
 }
@@ -5408,127 +5463,7 @@ async function calculateAndUpdatePortfolioValues(priceMap) {
 // 🔄 Sell ফাংশন আপডেট (কমিশন সহ)
 // ==========================================
 
-// বিদ্যমান btnExecuteSell আপডেট করুন
-if (btnExecuteSell) {
-    const originalSellHandler = btnExecuteSell.onclick;
-    
-    btnExecuteSell.addEventListener('click', async () => {
-        const user = auth.currentUser;
-        const ticker = sellTickerInput.value.trim().toUpperCase();
 
-        if (!user) return alert("দয়া করে প্রথমে লগইন করুন!");
-        if (!ticker || currentActiveLots.length === 0) return alert("দয়া করে একটি বৈধ শেয়ার সিলেক্ট করুন।");
-        
-        const sellDateInput = document.getElementById('sell-trade-date');
-        let selectedDate = sellDateInput ? sellDateInput.value : getTodayDate();
-        if (!selectedDate) selectedDate = getTodayDate();
-        const transactionDate = new Date(selectedDate);
-        
-        if (isNaN(transactionDate.getTime())) {
-            alert("Invalid date! Please select a valid date.");
-            return;
-        }
-
-        let totalSoldSuccessfully = 0;
-        let totalSellValue = 0;
-        let totalCommissionAmount = 0;
-        const batch = db.batch();
-
-        // প্রথম ধাপ: ইনপুট ভ্যালিডেশন চেক
-        for (let lot of currentActiveLots) {
-            const qtyField = document.getElementById(`input-sell-qty-${lot.docId}`);
-            const priceField = document.getElementById(`input-sell-price-${lot.docId}`);
-            
-            if (qtyField && priceField) {
-                const sellQty = Number(qtyField.value) || 0;
-                const sellPrice = Number(priceField.value) || 0;
-
-                if (sellQty > 0) {
-                    if (sellQty > lot.availableQty) {
-                        alert(`দুঃখিত! এই লটে সর্বোচ্চ ${lot.availableQty} টি শেয়ার অবশিষ্ট আছে।`);
-                        return;
-                    }
-                    if (sellPrice <= 0) {
-                        alert("দয়া করে সঠিক বিক্রয় মূল্য দিন।");
-                        return;
-                    }
-                }
-            }
-        }
-
-        // দ্বিতীয় ধাপ: বিক্রয় রেকর্ড প্রস্তুত (কমিশন সহ)
-        for (let lot of currentActiveLots) {
-            const qtyField = document.getElementById(`input-sell-qty-${lot.docId}`);
-            const priceField = document.getElementById(`input-sell-price-${lot.docId}`);
-            
-            if (qtyField && priceField) {
-                const sellQty = Number(qtyField.value) || 0;
-                const sellPrice = Number(priceField.value) || 0;
-
-                if (sellQty > 0) {
-                    const saleValue = sellQty * sellPrice;
-                    const commission = commissionManager.calculateCommission(saleValue);
-                    const netValue = saleValue - commission;
-                    
-                    totalSellValue += saleValue;
-                    totalCommissionAmount += commission;
-                    
-                    const saleRecordRef = db.collection("sales_history").doc();
-                    
-                    batch.set(saleRecordRef, {
-                        userId: user.uid,
-                        shareName: ticker,
-                        quantitySold: sellQty,
-                        buyPrice: lot.buyPrice,
-                        sellPrice: sellPrice,
-                        profitOrLoss: (sellPrice - lot.buyPrice) * sellQty,
-                        date: transactionDate,
-                        createdAt: new Date(),
-                        commission: commission,           // কমিশন টাকার পরিমাণ
-                        commissionPercent: commissionManager.getPercent(),
-                        netReceived: netValue             // কমিশন কাটা后的 net amount
-                    });
-
-                    totalSoldSuccessfully += sellQty;
-                }
-            }
-        }
-
-        if (totalSoldSuccessfully === 0) {
-            return alert("দয়া করে অন্তত যেকোনো একটি লটে বিক্রয়ের পরিমাণ লিখুন।");
-        }
-
-        // কনফার্মেশন মেসেজ (কমিশন সহ)
-        const commissionPercent = commissionManager.getPercent();
-        let confirmMsg = `Sell Order Summary:\n`;
-        confirmMsg += `📊 Share: ${ticker}\n`;
-        confirmMsg += `📦 Total Sell Qty: ${totalSoldSuccessfully}\n`;
-        confirmMsg += `💰 Total Sell Value: ৳${totalSellValue.toFixed(2)}\n`;
-        if (commissionPercent > 0) {
-            confirmMsg += `💸 Commission (${commissionPercent}%): ৳${totalCommissionAmount.toFixed(2)}\n`;
-            confirmMsg += `───────────────────────────────\n`;
-            confirmMsg += `💵 Net Receivable: ৳${(totalSellValue - totalCommissionAmount).toFixed(2)}\n`;
-        }
-        
-        if (!confirm(confirmMsg)) return;
-
-        try {
-            await batch.commit();
-            alert(`অভিনন্দন! সফলভাবে ${totalSoldSuccessfully} টি ${ticker} শেয়ার বিক্রয় রেকর্ড করা হয়েছে।`);
-
-            sellTickerInput.value = "";
-            sellHoldingsContainer.classList.add('hidden');
-            if (sellDateInput) sellDateInput.value = getTodayDate();
-
-            if (auth.currentUser) {
-                loadUnifiedStockTable(auth.currentUser.uid);
-            }
-        } catch (error) {
-            console.error("সেল এক্সিকিউট করতে সমস্যা:", error);
-            alert("দুঃখিত, কারিগরি ত্রুটির কারণে বিক্রি সম্পন্ন করা যায়নি।");
-        }
-    });
-}
 
 // ==========================================
 // 📈 Stock Table এ কমিশন সহ Realized/Unrealized দেখানো

@@ -1788,3 +1788,62 @@ input:checked + .slider:before {
     width: 200%;
     height: 200%;
 }
+
+/* ==========================================
+   🔥 ফোর্স স্টিকি কলাম - ফাইনাল ফিক্স
+   ========================================== */
+
+/* টেবিল কন্টেইনার - স্টিকির জন্য গুরুত্বপূর্ণ */
+#sec-table {
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    position: relative !important;
+    width: 100% !important;
+}
+
+/* টেবিলের প্যারেন্ট ডিভ */
+#sec-table > div:first-child {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+/* টেবিল */
+#portfolio-table {
+    min-width: 950px !important;
+    width: 100% !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+}
+
+/* ১ম কলাম স্টিকি */
+#portfolio-table-body td:first-child,
+#sec-table thead th:first-child {
+    position: sticky !important;
+    left: 0 !important;
+    background-color: var(--bg-secondary, #ffffff) !important;
+    z-index: 100 !important;
+}
+
+/* হেডার স্টিকি */
+#sec-table thead th:first-child {
+    z-index: 200 !important;
+    background-color: var(--bg-tertiary, #f8fafc) !important;
+}
+
+/* ডার্ক মোডে ব্যাকগ্রাউন্ড */
+[data-theme="dark"] #portfolio-table-body td:first-child {
+    background-color: var(--bg-secondary, #1e293b) !important;
+}
+
+[data-theme="dark"] #sec-table thead th:first-child {
+    background-color: var(--bg-tertiary, #334155) !important;
+}
+
+/* হোভার ইফেক্ট */
+#portfolio-table-body tr:hover td:first-child {
+    background-color: var(--hover-bg, #f8fafc) !important;
+}
+
+[data-theme="dark"] #portfolio-table-body tr:hover td:first-child {
+    background-color: #334155 !important;
+}
