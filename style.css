@@ -1282,3 +1282,509 @@ input:checked + .slider:before {
 [data-theme="dark"] .slider {
     background-color: #475569;
 }
+
+
+/* সেকশন হেডার */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.section-header h2 {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary, #1e293b);
+    margin: 0;
+}
+
+.section-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+
+.btn-csv {
+    background: #10b981;
+    color: white;
+}
+
+.btn-csv:hover {
+    background: #059669;
+}
+
+.btn-refresh {
+    background: #3b82f6;
+    color: white;
+}
+
+.btn-refresh:hover {
+    background: #2563eb;
+}
+
+/* Summary Cards */
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-top: 24px;
+}
+
+.summary-card {
+    background: var(--bg-primary, #ffffff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.2s;
+}
+
+.summary-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.summary-card-icon {
+    font-size: 24px;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-secondary, #f1f5f9);
+    border-radius: 10px;
+}
+
+.summary-card-content {
+    flex: 1;
+}
+
+.summary-card-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary, #64748b);
+    margin-bottom: 4px;
+}
+
+.summary-card-value {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary, #1e293b);
+}
+
+/* ==========================================
+   🧊 স্টক টেবিল স্টিকি কলাম - মোবাইল ফিক্স
+   ========================================== */
+
+/* টেবিল কন্টেইনার - গুরুত্বপূর্ণ */
+#sec-table {
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    position: relative !important;
+    width: 100% !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* টেবিল র‍্যাপার */
+.table-scroll-wrapper {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    position: relative;
+}
+
+/* টেবিল কন্টেইনার */
+.table-container {
+    overflow-x: auto !important;
+}
+
+/* টেবিল */
+.stock-table {
+    min-width: 900px !important;
+    width: 100% !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+}
+
+/* স্টিকি কলাম - মোবাইলের জন্য স্পেশাল */
+.stock-table th:first-child,
+.stock-table td:first-child {
+    position: -webkit-sticky !important;
+    position: sticky !important;
+    left: 0 !important;
+    background-color: var(--bg-secondary, #ffffff) !important;
+    z-index: 10 !important;
+}
+
+/* হেডার স্টিকি */
+.stock-table thead th:first-child {
+    position: -webkit-sticky !important;
+    position: sticky !important;
+    left: 0 !important;
+    top: 0 !important;
+    background-color: var(--bg-tertiary, #f8fafc) !important;
+    z-index: 20 !important;
+}
+
+/* স্টিকি কলামের ছায়া */
+.stock-table td:first-child {
+    box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.1);
+}
+
+/* হোভার ইফেক্ট */
+.stock-table tbody tr:hover td:first-child {
+    background-color: var(--hover-bg, #f8fafc) !important;
+}
+
+/* ডার্ক মোড */
+[data-theme="dark"] .stock-table td:first-child {
+    background-color: var(--bg-secondary, #1e293b) !important;
+}
+
+[data-theme="dark"] .stock-table thead th:first-child {
+    background-color: var(--bg-tertiary, #334155) !important;
+}
+
+[data-theme="dark"] .stock-table tbody tr:hover td:first-child {
+    background-color: #334155 !important;
+}
+/* ==========================================
+   🧊 ফোর্স স্টিকি কলাম - ফাইনাল ফিক্স
+   ========================================== */
+
+/* টেবিল কন্টেইনার */
+#sec-table {
+    overflow-x: auto !important;
+    position: relative !important;
+}
+
+/* টেবিলের প্যারেন্ট */
+.table-scroll-wrapper {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+/* টেবিলের বেসিক সেটিং */
+.stock-table {
+    min-width: 950px !important;
+    width: 100% !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+}
+
+/* সবচেয়ে গুরুত্বপূর্ণ - স্টিকি কলাম */
+.stock-table th:first-child,
+.stock-table td:first-child {
+    position: -webkit-sticky !important;
+    position: sticky !important;
+    left: 0 !important;
+    background-color: var(--bg-secondary, #ffffff) !important;
+    background: var(--bg-secondary, #ffffff) !important;
+    z-index: 100 !important;
+}
+
+/* হেডারের স্টিকি কলাম */
+.stock-table thead th:first-child {
+    position: -webkit-sticky !important;
+    position: sticky !important;
+    left: 0 !important;
+    top: 0 !important;
+    background-color: var(--bg-tertiary, #f8fafc) !important;
+    background: var(--bg-tertiary, #f8fafc) !important;
+    z-index: 200 !important;
+}
+
+/* ডায়নামিক রো এর জন্য স্পেশাল */
+#portfolio-table-body tr td:first-child {
+    position: -webkit-sticky !important;
+    position: sticky !important;
+    left: 0 !important;
+    background-color: inherit !important;
+}
+
+/* হোভার ইফেক্ট */
+.stock-table tbody tr:hover td:first-child {
+    background-color: var(--hover-bg, #f8fafc) !important;
+}
+
+/* ডার্ক মোড */
+[data-theme="dark"] .stock-table td:first-child,
+[data-theme="dark"] #portfolio-table-body tr td:first-child {
+    background-color: var(--bg-secondary, #1e293b) !important;
+}
+
+[data-theme="dark"] .stock-table thead th:first-child {
+    background-color: var(--bg-tertiary, #334155) !important;
+}
+
+[data-theme="dark"] .stock-table tbody tr:hover td:first-child {
+    background-color: #334155 !important;
+}
+
+/* ছায়া ইফেক্ট */
+.stock-table td:first-child {
+    box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.1) !important;
+}
+/* =======================================================
+   স্টক টেবিলের ১ম কলাম স্টিকি করার ফিক্স
+   ======================================================= */
+
+/* ১. নতুন প্যারেন্ট কন্টেইনারকে স্ক্রলযোগ্য করা (এটি ছাড়া স্টিকি কাজ করবে না) */
+.table-responsive-container {
+    overflow-x: auto !important;
+    max-width: 100% !important;
+    position: relative !important;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+}
+
+/* ২. ডার্ক মোডেও ১ম কলামের ব্যাকগ্রাউন্ড সঠিক রাখা */
+[data-theme="dark"] .stock-table td:first-child,
+[data-theme="dark"] #portfolio-table-body tr td:first-child {
+    background-color: #1e293b !important; /* ডার্ক মোডের ব্যাকগ্রাউন্ড কালার */
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .stock-table thead th:first-child {
+    background-color: #334155 !important; /* ডার্ক মোড হেডার ব্যাকগ্রাউন্ড */
+    color: #ffffff !important;
+}
+/* ==========================================
+   💎 প্রিমিয়াম কার্ড ডিজাইন - ড্যাশবোর্ড ও পোর্টফোলিও অ্যানালাইসিস
+   ========================================== */
+
+/* কার্ড কন্টেইনার */
+.portfolio-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+    margin-bottom: 30px;
+    margin-top: 10px;
+}
+
+/* প্রতিটি কার্ডের বেস স্টাইল */
+.premium-card {
+    position: relative;
+    border-radius: 24px;
+    padding: 20px;
+    color: white;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+}
+
+.premium-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.3);
+}
+
+/* কার্ডের ব্যাকগ্রাউন্ড গ্রেডিয়েন্ট */
+.card-1 { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.card-2 { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+.card-3 { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+.card-4 { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+
+/* ডার্ক মোডে কার্ড */
+[data-theme="dark"] .card-1,
+[data-theme="dark"] .card-2,
+[data-theme="dark"] .card-3,
+[data-theme="dark"] .card-4 {
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+/* কার্ডের আইকন */
+.card-icon {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    font-size: 48px;
+    opacity: 0.2;
+    transition: all 0.3s ease;
+}
+
+.premium-card:hover .card-icon {
+    opacity: 0.35;
+    transform: scale(1.1);
+}
+
+/* কার্ডের শিরোনাম */
+.card-label {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    opacity: 0.85;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* কার্ডের প্রধান ভ্যালু */
+.card-value {
+    font-size: 32px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    line-height: 1.2;
+    word-break: break-word;
+}
+
+/* কার্ডের সাব-টেক্সট (শতকরা) */
+.card-percent {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    opacity: 0.95;
+}
+
+/* কার্ডের ফুটার তথ্য */
+.card-footer {
+    font-size: 11px;
+    opacity: 0.7;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* পজিটিভ/নেগেটিভ রঙ */
+.positive-change {
+    color: #90ffb0;
+    text-shadow: 0 0 4px rgba(144, 255, 176, 0.3);
+}
+
+.negative-change {
+    color: #ffaaaa;
+    text-shadow: 0 0 4px rgba(255, 170, 170, 0.3);
+}
+
+/* লোডিং অ্যানিমেশন */
+.card-loading {
+    animation: cardPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes cardPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* টুলটিপ */
+.card-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    margin-bottom: 8px;
+}
+
+.premium-card:hover .card-tooltip {
+    opacity: 1;
+}
+
+/* রেসপনসিভ ডিজাইন */
+@media (max-width: 1024px) {
+    .portfolio-summary-cards {
+        gap: 16px;
+    }
+    
+    .card-value {
+        font-size: 26px;
+    }
+    
+    .card-label {
+        font-size: 11px;
+    }
+}
+
+@media (max-width: 768px) {
+    .portfolio-summary-cards {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    
+    .premium-card {
+        padding: 14px;
+    }
+    
+    .card-value {
+        font-size: 22px;
+    }
+    
+    .card-icon {
+        font-size: 36px;
+    }
+}
+
+@media (max-width: 480px) {
+    .portfolio-summary-cards {
+        gap: 10px;
+    }
+    
+    .premium-card {
+        padding: 12px;
+    }
+    
+    .card-value {
+        font-size: 18px;
+    }
+    
+    .card-label {
+        font-size: 9px;
+    }
+    
+    .card-percent {
+        font-size: 11px;
+    }
+    
+    .card-footer {
+        font-size: 9px;
+    }
+}
+
+/* হোভার ইফেক্টের জন্য রিপল ইফেক্ট */
+.premium-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.premium-card::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    transform: translate(-50%, -50%);
+    transition: width 0.5s, height 0.5s;
+}
+
+.premium-card:active::after {
+    width: 200%;
+    height: 200%;
+}

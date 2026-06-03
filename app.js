@@ -290,7 +290,112 @@ function getTodayDate() {
     const day = String(today.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 }
+// ==========================================
+// 🔥 ইউনিফাইড পোর্টফোলিও ক্যালকুলেশন (সব জায়গায় একই)
+// ==========================================
 
+async function getUnifiedPortfolioCalculation(userId) {
+    if (!userId) return null;
+    
+    try {
+        const [portfolioSnapshot, salesSnapshot] = await Promise.all([
+            db.collection("portfolios").where("userId", "==", userId).get(),
+            db.collection("sales_history").where("userId", "==", userId).get()
+        ]);
+        
+        // সেল ডাটা প্রসেস
+        const totalSoldMap = new Map();
+        salesSnapshot.forEach(doc => {
+            const data = doc.data();
+            totalSoldMap.set(data.shareName, (totalSoldMap.get(data.shareName) || 0) + data.quantitySold);
+        });
+        
+        // বাই লট তৈরি (কমিশন সহ)
+        const buyLots = [];
+        portfolioSnapshot.forEach(doc => {
+            const data = doc.data();
+            const totalCostWithCommission = (data.quantity * data.buyPrice) + (data.commission || 0);
+            buyLots.push({
+                ticker: data.shareName,
+                qty: data.quantity,
+                buyPrice: data.buyPrice,
+                totalCostWithCommission: totalCostWithCommission,
+                perUnitCostWithCommission: totalCostWithCommission / data.quantity,
+                date: data.date ? (data.date.toDate ? data.date.toDate() : new Date(data.date)) : new Date()
+            });
+        });
+        
+        // FIFO পদ্ধতিতে সাজানো
+        buyLots.sort((a, b) => a.date - b.date);
+        
+        // রিমেইনিং ট্র্যাকার (FIFO)
+        const remainingTracker = new Map();
+        const sellRemaining = new Map(totalSoldMap);
+        
+        for (const lot of buyLots) {
+            let remainingQty = lot.qty;
+            let toSell = sellRemaining.get(lot.ticker) || 0;
+            
+            if (toSell > 0 && remainingQty > 0) {
+                const sellFromThisLot = Math.min(remainingQty, toSell);
+                remainingQty -= sellFromThisLot;
+                toSell -= sellFromThisLot;
+                sellRemaining.set(lot.ticker, toSell);
+            }
+            
+            if (remainingQty > 0) {
+                if (!remainingTracker.has(lot.ticker)) {
+                    remainingTracker.set(lot.ticker, { totalQty: 0, totalCost: 0, lots: [] });
+                }
+                const current = remainingTracker.get(lot.ticker);
+                const lotCost = remainingQty * lot.perUnitCostWithCommission;
+                current.totalQty += remainingQty;
+                current.totalCost += lotCost;
+                current.lots.push({
+                    qty: remainingQty,
+                    buyPrice: lot.buyPrice,
+                    perUnitCostWithCommission: lot.perUnitCostWithCommission,
+                    totalCost: lotCost,
+                    date: lot.date
+                });
+                remainingTracker.set(lot.ticker, current);
+            }
+        }
+        
+        // টোটাল ক্যালকুলেশন
+        let totalInvestment = 0;
+        let totalBuyValue = 0;
+        let totalRemainingQty = 0;
+        const stockDetails = [];
+        
+        for (const [ticker, data] of remainingTracker) {
+            totalInvestment += data.totalCost;
+            totalBuyValue += data.lots.reduce((sum, lot) => sum + (lot.qty * lot.buyPrice), 0);
+            totalRemainingQty += data.totalQty;
+            
+            stockDetails.push({
+                ticker: ticker,
+                totalQty: data.totalQty,
+                totalCost: data.totalCost,
+                avgBuyPriceWithCommission: data.totalCost / data.totalQty,
+                avgBuyPrice: (data.lots.reduce((sum, lot) => sum + (lot.qty * lot.buyPrice), 0)) / data.totalQty,
+                lots: data.lots
+            });
+        }
+        
+        return {
+            totalInvestment: totalInvestment,
+            totalBuyValue: totalBuyValue,
+            totalRemainingQty: totalRemainingQty,
+            stockDetails: stockDetails,
+            method: 'FIFO with Commission'
+        };
+        
+    } catch (error) {
+        console.error('Unified calculation error:', error);
+        return null;
+    }
+}
 // API থেকে ডাটা লোড
 async function loadFromAPI(user) {
     try {
@@ -798,6 +903,7 @@ window.switchTab = function(tabName) {
 };
 
 // ==========================================
+// ==========================================
 // ৫. ফায়ারবেস ফায়ারস্টোরে ডাটা সেভ করা (Buy Share)
 // ==========================================
 const btnBuy = document.querySelector('.btn-buy');
@@ -810,7 +916,8 @@ if (btnBuy) {
 
         if (!user) return alert("দয়া করে আগে লগইন করুন!");
         if (!shareName || !quantity || !price) return alert("সবগুলো ঘর সঠিকভাবে পূরণ করুন!");
-let selectedDate = tradeDateInput ? tradeDateInput.value : getTodayDate();
+        
+        let selectedDate = tradeDateInput ? tradeDateInput.value : getTodayDate();
         if (!selectedDate) selectedDate = getTodayDate();
         const transactionDate = new Date(selectedDate);
         
@@ -818,6 +925,7 @@ let selectedDate = tradeDateInput ? tradeDateInput.value : getTodayDate();
             alert("Invalid date! Please select a valid date.");
             return;
         }
+        
         try {
             await db.collection("portfolios").add({
                 userId: user.uid,        
@@ -825,31 +933,27 @@ let selectedDate = tradeDateInput ? tradeDateInput.value : getTodayDate();
                 quantity: Number(quantity),
                 buyPrice: Number(price),
                 type: "BUY",
-                date: transactionDate,  // ✅ ইউজারের দেওয়া তারিখ
-    createdAt: new Date()
+                date: transactionDate,
+                createdAt: new Date()
             });
 
-            alert(`${shareName} শেয়ারটি সফলভাবে পোর্টফোলিওতে যোগ হয়েছে! তারিখ: ${selectedDate}`);
-tickerInput.value = "";
-document.getElementById('trade-qty').value = "";
-priceInput.value = "";
-if (tradeDateInput) tradeDateInput.value = getTodayDate();
+            // ফর্ম রিসেট করুন
+            tickerInput.value = "";
+            document.getElementById('trade-qty').value = "";
+            priceInput.value = "";
+            if (tradeDateInput) tradeDateInput.value = getTodayDate();
 
-// setTimeout(() => {
-//     location.reload();  // ← কমেন্ট করে দিন অথবা ডিলিট করুন
-// }, 500);
-
-// ✅ এর জায়গায় শুধু affected টেবিল রিফ্রেশ করুন
-if (auth.currentUser) {
-    // শুধু affected ফাংশন কল করুন
-    loadUnifiedStockTable(auth.currentUser.uid);
-    loadPortfolioAnalysisTable(auth.currentUser.uid);
-    loadDashboardData();  // ড্যাশবোর্ড আপডেটের জন্য
-    showToast(`${shareName} purchased successfully!`, 'success');
-}
+            // ✅ শুধু affected টেবিল আপডেট করুন - পেজ রিলোড ছাড়া
+            if (auth.currentUser) {
+                loadUnifiedStockTable(auth.currentUser.uid);
+                loadPortfolioAnalysisTable(auth.currentUser.uid);
+                loadDashboardData();
+                showToast(`${shareName} purchased successfully!`, 'success');
+            }
 
         } catch (error) {
             console.error("ডাটা সেভ করতে সমস্যা হয়েছে: ", error);
+            alert("Failed to save purchase!");
         }
     });
 }
@@ -918,20 +1022,12 @@ function updateDashboardChart(labels, investData, valueData) {
 }
 
 // ==========================================
-// 📋 ইউনিফাইড স্টক টেবিল - অপটিমাইজড ভার্সন (কম রিড)
-// ==========================================
-
-// ==========================================
-// 📋 ইউনিফাইড স্টক টেবিল - সম্পূর্ণ ভার্সন (চার্ট সহ)
-// ==========================================
-
-// ==========================================
-// 📋 ইউনিফাইড স্টক টেবিল - সম্পূর্ণ ভার্সন (চার্ট সহ)
+// 📋 ইউনিফাইড স্টক টেবিল - কমিশন সহ সম্পূর্ণ ভার্সন
 // ==========================================
 
 let stockTableRefreshInterval = null;
 
-function loadUnifiedStockTable(userId) {
+async function loadUnifiedStockTable(userId) {
     if (!userId) {
         console.error("User ID is required");
         return;
@@ -945,32 +1041,50 @@ function loadUnifiedStockTable(userId) {
     
     async function loadStockData() {
         try {
-            tableBody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Loading...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="10" style="text-align:center;">Loading...</td></tr>';
             
             const [portfolioSnapshot, salesSnapshot] = await Promise.all([
                 db.collection("portfolios").where("userId", "==", userId).get(),
                 db.collection("sales_history").where("userId", "==", userId).get()
             ]);
             
+            // 🔥 ইউনিফাইড ফাংশন থেকে ডাটা আনি
+            const unifiedData = await getUnifiedPortfolioCalculation(userId);
+            
+            // সেলস ডাটা প্রসেস - totalSoldQtyMap তৈরি
+            let totalSoldQtyMap = new Map();
+            salesSnapshot.forEach(doc => {
+                const data = doc.data();
+                totalSoldQtyMap.set(data.shareName, (totalSoldQtyMap.get(data.shareName) || 0) + data.quantitySold);
+            });
+            
+            // পোর্টফোলিও ডাটা প্রসেস - mergedPortfolio তৈরি (ডিসপ্লের জন্য)
             let mergedPortfolio = {};
             let chartLots = [];
             
-            // পোর্টফোলিও ডাটা প্রসেস
             portfolioSnapshot.forEach(doc => {
                 const data = doc.data();
                 const ticker = data.shareName;
                 const totalCost = data.quantity * data.buyPrice;
+                const totalCostWithCommission = totalCost + (data.commission || 0);
                 
                 if (!mergedPortfolio[ticker]) {
                     mergedPortfolio[ticker] = {
-                        shareName: ticker, buyQty: 0, totalBuyCost: 0, sellQty: 0, totalSellValue: 0, realizedProfit: 0   
+                        shareName: ticker, 
+                        buyQty: 0, 
+                        totalBuyCost: 0,           // কমিশন ছাড়া
+                        totalBuyCostWithCommission: 0,  // কমিশন সহ
+                        sellQty: 0, 
+                        totalSellValue: 0, 
+                        realizedProfit: 0   
                     };
                 }
                 mergedPortfolio[ticker].buyQty += data.quantity;
                 mergedPortfolio[ticker].totalBuyCost += totalCost;
+                mergedPortfolio[ticker].totalBuyCostWithCommission += totalCostWithCommission;
                 
                 const lotDate = data.date ? (data.date.toDate ? data.date.toDate() : new Date(data.date)) : new Date();
-                chartLots.push({ ticker: ticker, date: lotDate, totalCost: totalCost, currentValue: 0 });
+                chartLots.push({ ticker: ticker, date: lotDate, totalCost: totalCostWithCommission, currentValue: 0 });
             });
             
             // সেলস ডাটা প্রসেস
@@ -978,53 +1092,74 @@ function loadUnifiedStockTable(userId) {
                 const data = doc.data();
                 const ticker = data.shareName;
                 if (!mergedPortfolio[ticker]) {
-                    mergedPortfolio[ticker] = { shareName: ticker, buyQty: 0, totalBuyCost: 0, sellQty: 0, totalSellValue: 0, realizedProfit: 0 };
+                    mergedPortfolio[ticker] = { 
+                        shareName: ticker, 
+                        buyQty: 0, 
+                        totalBuyCost: 0, 
+                        totalBuyCostWithCommission: 0,
+                        sellQty: 0, 
+                        totalSellValue: 0, 
+                        realizedProfit: 0 
+                    };
                 }
                 mergedPortfolio[ticker].sellQty += data.quantitySold;
                 mergedPortfolio[ticker].totalSellValue += (data.quantitySold * data.sellPrice);
                 mergedPortfolio[ticker].realizedProfit += data.profitOrLoss;
             });
+            
             const tickers = Object.keys(mergedPortfolio);
-// 5 টা করে প্যারালালে ফেচ করুন
-const batchSize = 5;
-const pricePromises = [];
-for (let i = 0; i < tickers.length; i += batchSize) {
-    const batch = tickers.slice(i, i + batchSize);
-    const batchPromises = batch.map(async (ticker) => {
-        let price = 0;
-        try {
-            const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
-            if (response.ok) {
-                const stockData = await response.json();
-                if (stockData && stockData.ltp) price = stockData.ltp;
+            
+            // 🔥 প্রাইস ফেচ করুন (batch আকারে)
+            const batchSize = 5;
+            const pricePromises = [];
+            for (let i = 0; i < tickers.length; i += batchSize) {
+                const batch = tickers.slice(i, i + batchSize);
+                const batchPromises = batch.map(async (ticker) => {
+                    let price = 0;
+                    try {
+                        const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
+                        if (response.ok) {
+                            const stockData = await response.json();
+                            if (stockData && stockData.ltp) price = stockData.ltp;
+                        }
+                    } catch (err) { console.error(err); }
+                    if (price === 0) price = Number(getHardcodedPrice(ticker));
+                    return { ticker, price };
+                });
+                pricePromises.push(...batchPromises);
             }
-        } catch (err) { console.error(err); }
-        if (price === 0) price = Number(getHardcodedPrice(ticker));
-        return { ticker, price };
-    });
-    pricePromises.push(...batchPromises);
-}
             
             const priceResults = await Promise.all(pricePromises);
             const priceMap = {};
             priceResults.forEach(res => { priceMap[res.ticker] = res.price; });
             
-            let totalInvestment = 0, totalCurrentValue = 0, totalUnrealized = 0, totalRealized = 0;
+            let totalInvestment = 0;
+            let totalCurrentValue = 0;
+            let totalUnrealized = 0;
+            let totalRealized = 0;
             let rowsHtml = "";
             
             for (let ticker in mergedPortfolio) {
                 const item = mergedPortfolio[ticker];
-                const currentPrice = priceMap[ticker];
+                const currentPrice = priceMap[ticker] || 0;
                 
                 let remainingQty = item.buyQty - item.sellQty; 
-                if (remainingQty < 0) remainingQty = 0; 
+                if (remainingQty < 0) remainingQty = 0;
                 
+                // এভারেজ বাই প্রাইস (কমিশন ছাড়া - ডিসপ্লের জন্য)
                 let avgBuyPrice = item.buyQty > 0 ? (item.totalBuyCost / item.buyQty) : 0;
+                
+                // এভারেজ বাই প্রাইস কমিশন সহ (সঠিক ক্যালকুলেশনের জন্য)
+                let avgBuyPriceWithCommission = item.buyQty > 0 ? (item.totalBuyCostWithCommission / item.buyQty) : 0;
+                
                 let currentLiveValue = remainingQty * currentPrice;
-                let unrealizedReturn = remainingQty > 0 ? (currentLiveValue - (remainingQty * avgBuyPrice)) : 0;
+                
+                // ইউনরিয়ালাইজড রিটার্ন (কমিশন সহ খরচের ভিত্তিতে)
+                let unrealizedReturn = remainingQty > 0 ? (currentLiveValue - (remainingQty * avgBuyPriceWithCommission)) : 0;
+                
                 let avgSellPrice = item.sellQty > 0 ? (item.totalSellValue / item.sellQty) : 0;
                 
-                totalInvestment += (remainingQty * avgBuyPrice);
+                totalInvestment += (remainingQty * avgBuyPriceWithCommission);
                 totalCurrentValue += currentLiveValue;
                 totalUnrealized += unrealizedReturn;
                 totalRealized += item.realizedProfit;
@@ -1032,7 +1167,7 @@ for (let i = 0; i < tickers.length; i += batchSize) {
                 const unresClass = unrealizedReturn >= 0 ? "up" : "error";
                 const resClass = item.realizedProfit >= 0 ? "up" : "error";
                 
-                let nameClass = "name-default"; 
+                let nameClass = "name-default";
                 let nameSuffix = "";
                 if (item.sellQty > 0) {
                     if (item.realizedProfit > 0) nameClass = "name-positive";
@@ -1040,14 +1175,22 @@ for (let i = 0; i < tickers.length; i += batchSize) {
                     if (remainingQty === 0) nameSuffix = ` <span style="color:#ef4444; font-size:10px;">(Sold Out)</span>`;
                 }
                 
+                // Unrealized Percentage calculate করুন
+                let unrealizedPercent = 0;
+                if (remainingQty > 0 && avgBuyPriceWithCommission > 0) {
+                    unrealizedPercent = ((currentPrice - avgBuyPriceWithCommission) / avgBuyPriceWithCommission) * 100;
+                }
+                const unresPercentClass = unrealizedPercent >= 0 ? "up" : "error";
+                
                 rowsHtml += `
-                    <tr style="cursor: pointer;" onclick="navigateToAnalysis('${item.shareName}')" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='transparent'">
-                        <td class="${nameClass}"><b>${item.shareName}</b>${nameSuffix}</td>
+                    <tr style="cursor: pointer;" onclick="navigateToAnalysis('${item.shareName}')">
+                        <td style="position: sticky !important; left: 0 !important; background: var(--bg-secondary, #ffffff) !important; z-index: 100 !important; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1) !important;" class="${nameClass}"><b>${item.shareName}</b>${nameSuffix}</td>
                         <td>${item.buyQty > 0 ? item.buyQty : '-'}</td>
                         <td>৳${avgBuyPrice.toFixed(2)}</td>
                         <td style="color:#007bff; font-weight:bold;">${remainingQty > 0 ? remainingQty : '-'}</td>
                         <td>${remainingQty > 0 ? `৳${currentPrice.toFixed(2)}` : '-'}</td>
                         <td class="${remainingQty > 0 ? unresClass : ''}">${remainingQty > 0 ? `৳${unrealizedReturn.toFixed(2)}` : '-'}</td>
+                        <td class="${remainingQty > 0 ? unresPercentClass : ''}">${remainingQty > 0 ? `${unrealizedPercent >= 0 ? '+' : ''}${unrealizedPercent.toFixed(2)}%` : '-'}</td>
                         <td>${item.sellQty > 0 ? item.sellQty : '-'}</td>
                         <td>${item.sellQty > 0 ? `৳${avgSellPrice.toFixed(2)}` : '-'}</td>
                         <td class="${item.sellQty > 0 ? resClass : ''}">${item.sellQty > 0 ? `৳${item.realizedProfit.toFixed(2)}` : '-'}</td>
@@ -1056,56 +1199,143 @@ for (let i = 0; i < tickers.length; i += batchSize) {
                 
                 chartLots.forEach(lot => {
                     if(ticker === lot.ticker) {
-                        let lotOriginalQty = lot.totalCost / avgBuyPrice;
+                        let lotOriginalQty = lot.totalCost / avgBuyPriceWithCommission;
                         lot.currentValue = lotOriginalQty * currentPrice;
                     }
                 });
             }
             
-            tableBody.innerHTML = rowsHtml || "<tr><td colspan='9' style='text-align:center;'>No trade history found. </b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b>"
+            tableBody.innerHTML = rowsHtml || "<tr><td colspan='10' style='text-align:center;'>No trade history found.</td></tr>";
             updateTableHeadersWithSort();
             updateCompanyCount();
             
-            const totalProfitLoss = totalCurrentValue - totalInvestment;
-            const profitLossElement = document.getElementById('profit-loss');
-            if(document.getElementById('total-invest')) document.getElementById('total-invest').innerText = `৳${totalInvestment.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
-            if(document.getElementById('current-value')) document.getElementById('current-value').innerText = `৳${totalCurrentValue.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`; 
-            if (profitLossElement) {
-                profitLossElement.innerText = `৳${totalProfitLoss.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
-                profitLossElement.style.color = totalProfitLoss >= 0 ? '#10b981' : '#ef4444';
-            }
-const footUnrealized = document.getElementById('foot-total-unrealized');
-const footRealized = document.getElementById('foot-total-realized');
-const footTotalInvest = document.getElementById('foot-total-invest');
-const footTotalCurrentValue = document.getElementById('foot-total-current-value');
-const footRemainingQty = document.getElementById('foot-total-remaining-qty');
-
-if(footUnrealized) {
-    footUnrealized.innerText = `${totalUnrealized >= 0 ? '+' : ''}৳${totalUnrealized.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
-    footUnrealized.style.color = totalUnrealized >= 0 ? '#10b981' : '#ef4444';
-}
-if(footRealized) {
-    footRealized.innerText = `${totalRealized >= 0 ? '+' : ''}৳${totalRealized.toLocaleString('bn-BD', {minimumFractionDigits: 2})}`;
-    footRealized.style.color = totalRealized >= 0 ? '#10b981' : '#ef4444';
-}
-if (footTotalInvest) {
-    footTotalInvest.innerText = `৳${totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-}
-if (footTotalCurrentValue) {
-    footTotalCurrentValue.innerText = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-}
-if (footRemainingQty) {
-    let totalRemainingShares = 0;
-    for (let ticker in mergedPortfolio) {
-        const item = mergedPortfolio[ticker];
-        let remainingQty = item.buyQty - item.sellQty;
-        if (remainingQty < 0) remainingQty = 0;
-        totalRemainingShares += remainingQty;
-    }
-    footRemainingQty.innerText = totalRemainingShares.toLocaleString('bn-BD');
-}
+            // ==========================================
+            // 🔥 ফুটার এবং কার্ড আপডেট - ইউনিফাইড ডাটা ব্যবহার করে
+            // ==========================================
             
-            // ✅ চার্ট আপডেট করার জন্য এই অংশটি যোগ করুন
+            try {
+                // ইউনিফাইড ফাংশন থেকে ডাটা আনি (যদি না থাকে)
+                let finalUnifiedData = unifiedData;
+                if (!finalUnifiedData) {
+                    finalUnifiedData = await getUnifiedPortfolioCalculation(userId);
+                }
+                
+                if (finalUnifiedData && finalUnifiedData.stockDetails.length > 0) {
+                    // বর্তমান ভ্যালু ক্যালকুলেট করি
+                    let unifiedCurrentValue = 0;
+                    for (const stock of finalUnifiedData.stockDetails) {
+                        let currentPrice = priceMap[stock.ticker] || stock.avgBuyPriceWithCommission;
+                        unifiedCurrentValue += stock.totalQty * currentPrice;
+                    }
+                    
+                    const unifiedInvestment = finalUnifiedData.totalInvestment;
+                    const unifiedUnrealized = unifiedCurrentValue - unifiedInvestment;
+                    const unifiedRemainingQty = finalUnifiedData.totalRemainingQty;
+                    
+                    // ফুটার এলিমেন্ট আপডেট
+                    const footUnrealized = document.getElementById('foot-total-unrealized');
+                    const footRealized = document.getElementById('foot-total-realized');
+                    const footTotalInvest = document.getElementById('foot-total-invest');
+                    const footTotalCurrentValue = document.getElementById('foot-total-current-value');
+                    const footRemainingQtyElem = document.getElementById('foot-total-remaining-qty');
+                    
+                    if (footTotalInvest) {
+                        footTotalInvest.innerText = `৳${unifiedInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                    }
+                    if (footTotalCurrentValue) {
+                        footTotalCurrentValue.innerText = `৳${unifiedCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                    }
+                    if (footUnrealized) {
+                        footUnrealized.innerText = `${unifiedUnrealized >= 0 ? '+' : ''}৳${unifiedUnrealized.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                        footUnrealized.style.color = unifiedUnrealized >= 0 ? '#10b981' : '#ef4444';
+                    }
+                    if (footRealized) {
+                        footRealized.innerText = `${totalRealized >= 0 ? '+' : ''}৳${totalRealized.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                        footRealized.style.color = totalRealized >= 0 ? '#10b981' : '#ef4444';
+                    }
+                    if (footRemainingQtyElem) {
+                        footRemainingQtyElem.innerText = unifiedRemainingQty.toLocaleString('bn-BD');
+                    }
+                    
+                    // Dashboard কার্ড আপডেট
+                    const dashboardInvestElem = document.getElementById('total-invest');
+                    const dashboardValueElem = document.getElementById('current-value');
+                    const dashboardPlElem = document.getElementById('profit-loss');
+                    
+                    if (dashboardInvestElem) {
+                        dashboardInvestElem.innerText = `৳${unifiedInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                    }
+                    if (dashboardValueElem) {
+                        dashboardValueElem.innerText = `৳${unifiedCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                    }
+                    if (dashboardPlElem) {
+                        const totalProfitLoss = unifiedCurrentValue - unifiedInvestment;
+                        dashboardPlElem.innerText = `৳${totalProfitLoss.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                        dashboardPlElem.style.color = totalProfitLoss >= 0 ? '#10b981' : '#ef4444';
+                    }
+                    
+                    console.log(`✅ Stock Table Footer: Investment=${unifiedInvestment.toFixed(2)}, Current=${unifiedCurrentValue.toFixed(2)}, Unrealized=${unifiedUnrealized.toFixed(2)}`);
+                    
+                } else {
+                    // ফ্যালব্যাক: আগের ক্যালকুলেশন ব্যবহার
+                    const totalProfitLoss = totalCurrentValue - totalInvestment;
+                    
+                    const footUnrealized = document.getElementById('foot-total-unrealized');
+                    const footRealized = document.getElementById('foot-total-realized');
+                    const footTotalInvest = document.getElementById('foot-total-invest');
+                    const footTotalCurrentValue = document.getElementById('foot-total-current-value');
+                    const footRemainingQtyElem = document.getElementById('foot-total-remaining-qty');
+                    
+                    if (footUnrealized) {
+                        footUnrealized.innerText = `${totalUnrealized >= 0 ? '+' : ''}৳${totalUnrealized.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                        footUnrealized.style.color = totalUnrealized >= 0 ? '#10b981' : '#ef4444';
+                    }
+                    if (footRealized) {
+                        footRealized.innerText = `${totalRealized >= 0 ? '+' : ''}৳${totalRealized.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                        footRealized.style.color = totalRealized >= 0 ? '#10b981' : '#ef4444';
+                    }
+                    if (footTotalInvest) {
+                        footTotalInvest.innerText = `৳${totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                    }
+                    if (footTotalCurrentValue) {
+                        footTotalCurrentValue.innerText = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                    }
+                    if (footRemainingQtyElem) {
+                        let totalRemainingShares = 0;
+                        for (let ticker in mergedPortfolio) {
+                            const item = mergedPortfolio[ticker];
+                            let remainingQtyCalc = item.buyQty - item.sellQty;
+                            if (remainingQtyCalc < 0) remainingQtyCalc = 0;
+                            totalRemainingShares += remainingQtyCalc;
+                        }
+                        footRemainingQtyElem.innerText = totalRemainingShares.toLocaleString('bn-BD');
+                    }
+                    
+                    const profitLossElement = document.getElementById('profit-loss');
+                    if (profitLossElement) {
+                        profitLossElement.innerText = `৳${totalProfitLoss.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                        profitLossElement.style.color = totalProfitLoss >= 0 ? '#10b981' : '#ef4444';
+                    }
+                }
+                
+            } catch (footerError) {
+                console.error('Footer update error:', footerError);
+            }
+            
+            // কোম্পানি কাউন্ট আপডেট
+            const companyCountValue = document.getElementById('company-count-value');
+            if (companyCountValue) {
+                let activeCompanies = 0;
+                for (let ticker in mergedPortfolio) {
+                    const item = mergedPortfolio[ticker];
+                    let remainingQtyCalc = item.buyQty - item.sellQty;
+                    if (remainingQtyCalc < 0) remainingQtyCalc = 0;
+                    if (remainingQtyCalc > 0) activeCompanies++;
+                }
+                companyCountValue.innerText = activeCompanies;
+            }
+            
+            // ✅ চার্ট আপডেট
             if(chartLots.length > 0) {
                 chartLots.sort((a, b) => a.date - b.date);
                 let runningInvest = 0;
@@ -1124,12 +1354,12 @@ if (footRemainingQty) {
             
         } catch (error) {
             console.error("Error loading stock data:", error);
-            tableBody.innerHTML = "<tr><td colspan='9' style='text-align:center; color:#ef4444;'>Error loading data. Please refresh.</b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></td></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b></b>"
+            tableBody.innerHTML = "<tr><td colspan='10' style='text-align:center; color:#ef4444;'>Error loading data. Please refresh.</td></tr>";
         }
     }
     
     // প্রথমবার লোড
-    loadStockData();
+    await loadStockData();
     
     // আগের interval থাকলে ক্লিয়ার
     if (stockTableRefreshInterval) {
@@ -1143,8 +1373,27 @@ if (footRemainingQty) {
             console.log('🔄 Auto-refreshing stock table...');
             loadStockData();
         }
-    }, 600000);
+    }, 120000);
 }
+
+// স্টিকি কলাম ফিক্স করার ফাংশন
+setTimeout(() => {
+    const firstCells = document.querySelectorAll('#portfolio-table-body td:first-child');
+    firstCells.forEach(cell => {
+        cell.style.position = 'sticky';
+        cell.style.left = '0';
+        cell.style.zIndex = '50';
+    });
+}, 100);
+// loadUnifiedStockTable ফাংশনের শেষে এই কোড যোগ করুন
+setTimeout(() => {
+    const firstCells = document.querySelectorAll('#portfolio-table-body td:first-child');
+    firstCells.forEach(cell => {
+        cell.style.position = 'sticky';
+        cell.style.left = '0';
+        cell.style.zIndex = '50';
+    });
+}, 100);
 // ==========================================
 // ৭. বাই ফর্ম সাজেশন লজিক
 // ==========================================
@@ -1304,6 +1553,7 @@ if (btnExecuteSell) {
 
         if (!user) return alert("দয়া করে প্রথমে লগইন করুন!");
         if (!ticker || currentActiveLots.length === 0) return alert("দয়া করে একটি বৈধ শেয়ার সিলেক্ট করুন।");
+        
         let selectedDate = sellDateInput ? sellDateInput.value : getTodayDate();
         if (!selectedDate) selectedDate = getTodayDate();
         const transactionDate = new Date(selectedDate);
@@ -1314,7 +1564,7 @@ if (btnExecuteSell) {
         }
 
         let totalSoldSuccessfully = 0;
-        const batch = db.batch(); // ফাস্ট এবং সিকিউর ট্রানজেকশনের জন্য ব্যাচ ব্যবহার করা হয়েছে
+        const batch = db.batch();
 
         // প্রথম ধাপ: ইনপুট ভ্যালিডেশন চেক
         for (let lot of currentActiveLots) {
@@ -1327,18 +1577,18 @@ if (btnExecuteSell) {
 
                 if (sellQty > 0) {
                     if (sellQty > lot.availableQty) {
-                        alert(`দুঃখিত! এই লটে সর্বোচ্চ ${lot.availableQty} টি শেয়ার অবশিষ্ট আছে। আপনার ইনপুট বেশি হয়েছে।`);
+                        alert(`দুঃখিত! এই লটে সর্বোচ্চ ${lot.availableQty} টি শেয়ার অবশিষ্ট আছে।`);
                         return;
                     }
                     if (sellPrice <= 0) {
-                        alert("দয়া করে সঠিক বিক্রয় মূল্য (Price) দিন।");
+                        alert("দয়া করে সঠিক বিক্রয় মূল্য দিন।");
                         return;
                     }
                 }
             }
         }
 
-        // দ্বিতীয় ধাপ: বিক্রয় রেকর্ড প্রস্তুতকরণ এবং ব্যাচে যুক্ত করা
+        // দ্বিতীয় ধাপ: বিক্রয় রেকর্ড প্রস্তুত
         for (let lot of currentActiveLots) {
             const qtyField = document.getElementById(`input-sell-qty-${lot.docId}`);
             const priceField = document.getElementById(`input-sell-price-${lot.docId}`);
@@ -1350,7 +1600,6 @@ if (btnExecuteSell) {
                 if (sellQty > 0) {
                     const saleRecordRef = db.collection("sales_history").doc();
                     
-                    // বিক্রয় ডাটা প্রস্তুত করা
                     batch.set(saleRecordRef, {
                         userId: user.uid,
                         shareName: ticker,
@@ -1358,8 +1607,8 @@ if (btnExecuteSell) {
                         buyPrice: lot.buyPrice,
                         sellPrice: sellPrice,
                         profitOrLoss: (sellPrice - lot.buyPrice) * sellQty,
-                        date: transactionDate,  // 👈 পরিবর্তন: new Date() এর জায়গায় transactionDate
-    createdAt: new Date()
+                        date: transactionDate,
+                        createdAt: new Date()
                     });
 
                     totalSoldSuccessfully += sellQty;
@@ -1368,25 +1617,20 @@ if (btnExecuteSell) {
         }
 
         if (totalSoldSuccessfully === 0) {
-            return alert("দয়া করে অন্তত যেকোনো একটি লটে বিক্রয়ের পরিমাণ (Qty) লিখুন।");
+            return alert("দয়া করে অন্তত যেকোনো একটি লটে বিক্রয়ের পরিমাণ লিখুন।");
         }
 
-        // তৃতীয় ধাপ: ডেটাবেজে সাবমিট করা
+        // তৃতীয় ধাপ: ডেটাবেজে সাবমিট
         try {
             await batch.commit();
-alert(`অভিনন্দন! সফলভাবে ${totalSoldSuccessfully} টি ${ticker} শেয়ার বিক্রয় রেকর্ড করা হয়েছে। তারিখ: ${selectedDate}`);
+            
+            // রিসেট ফর্ম
+            sellTickerInput.value = "";
+            sellHoldingsContainer.classList.add('hidden');
+            if (sellDateInput) sellDateInput.value = getTodayDate();
 
-// রিসেট এবং রিফ্রেশ লজিক
-sellTickerInput.value = "";
-sellHoldingsContainer.classList.add('hidden');
-if (sellDateInput) sellDateInput.value = getTodayDate();
-
-// setTimeout(() => {
-//     location.reload();  // ← কমেন্ট করে দিন অথবা ডিলিট করুন
-// }, 500);
-
-// ✅ এর জায়গায় শুধু affected টেবিল রিফ্রেশ করুন
-if (auth.currentUser) {
+            // ✅ শুধু affected টেবিল আপডেট করুন - পেজ রিলোড ছাড়া
+            if (auth.currentUser) {
                 loadUnifiedStockTable(auth.currentUser.uid);
                 loadPortfolioAnalysisTable(auth.currentUser.uid);
                 loadDashboardData();
@@ -2254,18 +2498,12 @@ window.sortPortfolioAnalysis = function() {
     renderPortfolioAnalysis(sortedData);
 };
 
-// আলাদা রেন্ডার ফাংশন ( থেকে আলাদা করে বের করা)
 function renderPortfolioAnalysis(portfolioData) {
     const listContainer = document.getElementById('bull-analysis-list');
     if (!listContainer) return;
     
     if (portfolioData.length === 0) {
         listContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: #94a3b8;">No active stocks found.</div>`;
-        // Summary Cards reset
-        document.getElementById('summary-total-value').innerHTML = '৳0.00';
-        document.getElementById('summary-total-cost').innerHTML = '৳0.00';
-        document.getElementById('summary-total-daily').innerHTML = '৳0.00';
-        document.getElementById('summary-total-gl').innerHTML = '৳0.00';
         return;
     }
     
@@ -2274,15 +2512,14 @@ function renderPortfolioAnalysis(portfolioData) {
     let grandTotalCurrentValue = 0;
     let grandTotalDailyGL = 0;
     let grandTotalGL = 0;
-    // গ্লোবাল ভেরিয়েবলে সেভ করুন
-// লুপ শেষ হওয়ার পর এই লাইনটি নিশ্চিত করুন
-currentPortfolioTotalValue = grandTotalCurrentValue;
-updateDashboardCurrentValue();
     
     for (const item of portfolioData) {
-        const { ticker, avgBuyPrice, totalRemainingQty, totalCost, currentPrice, dailyChange, totalGL, totalGLPcnt, totalStockDailyGL, totalStockDailyPcnt, activeLotsForDisplay, livePriceClass, dailyGlClass, totalGlClass, blockId } = item;
+        const { ticker, avgBuyPrice, totalRemainingQty, totalCost, totalBuyValue, currentPrice, dailyChange, totalGL, totalGLPcnt, totalStockDailyGL, totalStockDailyPcnt, activeLotsForDisplay, livePriceClass, dailyGlClass, totalGlClass, blockId, commissionPercent } = item;
         
         const currentValue = totalRemainingQty * currentPrice;
+        
+        // কমিশন ইনফো দেখানোর জন্য স্ট্রিং
+        const commissionInfo = commissionPercent > 0 ? `<span style="font-size: 9px; opacity: 0.7;"> (inc. ${commissionPercent}% comm.)</span>` : '';
         
         finalHtml += `
             <div class="stock-block" id="parent-${blockId}">
@@ -2294,7 +2531,7 @@ updateDashboardCurrentValue();
                             <span style="font-size:11px;">(${dailyChange >= 0 ? '+' : ''}${dailyChange.toFixed(2)})</span>
                         </div>
                         <div style="color: #64748b; font-size:12px; margin-top:3px;">
-                            ${avgBuyPrice.toFixed(2)} x ${totalRemainingQty} shares
+                            ৳${avgBuyPrice.toFixed(2)}${commissionInfo} x ${totalRemainingQty} shares
                         </div>
                         <span class="toggle-text" id="btn-${blockId}">+ Show All</span>
                     </div>
@@ -2321,7 +2558,8 @@ updateDashboardCurrentValue();
             finalHtml += `
                 <div class="stock-lot-row">
                     <div class="bull-col-code" style="color: #64748b; padding-left: 5px;">
-                        <b>${lot.buyPrice.toFixed(2)}</b> x ${lot.qty} shares
+                        <b>৳${lot.buyPrice.toFixed(2)}</b> x ${lot.qty} shares
+                        ${lot.commission > 0 ? `<span style="font-size: 8px;"> (comm: ৳${lot.commission.toFixed(2)})</span>` : ''}
                     </div>
                     <div class="bull-col-value">
                         <div style="color:#000;">${lot.currentValue.toFixed(2)}</div>
@@ -2341,7 +2579,7 @@ updateDashboardCurrentValue();
         
         finalHtml += `</div></div>`;
         
-        // Update Grand Totals
+        // Grand Totals আপডেট
         grandTotalCost += totalCost;
         grandTotalCurrentValue += currentValue;
         grandTotalDailyGL += totalStockDailyGL;
@@ -2350,65 +2588,47 @@ updateDashboardCurrentValue();
     
     listContainer.innerHTML = finalHtml;
     
-// Update Summary Cards with Percentages
-const totalValueCard = document.getElementById('summary-total-value');
-const totalCostCard = document.getElementById('summary-total-cost');
-const totalDailyCard = document.getElementById('summary-total-daily');
-const totalDailyPctCard = document.getElementById('summary-total-daily-pct');  // 👈 নতুন
-const totalGLCard = document.getElementById('summary-total-gl');
-const totalGLPctCard = document.getElementById('summary-total-gl-pct');  // 👈 নতুন
-
-if (totalValueCard) {
-    totalValueCard.innerHTML = `৳${grandTotalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-}
-if (totalCostCard) {
-    totalCostCard.innerHTML = `৳${grandTotalCost.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-}
-
-// 📊 Daily P/L - টাকা দেখানো
-if (totalDailyCard) {
-    const formatted = grandTotalDailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 });
-    totalDailyCard.innerHTML = `${grandTotalDailyGL >= 0 ? '+' : ''}৳${formatted}`;
-    totalDailyCard.style.color = grandTotalDailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
-}
-
-// 📊 Daily P/L - শতকরা (%) দেখানো (নতুন)
-if (totalDailyPctCard && grandTotalCost > 0) {
-    const dailyPercent = (grandTotalDailyGL / grandTotalCost) * 100;
-    totalDailyPctCard.innerHTML = `${dailyPercent >= 0 ? '+' : ''}${dailyPercent.toFixed(2)}%`;
-    totalDailyPctCard.style.color = dailyPercent >= 0 ? '#90ffb0' : '#ffaaaa';
-} else if (totalDailyPctCard) {
-    totalDailyPctCard.innerHTML = '(0.00%)';
-}
-
-// 🎯 Total P/L - টাকা দেখানো
-if (totalGLCard) {
-    const formatted = grandTotalGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 });
-    totalGLCard.innerHTML = `${grandTotalGL >= 0 ? '+' : ''}৳${formatted}`;
-    totalGLCard.style.color = grandTotalGL >= 0 ? '#90ffb0' : '#ffaaaa';
-}
-
-// 🎯 Total P/L - শতকরা (%) দেখানো (নতুন)
-if (totalGLPctCard && grandTotalCost > 0) {
-    const totalPercent = (grandTotalGL / grandTotalCost) * 100;
-    totalGLPctCard.innerHTML = `${totalPercent >= 0 ? '+' : ''}${totalPercent.toFixed(2)}%`;
-    totalGLPctCard.style.color = totalPercent >= 0 ? '#90ffb0' : '#ffaaaa';
-} else if (totalGLPctCard) {
-    totalGLPctCard.innerHTML = '(0.00%)';
-}
-    updateDashboardCardsFromAnalysis(grandTotalCost, grandTotalCurrentValue, grandTotalDailyGL, grandTotalGL);
-    // Update existing footer (যদি থাকে)
-    const existingFooter = document.querySelector('.bull-footer');
-    if (existingFooter) {
-        existingFooter.style.display = 'none';
+    // সামারি কার্ড আপডেট
+    const totalValueCard = document.getElementById('summary-total-value');
+    const totalCostCard = document.getElementById('summary-total-cost');
+    const totalDailyCard = document.getElementById('summary-total-daily');
+    const totalDailyPctCard = document.getElementById('summary-total-daily-pct');
+    const totalGLCard = document.getElementById('summary-total-gl');
+    const totalGLPctCard = document.getElementById('summary-total-gl-pct');
+    
+    if (totalValueCard) {
+        totalValueCard.innerHTML = `৳${grandTotalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
     }
+    if (totalCostCard) {
+        totalCostCard.innerHTML = `৳${grandTotalCost.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    }
+    if (totalDailyCard) {
+        totalDailyCard.innerHTML = `${grandTotalDailyGL >= 0 ? '+' : ''}৳${grandTotalDailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        totalDailyCard.style.color = grandTotalDailyGL >= 0 ? '#10b981' : '#ef4444';
+    }
+    if (totalDailyPctCard && grandTotalCost > 0) {
+        const dailyPercent = (grandTotalDailyGL / grandTotalCost) * 100;
+        totalDailyPctCard.innerHTML = `${dailyPercent >= 0 ? '+' : ''}${dailyPercent.toFixed(2)}%`;
+        totalDailyPctCard.style.color = dailyPercent >= 0 ? '#10b981' : '#ef4444';
+    }
+    if (totalGLCard) {
+        totalGLCard.innerHTML = `${grandTotalGL >= 0 ? '+' : ''}৳${grandTotalGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        totalGLCard.style.color = grandTotalGL >= 0 ? '#10b981' : '#ef4444';
+    }
+    if (totalGLPctCard && grandTotalCost > 0) {
+        const totalPercent = (grandTotalGL / grandTotalCost) * 100;
+        totalGLPctCard.innerHTML = `${totalPercent >= 0 ? '+' : ''}${totalPercent.toFixed(2)}%`;
+        totalGLPctCard.style.color = totalPercent >= 0 ? '#10b981' : '#ef4444';
+    }
+    
+    // Dashboard কার্ড আপডেট
+    updateDashboardCardsFromAnalysis(grandTotalCost, grandTotalCurrentValue, grandTotalDailyGL, grandTotalGL);
+    
+    // গ্লোবাল ভেরিয়েবল আপডেট
+    currentPortfolioTotalValue = grandTotalCurrentValue;
 }
 // ==========================================
-// 🚀 পোর্টফোলিও অ্যানালাইসিস টেবিল - Firebase → Live API → 0
-// ==========================================
-
-// ==========================================
-// 🚀 পোর্টফোলিও অ্যানালাইসিস টেবিল - অপটিমাইজড ভার্সন (NO onSnapshot)
+// 🚀 পোর্টফোলিও অ্যানালাইসিস টেবিল - কমিশন সহ সম্পূর্ণ ভার্সন
 // ==========================================
 
 let portfolioAnalysisInterval = null;
@@ -2426,7 +2646,6 @@ async function loadPortfolioAnalysisTable(userId) {
         portfolioAnalysisInterval = null;
     }
     
-    // ডাটা fetch এবং রেন্ডার করার ফাংশন
     async function fetchAndRenderAnalysis() {
         if (isAnalysisLoading) {
             console.log('⏸️ Analysis already loading, skipping...');
@@ -2438,47 +2657,26 @@ async function loadPortfolioAnalysisTable(userId) {
         try {
             console.log('📊 Fetching portfolio analysis data...');
             
-            // 🔥 Manual fetch - onSnapshot এর বদলে
-            const [portfolioSnapshot, salesSnapshot] = await Promise.all([
-                db.collection("portfolios").where("userId", "==", userId).get(),
-                db.collection("sales_history").where("userId", "==", userId).get()
-            ]);
+            // 🔥 ইউনিফাইড ফাংশন ব্যবহার করুন
+            const unifiedData = await getUnifiedPortfolioCalculation(userId);
             
-            // সেলস ডাটা প্রসেস - totalSoldQtyMap তৈরি
-            let totalSoldQtyMap = {};
-            salesSnapshot.forEach(doc => {
-                const data = doc.data();
-                totalSoldQtyMap[data.shareName] = (totalSoldQtyMap[data.shareName] || 0) + data.quantitySold;
-            });
-            
-            // পোর্টফোলিও ডাটা প্রসেস - rawPortfolio তৈরি
-            let rawPortfolio = {};
-            portfolioSnapshot.forEach(doc => {
-                const data = doc.data();
-                const ticker = data.shareName;
-                if (!ticker) return;
-                
-                if (!rawPortfolio[ticker]) {
-                    rawPortfolio[ticker] = [];
+            if (!unifiedData || unifiedData.stockDetails.length === 0) {
+                const listContainer = document.getElementById('bull-analysis-list');
+                if (listContainer) {
+                    listContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: #94a3b8;">No active stocks found.</div>`;
                 }
-                
-                rawPortfolio[ticker].push({
-                    date: data.date ? (data.date.toDate ? data.date.toDate() : new Date(data.date)) : new Date(),
-                    originalQty: Number(data.quantity || 0),
-                    buyPrice: Number(data.buyPrice || 0),
-                    commission: data.commission || 0
-                });
-            });
+                return;
+            }
             
+            // প্রাইস ডাটা সহ পোর্টফোলিও ডাটা তৈরি
             const portfolioDataForSorting = [];
-            const uniqueTickers = Object.keys(rawPortfolio);
             
-            // 🔥 প্রাইস ডাটা প্রস্তুত করুন
-            for (let ticker of uniqueTickers) {
-                // প্রাইস নেওয়ার চেষ্টা
-                let currentPrice = currentPriceData.get(ticker) || 0;
+            for (const stock of unifiedData.stockDetails) {
+                const ticker = stock.ticker;
                 
-                // প্রাইস না থাকলে API থেকে আনার চেষ্টা (rate limited)
+                // বর্তমান প্রাইস
+                let currentPrice = currentPriceData?.get(ticker) || 0;
+                
                 if (currentPrice === 0) {
                     try {
                         const data = await apiLimiter.request(async () => {
@@ -2486,7 +2684,7 @@ async function loadPortfolioAnalysisTable(userId) {
                             return response.json();
                         });
                         if (data && data.ltp) {
-                            currentPrice = data.ltp;
+                            currentPrice = Number(data.ltp);
                             currentPriceData.set(ticker, currentPrice);
                         }
                     } catch (err) {
@@ -2494,7 +2692,6 @@ async function loadPortfolioAnalysisTable(userId) {
                     }
                 }
                 
-                // এখনও না পেলে hardcoded ব্যবহার
                 if (currentPrice === 0) {
                     currentPrice = getHardcodedPrice(ticker);
                 }
@@ -2506,53 +2703,32 @@ async function loadPortfolioAnalysisTable(userId) {
                     dailyChange = currentPrice - previousClose;
                 }
                 
-                let lots = rawPortfolio[ticker].sort((a, b) => a.date - b.date);
-                let totalSold = totalSoldQtyMap[ticker] || 0;
-                
-                let activeLotsForDisplay = [];
-                let totalRemainingQty = 0;
-                let totalCost = 0;
-                let remainingSold = totalSold;
-                
-                lots.forEach(lot => {
-                    let remQtyInLot = lot.originalQty;
-                    if (remainingSold > 0) {
-                        let taken = Math.min(remQtyInLot, remainingSold);
-                        remQtyInLot -= taken;
-                        remainingSold -= taken;
-                    }
+                // লট গুলো প্রসেস করুন
+                const activeLotsForDisplay = [];
+                for (const lot of stock.lots) {
+                    const lotCurrentValue = lot.qty * currentPrice;
+                    const lotTotalGL = lotCurrentValue - (lot.qty * lot.buyPrice);
+                    const lotDailyGL = lot.qty * dailyChange;
+                    const lotGLPcnt = lot.buyPrice > 0 ? ((currentPrice - lot.buyPrice) / lot.buyPrice) * 100 : 0;
+                    const lotDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
                     
-                    if (remQtyInLot > 0) {
-                        totalRemainingQty += remQtyInLot;
-                        const costWithCommission = (remQtyInLot * lot.buyPrice) + (lot.commission || 0);
-                        totalCost += costWithCommission;
-                        
-                        let lotCurrentValue = remQtyInLot * currentPrice;
-                        let lotTotalGL = lotCurrentValue - (remQtyInLot * lot.buyPrice);
-                        let lotDailyGL = remQtyInLot * dailyChange;
-                        let lotGLPcnt = lot.buyPrice > 0 ? ((currentPrice - lot.buyPrice) / lot.buyPrice) * 100 : 0;
-                        let lotDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
-                        
-                        activeLotsForDisplay.push({
-                            qty: remQtyInLot,
-                            buyPrice: lot.buyPrice,
-                            cost: remQtyInLot * lot.buyPrice,
-                            currentValue: lotCurrentValue,
-                            dailyGL: lotDailyGL,
-                            dailyGLPcnt: lotDailyPcnt,
-                            totalGL: lotTotalGL,
-                            totalGLPcnt: lotGLPcnt
-                        });
-                    }
-                });
+                    activeLotsForDisplay.push({
+                        qty: lot.qty,
+                        buyPrice: lot.buyPrice,
+                        cost: lot.qty * lot.buyPrice,
+                        costWithCommission: lot.totalCost,
+                        currentValue: lotCurrentValue,
+                        dailyGL: lotDailyGL,
+                        dailyGLPcnt: lotDailyPcnt,
+                        totalGL: lotTotalGL,
+                        totalGLPcnt: lotGLPcnt
+                    });
+                }
                 
-                if (totalRemainingQty === 0) continue;
-                
-                let avgBuyPrice = totalCost / totalRemainingQty;
-                let totalGL = (totalRemainingQty * currentPrice) - totalCost;
-                let totalGLPcnt = totalCost > 0 ? (totalGL / totalCost) * 100 : 0;
-                let totalStockDailyGL = totalRemainingQty * dailyChange;
-                let totalStockDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
+                const totalGL = (stock.totalQty * currentPrice) - stock.totalCost;
+                const totalGLPcnt = stock.totalCost > 0 ? (totalGL / stock.totalCost) * 100 : 0;
+                const totalStockDailyGL = stock.totalQty * dailyChange;
+                const totalStockDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
                 
                 const livePriceClass = dailyChange >= 0 ? "bull-profit" : "bull-loss";
                 const dailyGlClass = totalStockDailyGL >= 0 ? "bull-profit" : "bull-loss";
@@ -2561,12 +2737,11 @@ async function loadPortfolioAnalysisTable(userId) {
                 
                 portfolioDataForSorting.push({
                     ticker: ticker,
-                    avgBuyPrice: avgBuyPrice,
-                    totalRemainingQty: totalRemainingQty,
-                    totalCost: totalCost,
+                    avgBuyPrice: stock.avgBuyPriceWithCommission,
+                    totalRemainingQty: stock.totalQty,
+                    totalCost: stock.totalCost,
                     currentPrice: currentPrice,
                     dailyChange: dailyChange,
-                    dailyChangePcnt: (dailyChange / (currentPrice - dailyChange)) * 100,
                     totalGL: totalGL,
                     totalGLPcnt: totalGLPcnt,
                     totalStockDailyGL: totalStockDailyGL,
@@ -2575,8 +2750,7 @@ async function loadPortfolioAnalysisTable(userId) {
                     livePriceClass: livePriceClass,
                     dailyGlClass: dailyGlClass,
                     totalGlClass: totalGlClass,
-                    blockId: blockId,
-                    priceSource: currentPrice > 0 ? 'API/Cache' : 'Hardcoded'
+                    blockId: blockId
                 });
             }
             
@@ -2597,10 +2771,8 @@ async function loadPortfolioAnalysisTable(userId) {
         }
     }
     
-    // প্রথমবার fetch
     await fetchAndRenderAnalysis();
     
-    // প্রতি 5 মিনিটে রিফ্রেশ (Snapshot listener এর বদলে)
     portfolioAnalysisInterval = setInterval(fetchAndRenderAnalysis, 300000);
     console.log('✅ Portfolio analysis auto-refresh set to 5 minutes');
 }
@@ -3365,6 +3537,46 @@ setTimeout(() => {
         closeBtn.onclick = function() {
             modal.style.display = 'none';
         };
+        // ==========================================
+// 🧊 স্টক টেবিল লোড হওয়ার পর স্টিকি কলাম নিশ্চিত করা
+// ==========================================
+
+function fixStickyColumn() {
+    setTimeout(() => {
+        const firstCells = document.querySelectorAll('#portfolio-table-body td:first-child');
+        const firstHeaders = document.querySelectorAll('#sec-table table thead th:first-child');
+        
+        firstCells.forEach(cell => {
+            cell.style.setProperty('position', 'sticky', 'important');
+            cell.style.setProperty('left', '0', 'important');
+            cell.style.setProperty('z-index', '100', 'important');
+            cell.style.setProperty('background', 'var(--bg-secondary, #ffffff)', 'important');
+            cell.style.setProperty('box-shadow', '2px 0 5px -2px rgba(0,0,0,0.1)', 'important');
+        });
+        
+        firstHeaders.forEach(header => {
+            header.style.setProperty('position', 'sticky', 'important');
+            header.style.setProperty('left', '0', 'important');
+            header.style.setProperty('top', '0', 'important');
+            header.style.setProperty('z-index', '200', 'important');
+            header.style.setProperty('background', 'var(--bg-tertiary, #f8fafc)', 'important');
+        });
+        
+        console.log('✅ Sticky column fix applied');
+    }, 500);
+}
+
+// টেবিল লোড হওয়ার পর এবং রিফ্রেশ করার পর কল করুন
+const originalLoadStockData = loadUnifiedStockTable;
+window.loadUnifiedStockTable = function(userId) {
+    originalLoadStockData(userId);
+    setTimeout(fixStickyColumn, 600);
+};
+
+// পেজ লোডের পরেও একবার কল করুন
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(fixStickyColumn, 1000);
+});
         window.addEventListener('click', function(event) {
             if (event.target == modal) {
                 modal.style.display = 'none';
@@ -3797,6 +4009,7 @@ function downloadTableAsCSV() {
         "Remaining Qty",        // অবশিষ্ট পরিমাণ
         "Current Live (৳)",     // বর্তমান বাজার মূল্য
         "Unrealized (৳)",       // অবাস্তায়িত লাভ/ক্ষতি
+        "Unrealized (%)",    
         "Sell Qty",             // বিক্রিত পরিমাণ
         "Sell Price (৳)",       // বিক্রয় মূল্য
         "Realized (৳)"          // বাস্তায়িত লাভ/ক্ষতি
@@ -3895,7 +4108,23 @@ function downloadTableAsCSV() {
     // সফল বার্তা
     alert("✅ CSV ফাইল ডাউনলোড শুরু হয়েছে!");
 }
+// ==========================================
+// 🔄 স্টক টেবিল রিফ্রেশ ফাংশন
+// ==========================================
 
+function refreshStockTable() {
+    const user = auth.currentUser;
+    if (!user) {
+        showToast('Please login first', 'error');
+        return;
+    }
+    
+    console.log('🔄 Manually refreshing stock table...');
+    showToast('Refreshing stock table...', 'info');
+    
+    // Force reload the stock table
+    loadUnifiedStockTable(user.uid);
+}
 // পেজ লোড হওয়ার পর বাটনটি প্রস্তুত করা
 document.addEventListener('DOMContentLoaded', function() {
     const downloadBtn = document.getElementById('btn-download-csv');
@@ -4367,10 +4596,7 @@ async function updatePerformanceSummary() {
             const avgPrice = costMap.get(ticker) / qty;
             totalCost += costMap.get(ticker);
             
-            // 🔥 বর্তমান প্রাইস: Live API মোডে currentPriceData থেকে, না হলে Firebase থেকে
             let currentPrice = currentPriceData.get(ticker);
-            
-            // Live API মোডে না থাকলে (Firebase মোডে) Firebase থেকে আনা
             if (!currentPrice || currentPrice === 0) {
                 currentPrice = avgPrice;
             }
@@ -4380,9 +4606,9 @@ async function updatePerformanceSummary() {
         
         const currentReturn = totalCost > 0 ? ((totalCurrentValue - totalCost) / totalCost) * 100 : 0;
         
-        // 🔥 বিভিন্ন সময়ের রিটার্ন ক্যালকুলেশন
+        // বিভিন্ন সময়ের রিটার্ন ক্যালকুলেশন
         const periods = [
-            { name: 'today', days: 0, isToday: true },
+            { name: 'today', days: 0 },
             { name: '5d', days: 5 },
             { name: '15d', days: 15 },
             { name: '30d', days: 30 },
@@ -4395,12 +4621,10 @@ async function updatePerformanceSummary() {
         
         for (const period of periods) {
             if (period.days === 0) {
-                // Today: বর্তমান রিটার্ন (Live API থেকে)
                 portfolioReturns[period.name] = currentReturn;
                 continue;
             }
             
-            // নির্দিষ্ট দিন আগের তারিখ
             const targetDate = new Date();
             targetDate.setDate(targetDate.getDate() - period.days);
             const targetDateStr = targetDate.toISOString().split('T')[0];
@@ -4408,29 +4632,25 @@ async function updatePerformanceSummary() {
             let pastValue = 0;
             let hasData = false;
             
-            // প্রতিটি শেয়ারের ঐ তারিখের প্রাইস (Firebase থেকে)
             for (const [ticker, qty] of remainingQtyMap) {
                 const pastPrice = await firebaseDataManager.getPriceByDate(ticker, targetDateStr);
                 if (pastPrice && pastPrice > 0) {
                     pastValue += qty * pastPrice;
                     hasData = true;
                 } else {
-                    // ডাটা না থাকলে বর্তমান প্রাইস ব্যবহার
                     const avgPrice = costMap.get(ticker) / qty;
                     pastValue += qty * avgPrice;
                 }
             }
             
             if (hasData && pastValue > 0) {
-    const periodReturn = ((totalCurrentValue - pastValue) / pastValue) * 100;
-    portfolioReturns[period.name] = periodReturn;
-} else {
-    // ডাটা না থাকলে null বা '-' দেখান
-    portfolioReturns[period.name] = null;
-}
+                portfolioReturns[period.name] = ((totalCurrentValue - pastValue) / pastValue) * 100;
+            } else {
+                portfolioReturns[period.name] = null;
+            }
         }
         
-        // বেঞ্চমার্ক রিটার্ন (DSEX - Firebase থেকে)
+        // বেঞ্চমার্ক রিটার্ন (DSEX)
         const benchmarkReturns = {};
         for (const period of periods) {
             if (period.days === 0) {
@@ -4452,25 +4672,31 @@ async function updatePerformanceSummary() {
             }
         }
         
-        // UI আপডেট ফাংশন
+        // 🔥 সুরক্ষিত UI আপডেট ফাংশন (এখানে ফিক্স করা হয়েছে)
         const updateCell = (id, value) => {
             const elem = document.getElementById(id);
-            if (elem) {
+            if (elem && value !== null && value !== undefined && !isNaN(value)) {
                 const isPositive = value >= 0;
                 elem.innerHTML = `${isPositive ? '+' : ''}${value.toFixed(2)}%`;
                 elem.style.color = isPositive ? '#10b981' : '#ef4444';
                 elem.style.fontWeight = 'bold';
+            } else if (elem) {
+                elem.innerHTML = '-';
+                elem.style.color = '#64748b';
             }
         };
         
         const updateDiffCell = (id, portfolio, benchmark) => {
             const elem = document.getElementById(id);
-            if (elem) {
+            if (elem && portfolio !== null && portfolio !== undefined && benchmark !== null && benchmark !== undefined) {
                 const diff = portfolio - benchmark;
                 const isPositive = diff >= 0;
                 elem.innerHTML = `${isPositive ? '+' : ''}${diff.toFixed(2)}%`;
                 elem.style.color = isPositive ? '#10b981' : '#ef4444';
                 elem.style.fontWeight = 'bold';
+            } else if (elem) {
+                elem.innerHTML = '-';
+                elem.style.color = '#64748b';
             }
         };
         
@@ -4542,7 +4768,7 @@ async function updatePerformanceSummary() {
     } catch (error) {
         console.error('Performance summary error:', error);
     }
-}   
+}
 // ==========================================
 // 🔄 ম্যানুয়াল রিলোড বাটন ফাংশন
 // ==========================================
@@ -5051,9 +5277,16 @@ if (btnBuy) {
             priceInput.value = "";
             if (tradeDateInput) tradeDateInput.value = getTodayDate();
 
-            setTimeout(() => {
-                location.reload();
-            }, 500);
+            // setTimeout(() => {
+//     location.reload();  // ← সম্পূর্ণ লাইন কমেন্ট করুন বা ডিলিট করুন
+// }, 500);
+
+// ✅ এর পরিবর্তে টেবিল আপডেট করুন
+if (auth.currentUser) {
+    loadUnifiedStockTable(auth.currentUser.uid);
+    loadPortfolioAnalysisTable(auth.currentUser.uid);
+    loadDashboardData();
+}
 
         } catch (error) {
             console.error("Error saving data:", error);
@@ -5287,10 +5520,6 @@ if (btnExecuteSell) {
             sellHoldingsContainer.classList.add('hidden');
             if (sellDateInput) sellDateInput.value = getTodayDate();
 
-            setTimeout(() => {
-                location.reload();
-            }, 500);
-            
             if (auth.currentUser) {
                 loadUnifiedStockTable(auth.currentUser.uid);
             }
@@ -5824,168 +6053,61 @@ function updateDashboardCardsFromAnalysis(totalCost, totalValue, dailyGL, totalG
     
     console.log(`📊 Dashboard updated from Portfolio Analysis: Value=${totalValue.toFixed(2)}, Cost=${totalCost.toFixed(2)}, Daily=${dailyGL.toFixed(2)}, Total=${totalGL.toFixed(2)}`);
 }
-// ==========================================
-// 🚀 ফ্লোটিং লোডিং ইন্ডিকেটর - শতকরা (%) সহ
-// ==========================================
-
-// ==========================================
-// 🚀 ফ্লোটিং লোডিং ইন্ডিকেটর - শতকরা (%) সহ
-// ==========================================
-
-class LoadingIndicator {
-    constructor() {
-        this.loaderDiv = document.getElementById('floating-loader');
-        this.overlay = document.getElementById('loader-overlay');
-        this.percentElem = document.getElementById('loader-percent');
-        this.statusTextElem = document.getElementById('loader-status-text');
-        this.subTextElem = document.getElementById('loader-sub-text');
-        this.progressCircle = document.getElementById('loader-progress-circle');
-        this.currentPercent = 0;
-        this.currentStep = '';
-    }
-    
-    show() {
-        if (this.loaderDiv) {
-            this.loaderDiv.style.display = 'flex';
-            this.overlay.style.display = 'block';
-            this.currentPercent = 0;
-            this.updatePercent(0);
-        }
-    }
-    
-    hide() {
-        if (this.loaderDiv) {
-            this.loaderDiv.style.display = 'none';
-            this.overlay.style.display = 'none';
-        }
-    }
-    
-    updatePercent(percent, statusText, subText) {
-        if (!this.loaderDiv || this.loaderDiv.style.display !== 'flex') return;
-        
-        this.currentPercent = Math.min(Math.max(percent, 0), 100);
-        
-        if (this.percentElem) {
-            this.percentElem.innerText = `${Math.floor(this.currentPercent)}%`;
-        }
-        
-        const circumference = 219.9;
-        const offset = circumference - (this.currentPercent / 100) * circumference;
-        if (this.progressCircle) {
-            this.progressCircle.style.strokeDashoffset = offset;
-            if (this.currentPercent < 50) {
-                this.progressCircle.style.stroke = '#ef4444';
-            } else if (this.currentPercent < 80) {
-                this.progressCircle.style.stroke = '#f59e0b';
-            } else {
-                this.progressCircle.style.stroke = '#10b981';
-            }
-        }
-        
-        if (statusText && this.statusTextElem) {
-            this.statusTextElem.innerHTML = statusText;
-        }
-        
-        if (subText && this.subTextElem) {
-            this.subTextElem.innerHTML = subText;
-        }
-    }
-    
-    updateStep(step, percent) {
-        this.currentStep = step;
-        const steps = {
-            'firebase': { status: '📦 Loading from Firebase...', sub: 'Fetching cached stock prices', percent: 20 },
-            'api': { status: '📡 Fetching from Live API...', sub: 'Getting real-time market data', percent: 40 },
-            'portfolio': { status: '📊 Processing portfolio...', sub: 'Calculating buy/sell lots', percent: 60 },
-            'analysis': { status: '📈 Generating analysis...', sub: 'Preparing portfolio insights', percent: 80 },
-            'complete': { status: '✅ Done!', sub: 'Portfolio loaded successfully', percent: 100 }
-        };
-        
-        const stepData = steps[step] || steps.firebase;
-        this.updatePercent(stepData.percent, stepData.status, stepData.sub);
-    }
-}
-
-// গ্লোবাল ইন্সট্যান্স
-const loadingIndicator = new LoadingIndicator();
-
-// ==========================================
-// 🔄 loadDashboardData ফাংশন (শুধু একবার ডিক্লেয়ার)
-// ==========================================
-
 async function loadDashboardData() {
     const user = auth.currentUser;
     if (!user) {
         console.log('No user logged in');
-        return false;
+        return;
     }
     
-    loadingIndicator.show();
-    loadingIndicator.updateStep('firebase', 20);
+    showDataLoading(true);
     
     try {
-        let priceMap;
+        // 🔥 ইউনিফাইড ফাংশন ব্যবহার করুন
+        const unifiedData = await getUnifiedPortfolioCalculation(user.uid);
         
-        if (currentDataMode === 'firebase') {
-            console.log('📦 Loading from Firebase...');
-            loadingIndicator.updatePercent(30, '📦 Loading from Firebase...', 'Fetching cached stock prices');
-            
-            priceMap = await firebaseDataManager.loadLatestPrices();
-            
-            if (priceMap && priceMap.size > 0) {
-                currentPriceData = priceMap;
-                await updateDataStatusIndicator('firebase', firebaseDataManager.getDataStatus());
-                console.log(`✅ Dashboard loaded from Firebase: ${priceMap.size} stocks`);
-            } else {
-                console.log('⚠️ No Firebase data, falling back to API...');
-                loadingIndicator.updatePercent(40, '📡 Switching to Live API...', 'No cached data found');
-                currentDataMode = 'live';
-                priceMap = await loadFromAPI(user);
-                updateDataStatusIndicator('live', { source: 'api', lastUpdate: new Date().toISOString() });
+        if (unifiedData && unifiedData.totalInvestment > 0) {
+            // বর্তমান ভ্যালু ক্যালকুলেট করতে প্রাইস যোগ করুন
+            let totalCurrentValue = 0;
+            for (const stock of unifiedData.stockDetails) {
+                let currentPrice = currentPriceData.get(stock.ticker) || stock.avgBuyPriceWithCommission;
+                totalCurrentValue += stock.totalQty * currentPrice;
             }
+            
+            const totalProfitLoss = totalCurrentValue - unifiedData.totalInvestment;
+            
+            const investElem = document.getElementById('total-invest');
+            const valueElem = document.getElementById('current-value');
+            const plElem = document.getElementById('profit-loss');
+            
+            if (investElem) {
+                investElem.innerText = `৳${unifiedData.totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+            }
+            if (valueElem) {
+                valueElem.innerText = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+            }
+            if (plElem) {
+                plElem.innerText = `৳${totalProfitLoss.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                plElem.style.color = totalProfitLoss >= 0 ? '#10b981' : '#ef4444';
+            }
+            
+            currentPortfolioTotalValue = totalCurrentValue;
+            updateTimestamp();
+            console.log(`✅ Dashboard: Investment=${unifiedData.totalInvestment.toFixed(2)}, Current=${totalCurrentValue.toFixed(2)}`);
         } else {
-            console.log('📡 Loading from Live API...');
-            loadingIndicator.updatePercent(40, '📡 Loading from Live API...', 'Getting real-time market data');
-            priceMap = await loadFromAPI(user);
-            updateDataStatusIndicator('live', { source: 'api', lastUpdate: new Date().toISOString() });
+            console.warn('⚠️ No portfolio data found');
         }
         
-        if (priceMap && priceMap.size > 0) {
-            loadingIndicator.updatePercent(60, '📊 Calculating portfolio...', 'Processing buy/sell lots');
-            await calculateAndUpdatePortfolioValues(priceMap);
-            
-            loadingIndicator.updatePercent(80, '📈 Generating analysis...', 'Preparing portfolio insights');
-            
-            const analysisSection = document.getElementById('sec-portfolio-analysis');
-            if (analysisSection && !analysisSection.classList.contains('hidden') && auth.currentUser) {
-                console.log('🔄 Syncing Portfolio Analysis with Dashboard data...');
-                setTimeout(() => {
-                    loadPortfolioAnalysisTable(auth.currentUser.uid);
-                }, 100);
-            }
-            
-            loadingIndicator.updatePercent(100, '✅ Done!', 'Portfolio loaded successfully');
-            
-            setTimeout(() => {
-                loadingIndicator.hide();
-            }, 500);
-            
-            lastDataLoadTime = new Date();
-            return true;
-        }
-        
-        loadingIndicator.hide();
-        return false;
+        await updatePerformanceSummary();
         
     } catch (error) {
         console.error('Dashboard load error:', error);
-        loadingIndicator.updatePercent(100, '❌ Error!', 'Failed to load portfolio data');
-        setTimeout(() => {
-            loadingIndicator.hide();
-        }, 1000);
-        return false;
+        showToast('Error loading dashboard data', 'error');
+    } finally {
+        showDataLoading(false);
     }
 }
+
 
 console.log('✅ loadDashboardData initialized successfully');
 // ==========================================
@@ -6024,3 +6146,160 @@ window.addEventListener('beforeunload', () => {
     
     console.log('✅ All resources cleaned up');
 });
+// ==========================================
+// 💎 কার্ড UI আপডেট ফাংশন - সুন্দর অ্যানিমেশন সহ
+// ==========================================
+
+function updateCardUI(cardId, value, isPositive, percentValue = null, percentPositive = null) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    
+    const valueElem = card.querySelector('.card-value');
+    const percentElem = card.querySelector('.card-percent');
+    
+    if (valueElem) {
+        // ভ্যালু আপডেট
+        valueElem.innerHTML = value;
+        
+        // অ্যানিমেশন ইফেক্ট
+        valueElem.style.transform = 'scale(1.1)';
+        setTimeout(() => {
+            valueElem.style.transform = 'scale(1)';
+        }, 200);
+    }
+    
+    if (percentElem && percentValue !== null) {
+        percentElem.innerHTML = percentValue;
+        if (percentPositive !== null) {
+            percentElem.className = `card-percent ${percentPositive ? 'positive-change' : 'negative-change'}`;
+        }
+    }
+    
+    // কার্ডের বর্ডার ইফেক্ট
+    card.style.transform = 'scale(0.98)';
+    setTimeout(() => {
+        card.style.transform = '';
+    }, 150);
+}
+
+// আপডেটেড রেন্ডার পোর্টফোলিও অ্যানালাইসিস ফাংশন (কার্ডের জন্য)
+function renderPortfolioAnalysis(portfolioData) {
+    const listContainer = document.getElementById('bull-analysis-list');
+    if (!listContainer) return;
+    
+    if (portfolioData.length === 0) {
+        listContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: #94a3b8;">No active stocks found.</div>`;
+        return;
+    }
+    
+    let finalHtml = "";
+    let grandTotalCost = 0;
+    let grandTotalCurrentValue = 0;
+    let grandTotalDailyGL = 0;
+    let grandTotalGL = 0;
+    
+    for (const item of portfolioData) {
+        const { ticker, avgBuyPrice, totalRemainingQty, totalCost, currentPrice, dailyChange, totalGL, totalGLPcnt, totalStockDailyGL, totalStockDailyPcnt, activeLotsForDisplay, livePriceClass, dailyGlClass, totalGlClass, blockId } = item;
+        
+        const currentValue = totalRemainingQty * currentPrice;
+        
+        finalHtml += `
+            <div class="stock-block" id="parent-${blockId}">
+                <div class="stock-main-row" onclick="toggleBullLot('${blockId}'); openStockDetailModal('${ticker}');">
+                    <div class="bull-col-code">
+                        <div class="ticker-title" style="color: #2563eb; text-decoration: underline; cursor: pointer;">${ticker}</div>
+                        <div class="${livePriceClass}" style="font-weight:600; margin-top:2px;">
+                            ৳${currentPrice.toFixed(2)} 
+                            <span style="font-size:11px;">(${dailyChange >= 0 ? '+' : ''}${dailyChange.toFixed(2)})</span>
+                        </div>
+                        <div style="color: #64748b; font-size:12px; margin-top:3px;">
+                            ৳${avgBuyPrice.toFixed(2)} x ${totalRemainingQty} shares
+                        </div>
+                        <span class="toggle-text" id="btn-${blockId}">+ Show All</span>
+                    </div>
+                    <div class="bull-col-value" style="font-size:12px; font-weight:600; line-height: 1.4;">
+                        <div style="color:#000;">${currentValue.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                        <div style="color:#64748b; font-weight:normal; margin-top:14px;">${totalCost.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                    </div>
+                    <div class="bull-col-daily ${dailyGlClass}" style="font-size:12px; font-weight:500; line-height: 1.4;">
+                        <div>${totalStockDailyGL >= 0 ? '+' : ''}${totalStockDailyGL.toFixed(2)}</div>
+                        <div style="font-size:11px; margin-top:14px;">${totalStockDailyPcnt >= 0 ? '+' : ''}${totalStockDailyPcnt.toFixed(2)}%</div>
+                    </div>
+                    <div class="bull-col-total ${totalGlClass}" style="font-size:12px; font-weight:600; line-height: 1.4;">
+                        <div>${totalGL >= 0 ? '+' : ''}${totalGL.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                        <div style="font-size:11px; margin-top:14px;">${totalGLPcnt >= 0 ? '+' : ''}${totalGLPcnt.toFixed(2)}%</div>
+                    </div>
+                </div>
+                <div class="lot-rows-container" id="container-${blockId}" style="display:none;">
+        `;
+        
+        for (const lot of activeLotsForDisplay) {
+            const lotDailyClass = lot.dailyGL >= 0 ? "bull-profit" : "bull-loss";
+            const lotTotalClass = lot.totalGL >= 0 ? "bull-profit" : "bull-loss";
+            
+            finalHtml += `
+                <div class="stock-lot-row">
+                    <div class="bull-col-code" style="color: #64748b; padding-left: 5px;">
+                        <b>৳${lot.buyPrice.toFixed(2)}</b> x ${lot.qty} shares
+                    </div>
+                    <div class="bull-col-value">
+                        <div style="color:#000;">${lot.currentValue.toFixed(2)}</div>
+                        <div style="color:#64748b; font-size:11px;">${lot.cost.toFixed(2)}</div>
+                    </div>
+                    <div class="bull-col-daily ${lotDailyClass}">
+                        <div>${lot.dailyGL >= 0 ? '+' : ''}${lot.dailyGL.toFixed(2)}</div>
+                        <div style="font-size:11px;">${lot.dailyGLPcnt >= 0 ? '+' : ''}${lot.dailyGLPcnt.toFixed(2)}%</div>
+                    </div>
+                    <div class="bull-col-total ${lotTotalClass}">
+                        <div>${lot.totalGL >= 0 ? '+' : ''}${lot.totalGL.toFixed(2)}</div>
+                        <div style="font-size:11px;">${lot.totalGLPcnt >= 0 ? '+' : ''}${lot.totalGLPcnt.toFixed(2)}%</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        finalHtml += `</div></div>`;
+        
+        grandTotalCost += totalCost;
+        grandTotalCurrentValue += currentValue;
+        grandTotalDailyGL += totalStockDailyGL;
+        grandTotalGL += totalGL;
+    }
+    
+    listContainer.innerHTML = finalHtml;
+    
+    // 💎 প্রিমিয়াম কার্ড আপডেট
+    const totalValueCard = document.getElementById('summary-total-value');
+    const totalCostCard = document.getElementById('summary-total-cost');
+    const totalDailyCard = document.getElementById('summary-total-daily');
+    const totalDailyPctCard = document.getElementById('summary-total-daily-pct');
+    const totalGLCard = document.getElementById('summary-total-gl');
+    const totalGLPctCard = document.getElementById('summary-total-gl-pct');
+    
+    if (totalValueCard) {
+        totalValueCard.innerHTML = `৳${grandTotalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    }
+    if (totalCostCard) {
+        totalCostCard.innerHTML = `৳${grandTotalCost.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    }
+    if (totalDailyCard) {
+        totalDailyCard.innerHTML = `${grandTotalDailyGL >= 0 ? '+' : ''}৳${grandTotalDailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        totalDailyCard.style.color = grandTotalDailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    if (totalDailyPctCard && grandTotalCost > 0) {
+        const dailyPercent = (grandTotalDailyGL / grandTotalCost) * 100;
+        totalDailyPctCard.innerHTML = `${dailyPercent >= 0 ? '+' : ''}${dailyPercent.toFixed(2)}%`;
+        totalDailyPctCard.style.color = dailyPercent >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    if (totalGLCard) {
+        totalGLCard.innerHTML = `${grandTotalGL >= 0 ? '+' : ''}৳${grandTotalGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        totalGLCard.style.color = grandTotalGL >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    if (totalGLPctCard && grandTotalCost > 0) {
+        const totalPercent = (grandTotalGL / grandTotalCost) * 100;
+        totalGLPctCard.innerHTML = `${totalPercent >= 0 ? '+' : ''}${totalPercent.toFixed(2)}%`;
+        totalGLPctCard.style.color = totalPercent >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    
+    updateDashboardCardsFromAnalysis(grandTotalCost, grandTotalCurrentValue, grandTotalDailyGL, grandTotalGL);
+}
