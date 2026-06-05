@@ -215,6 +215,7 @@
         <p id="auth-error" class="error"></p>
     </div>
     <!-- ========================================== -->
+
 <!-- 🚀 ফ্লোটিং লোডিং ইন্ডিকেটর (Dashboard Loader) -->
 <!-- ========================================== -->
 <div id="floating-loader" style="
@@ -1099,6 +1100,11 @@ function forceRefresh() {
         window.location.reload();
     }
 }
+    // ✅ Service Worker controller change listener (যোগ করুন)
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        console.log('🔄 Service Worker changed, reloading...');
+        window.location.reload();
+    });
 </script>
         <!-- ========== 👇 আপনার existing scripts এর পরে যোগ করুন ========== -->
     
