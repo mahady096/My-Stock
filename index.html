@@ -1,12 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Share Market Portfolio</title>
     
-    <!-- ========== 👇 এই অংশটি যোগ করুন ========== -->
     <!-- PWA manifest file link -->
     <link rel="manifest" href="/manifest.json">
     
@@ -23,15 +21,60 @@
     
     <!-- সাধারণ mobile support -->
     <meta name="mobile-web-app-capable" content="yes">
-    <!-- ========== যোগ করা শেষ ========== -->
+    
     <link rel="stylesheet" href="style.css">
     
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-
     <style>
+        /* ===== মোবাইলে অ্যাডভান্সড মডাল কার্ড গ্রিড ===== */
+        @media (max-width: 640px) {
+            .adv-card-grid {
+                display: grid !important;
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 8px !important;
+            }
+            .adv-card-grid .adv-card {
+                padding: 10px 6px !important;
+                border-radius: 12px !important;
+            }
+            .adv-card-grid .adv-card .card-label {
+                font-size: 9px !important;
+            }
+            .adv-card-grid .adv-card .card-value {
+                font-size: 16px !important;
+            }
+            .adv-card-grid .adv-card .card-sub {
+                font-size: 9px !important;
+            }
+            /* ডিভিডেন্ড টেবিল মোবাইলে */
+            .dividend-info-table th,
+            .dividend-info-table td {
+                font-size: 11px !important;
+                padding: 4px 6px !important;
+            }
+            /* পারফরম্যান্স টেবিল */
+            .perf-table th,
+            .perf-table td {
+                font-size: 10px !important;
+                padding: 4px 2px !important;
+            }
+            /* চার্টের উচ্চতা */
+            .chart-container {
+                height: 200px !important;
+            }
+            .gain-chart-container {
+                height: 220px !important;
+            }
+            .rsi-chart-container {
+                height: 160px !important;
+            }
+        }
+        @media (max-width: 480px) {
+            .adv-card-grid {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+        }
+
+        /* অন্যান্য ইতিমধ্যে থাকা স্টাইল */
         #sell-holdings-container table {
             width: 100%;
             table-layout: fixed;
@@ -145,11 +188,31 @@
             border-radius: 8px; width: 90%; max-width: 500px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
+
+        /* ✅ সিগন্যাল বক্সের ভেতরের ফন্ট ছোট ও পরিপাটি */
+        .signal-box .signal-item {
+            font-size: 12px;
+            padding: 6px 8px;
+            margin-bottom: 2px;
+        }
+        .signal-box .signal-item .ticker {
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .signal-box .signal-item .detail {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .signal-box .signal-item .badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
     </style>
 </head>
 <body>
 
-    <!-- ========== 👇 Splash Screen - এখানে যোগ করুন ========== -->
+    <!-- Splash Screen -->
     <div id="pwa-splash" style="
         position: fixed;
         top: 0;
@@ -196,11 +259,10 @@
                         if (splash) splash.remove();
                     }, 500);
                 }
-            }, 800);  // 0.8秒后隐藏
+            }, 800);
         });
     </script>
-    <!-- ========== Splash Screen যোগ করা শেষ ========== -->
-    </div>
+
     <div id="login-container" class="auth-box">
         <h2 id="auth-title">Portfolio Login</h2>
         <input type="email" id="login-email" placeholder="Email" required>
@@ -214,71 +276,66 @@
         </p>
         <p id="auth-error" class="error"></p>
     </div>
-    <!-- ========================================== -->
 
-<!-- 🚀 ফ্লোটিং লোডিং ইন্ডিকেটর (Dashboard Loader) -->
-<!-- ========================================== -->
-<div id="floating-loader" style="
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-    border-radius: 20px;
-    padding: 25px 35px;
-    text-align: center;
-    z-index: 99999;
-    box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.1);
-    backdrop-filter: blur(10px);
-    display: none;
-    flex-direction: column;
-    align-items: center;
-    gap: 15px;
-    min-width: 280px;
-">
-    <div style="position: relative; width: 80px; height: 80px;">
-        <svg style="width: 80px; height: 80px; transform: rotate(-90deg);">
-            <circle cx="40" cy="40" r="35" stroke="rgba(255,255,255,0.1)" stroke-width="5" fill="none"/>
-            <circle id="loader-progress-circle" cx="40" cy="40" r="35" stroke="#10b981" stroke-width="5" fill="none" 
-                    stroke-dasharray="219.9" stroke-dashoffset="219.9" stroke-linecap="round"
-                    style="transition: stroke-dashoffset 0.3s ease;"/>
-        </svg>
-        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-                    font-size: 18px; font-weight: bold; color: white;" id="loader-percent">0%</div>
+    <!-- ফ্লোটিং লোডিং ইন্ডিকেটর -->
+    <div id="floating-loader" style="
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border-radius: 20px;
+        padding: 25px 35px;
+        text-align: center;
+        z-index: 99999;
+        box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3);
+        border: 1px solid rgba(255,255,255,0.1);
+        backdrop-filter: blur(10px);
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 15px;
+        min-width: 280px;
+    ">
+        <div style="position: relative; width: 80px; height: 80px;">
+            <svg style="width: 80px; height: 80px; transform: rotate(-90deg);">
+                <circle cx="40" cy="40" r="35" stroke="rgba(255,255,255,0.1)" stroke-width="5" fill="none"/>
+                <circle id="loader-progress-circle" cx="40" cy="40" r="35" stroke="#10b981" stroke-width="5" fill="none" 
+                        stroke-dasharray="219.9" stroke-dashoffset="219.9" stroke-linecap="round"
+                        style="transition: stroke-dashoffset 0.3s ease;"/>
+            </svg>
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                        font-size: 18px; font-weight: bold; color: white;" id="loader-percent">0%</div>
+        </div>
+        <div style="color: white; font-size: 14px; font-weight: 500;" id="loader-status-text">
+            📊 Loading portfolio data...
+        </div>
+        <div style="color: rgba(255,255,255,0.6); font-size: 11px;" id="loader-sub-text">
+            Fetching stock prices from Firebase
+        </div>
     </div>
-    <div style="color: white; font-size: 14px; font-weight: 500;" id="loader-status-text">
-        📊 Loading portfolio data...
-    </div>
-    <div style="color: rgba(255,255,255,0.6); font-size: 11px;" id="loader-sub-text">
-        Fetching stock prices from Firebase
-    </div>
-</div>
 
-<!-- ওভারলে (পেছনে ডার্ক করার জন্য) -->
-<div id="loader-overlay" style="
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.5);
-    backdrop-filter: blur(3px);
-    z-index: 99998;
-    display: none;
-"></div>
-<!-- ডার্ক মোড টগল বাটন -->
-<div class="theme-switch">
-    <button id="theme-toggle" onclick="toggleDarkMode()" title="Dark/Light Mode">
-        🌙
-    </button>
-</div>
+    <!-- ওভারলে -->
+    <div id="loader-overlay" style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        backdrop-filter: blur(3px);
+        z-index: 99998;
+        display: none;
+    "></div>
+
+    <!-- ডার্ক মোড টগল বাটন -->
+    <div class="theme-switch">
+        <button id="theme-toggle" onclick="toggleDarkMode()" title="Dark/Light Mode">🌙</button>
+    </div>
 
     <div id="app-container" class="hidden">
-        <!-- মোবাইল মেনু বাটন -->
-
-<!-- ওভারলে (সাইডবার খোলা থাকলে পেছনে ডার্ক হবে) -->
-<div id="sidebar-overlay" onclick="toggleLeftSidebar()" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9998; display: none;"></div>
+        <div id="sidebar-overlay" onclick="toggleLeftSidebar()" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9998; display: none;"></div>
+        
         <aside id="left-sidebar" class="sidebar left-sidebar">
             <div class="sidebar-header">
                 <h3>Navigation</h3>
@@ -289,378 +346,877 @@
                 <li onclick="switchTab('buy')">Buy Share</li>
                 <li onclick="switchTab('sell')">Sell Share</li> 
                 <li onclick="switchTab('table')">Stock Table</li>
+               <li onclick="switchTab('trade-history')">📜 Trade History</li>
                 <li onclick="switchTab('analysis')">Analysis Stat</li>
                 <li onclick="switchTab('statement')">Statement</li>
                 <li onclick="switchTab('portfolio-analysis')">Portfolio Analysis</li>
+                <li onclick="switchTab('suggestion')">💡 Buy/Sell Suggestion</li>
                 <li onclick="switchTab('dividend')">💰 Dividend Analysis</li>
-                <!-- এখানে যোগ করুন (অন্যান্য li-এর মতো) -->
-<li onclick="switchTab('history')">📊 Value History</li>
+                <li onclick="switchTab('history')">📊 Value History</li>
+             <li onclick="toggleScreenerDropdown()" style="cursor: pointer;">
+    <span>📊 Screener</span>
+    <span id="screener-arrow" style="float: right;">▶</span>
+</li>
+<ul id="screener-dropdown" style="display: none; padding-left: 20px; list-style: none;">
+    <li onclick="switchTab('screener'); setTimeout(() => loadScreenerData('buy'), 200);" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
+        onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+        📈 Parabolic SAR
+    </li>
+    <li onclick="switchTab('rsi-indicator')" style="padding: 8px 16px; font-size: 13px;">📊 RSI Indicator</li>
+    <li onclick="switchTab('all-scanner')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
+        onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+        📊 All Scanner
+    </li>
+    <li onclick="switchTab('smart-signals')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
+    onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+    🧠 Smart Signals
+</li>
+    <li onclick="switchTab('market-watch')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
+    onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+    📊 Market Watch
+</li>
+</ul>
+<li onclick="switchTab('deep-analysis')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
+    onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+    🔬 Deep Analysis
+</li>
+<li onclick="switchTab('record-date')">📅 Record Date</li>
                 <li onclick="confirmAndDeletePortfolio()" style="color: #ef4444; font-weight: bold; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.backgroundColor='rgba(239, 68, 68, 0.1)'" onmouseout="this.style.backgroundColor='transparent'">
                     <span class="icon">🗑️</span> Delete Portfolio
                 </li>
             </ul>
-            <!-- কমিশন সেটিংস - সাইডবারের ভিতরে যোগ করুন -->
-<div class="commission-settings" style="margin: 15px 0; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
-    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-        <span>💰</span>
-        <span style="font-weight: bold;">Commission Settings</span>
-        <button onclick="toggleCommissionSettings()" style="margin-left: auto; background: none; border: none; cursor: pointer; font-size: 16px;">⚙️</button>
-    </div>
-    
-    <div id="commission-panel" style="display: none;">
-        <div style="margin-bottom: 10px;">
-            <label style="font-size: 12px; display: block; margin-bottom: 5px; color: var(--text-secondary);">Commission Rate (%)</label>
-            <input type="number" id="commission-percent" value="0.00" step="0.01" 
-                   style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
-        </div>
-        
-        <div style="margin-top: 10px; display: flex; gap: 8px;">
-            <button onclick="saveCommissionSettings()" style="flex: 1; background: #10b981; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer;">Save</button>
-            <button onclick="resetCommissionSettings()" style="flex: 1; background: #64748b; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer;">Reset</button>
-        </div>
-    </div>
-</div>
+            
+            <div class="commission-settings" style="margin: 15px 0; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                    <span>💰</span>
+                    <span style="font-weight: bold;">Commission Settings</span>
+                    <button onclick="toggleCommissionSettings()" style="margin-left: auto; background: none; border: none; cursor: pointer; font-size: 16px;">⚙️</button>
+                </div>
+                
+                <div id="commission-panel" style="display: none;">
+                    <div style="margin-bottom: 10px;">
+                        <label style="font-size: 12px; display: block; margin-bottom: 5px; color: var(--text-secondary);">Commission Rate (%)</label>
+                        <input type="number" id="commission-percent" value="0.00" step="0.01" 
+                               style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+                    </div>
+                    
+                    <div style="margin-top: 10px; display: flex; gap: 8px;">
+                        <button onclick="saveCommissionSettings()" style="flex: 1; background: #10b981; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer;">Save</button>
+                        <button onclick="resetCommissionSettings()" style="flex: 1; background: #64748b; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer;">Reset</button>
+                    </div>
+                </div>
+            </div>
+            
             <div style="margin: 10px 0; padding: 10px; background: #f1f5f9; border-radius: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-    <button id="btn-download-data" onclick="downloadPortfolioData()" style="background: #10b981; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
-        📥 ডাটা ব্যাকআপ (ডাউনলোড)
-    </button>
-    
-    <div style="display: flex; align-items: center; gap: 5px;">
-        <label for="upload-file-input" style="background: #6366f1; color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 14px;">
-            📤 ডাটা রিস্টোর (আপলোড)
-        </label>
-        <input type="file" id="upload-file-input" accept=".json" onchange="uploadPortfolioData(event)" style="display: none;">
-    </div>
-</div>
+                <button id="btn-download-data" style="background: #10b981; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
+                    📥 ডাটা ব্যাকআপ (ডাউনলোড)
+                </button>
+                
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <label for="upload-file-input" style="background: #6366f1; color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                        📤 ডাটা রিস্টোর (আপলোড)
+                    </label>
+                    <input type="file" id="upload-file-input" accept=".json" style="display: none;">
+                </div>
+            </div>
+            
             <button id="btn-logout" class="logout-btn">Logout</button>
         </aside>
 
         <main class="main-content">
-            <header>
-                <button class="toggle-trigger" onclick="toggleLeftSidebar()">☰ Menu</button>
-                <h2>Portfolio Dashboard</h2>
-                <button class="toggle-trigger" style="visibility: hidden;">Watchlist ☰</button>
-            </header><section id="sec-dashboard" class="tab-content">
-    <!-- ডাটা সোর্স ইন্ডিকেটর -->
-    <div class="data-source-indicator" id="data-source-indicator">
-        <div class="source-info">
-            <span class="source-icon" id="source-icon">💾</span>
-            <span class="source-text" id="source-text">Firebase Mode</span>
-        </div>
-        <div class="data-details">
-            <span>📅 Data: </span>
-            <span id="data-date-value">Loading...</span>
-        </div>
-        <div class="mode-buttons">
-            <button id="btn-firebase-mode" class="mode-btn active" onclick="setFirebaseMode()">💾 Firebase</button>
-            <button id="btn-live-mode" class="mode-btn" onclick="setLiveMode()">📡 Live API</button>
-        </div>
-    </div>
+          <header>
+    <button class="toggle-trigger" onclick="toggleLeftSidebar()">☰ Menu</button>
+    <h2>Portfolio Dashboard</h2>
+    <button class="toggle-trigger" id="user-menu-btn" style="visibility: visible; background: var(--primary-color); border-radius: 50%; width: 40px; height: 40px; padding: 0; font-size: 20px;" onclick="openUserMenu()">👤</button>
+</header>
 
-    <!-- ম্যানুয়াল রিলোড কন্ট্রোল -->
-    <div class="manual-reload-container" style="display: flex; justify-content: space-between; align-items: center; margin: 15px 0;">
-        <div class="auto-refresh-control" style="display: flex; align-items: center; gap: 15px;">
-            <label class="switch">
-                <input type="checkbox" id="autoRefreshToggle" checked>
-                <span class="slider"></span>
-            </label>
-            <span style="font-size: 13px; color: var(--text-secondary);">
-                🔄 Auto Refresh (30 min)
-            </span>
-            <span id="next-refresh-timer" style="font-size: 11px; color: var(--text-muted);"></span>
-        </div>
-        <button id="btn-manual-reload" onclick="manualReloadDashboard()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
-            🔄 Manual Refresh
-        </button>
-    </div>
-
-    <!-- 💎 প্রিমিয়াম কার্ডস - শুধুমাত্র একবার -->
-    <div class="portfolio-summary-cards">
-        <!-- কার্ড 1: টোটাল ভ্যালু -->
-        <div class="premium-card card-1" id="card-total-value" title="Current Portfolio Value">
-            <div class="card-icon">💰</div>
-            <div class="card-label">
-                <span>📊</span> TOTAL VALUE
-            </div>
-            <div class="card-value" id="dash-total-value">৳0.00</div>
-            <div class="card-footer">Current Portfolio Value</div>
-        </div>
-        
-        <!-- কার্ড 2: টোটাল ইনভেস্টমেন্ট -->
-        <div class="premium-card card-2" id="card-total-cost" title="Total Money Invested">
-            <div class="card-icon">📈</div>
-            <div class="card-label">
-                <span>💰</span> TOTAL INVESTMENT
-            </div>
-            <div class="card-value" id="dash-total-cost">৳0.00</div>
-            <div class="card-footer">Including Commission</div>
-        </div>
-        
-        <!-- কার্ড 3: ডেইলি পি/এল -->
-        <div class="premium-card card-3" id="card-daily-pl" title="Today's Gain/Loss">
-            <div class="card-icon">📉</div>
-            <div class="card-label">
-                <span>⚡</span> DAILY P/L
-            </div>
-            <div class="card-value" id="dash-total-daily">৳0.00</div>
-            <div class="card-percent" id="dash-total-daily-pct">(0.00%)</div>
-            <div class="card-footer">Today's Change</div>
-        </div>
-        
-        <!-- কার্ড 4: টোটাল পি/এল -->
-        <div class="premium-card card-4" id="card-total-pl" title="Overall Gain/Loss">
-            <div class="card-icon">🎯</div>
-            <div class="card-label">
-                <span>🏆</span> TOTAL P/L
-            </div>
-            <div class="card-value" id="dash-total-gl">৳0.00</div>
-            <div class="card-percent" id="dash-total-gl-pct">(0.00%)</div>
-            <div class="card-footer">Overall Return</div>
-        </div>
-    </div>
-
-    <!-- 🆕 পারফরম্যান্স সামারি টেবিল (Dashboard এ) -->
-    <div class="dashboard-performance" style="background: var(--bg-secondary); border-radius: 12px; margin-top: 20px; overflow: hidden; box-shadow: var(--card-shadow);">
-        <div style="padding: 12px 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-            <span style="font-weight: bold; color: white;">📈 Portfolio Performance Summary</span>
-            <span style="font-size: 12px; color: rgba(255,255,255,0.8); margin-left: 10px;">Last updated: <span id="dash-perf-update-time">-</span></span>
-        </div>
-        <div style="overflow-x: auto;">
-            <table class="dashboard-performance-table" style="width: 100%; font-size: 13px; min-width: 600px; border-collapse: collapse;">
-                <thead>
-                    <tr style="background: var(--bg-tertiary);">
-                        <th style="padding: 12px;">Period</th>
-                        <th style="padding: 12px;">Today</th>
-                        <th style="padding: 12px;">5 Days</th>
-                        <th style="padding: 12px;">15 Days</th>
-                        <th style="padding: 12px;">30 Days</th>
-                        <th style="padding: 12px;">3 Months</th>
-                        <th style="padding: 12px;">6 Months</th>
-                        <th style="padding: 12px;">1 Year</th>
-                    </td>
-                </thead>
-                <tbody>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <td style="padding: 12px; font-weight: bold;">Portfolio Return</td>
-                        <td style="padding: 12px;" id="dash-perf-today">-</td>
-                        <td style="padding: 12px;" id="dash-perf-5d">-</td>
-                        <td style="padding: 12px;" id="dash-perf-15d">-</td>
-                        <td style="padding: 12px;" id="dash-perf-30d">-</td>
-                        <td style="padding: 12px;" id="dash-perf-3m">-</td>
-                        <td style="padding: 12px;" id="dash-perf-6m">-</td>
-                        <td style="padding: 12px;" id="dash-perf-1y">-</td>
-                    </tr>
-                    <tr style="background: var(--bg-tertiary);">
-                        <td style="padding: 12px; font-weight: bold;">Benchmark (DSEX)</td>
-                        <td style="padding: 12px;" id="dash-bench-today">-</td>
-                        <td style="padding: 12px;" id="dash-bench-5d">-</td>
-                        <td style="padding: 12px;" id="dash-bench-15d">-</td>
-                        <td style="padding: 12px;" id="dash-bench-30d">-</td>
-                        <td style="padding: 12px;" id="dash-bench-3m">-</td>
-                        <td style="padding: 12px;" id="dash-bench-6m">-</td>
-                        <td style="padding: 12px;" id="dash-bench-1y">-</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 12px; font-weight: bold;">Difference</td>
-                        <td style="padding: 12px;" id="dash-diff-today">-</td>
-                        <td style="padding: 12px;" id="dash-diff-5d">-</td>
-                        <td style="padding: 12px;" id="dash-diff-15d">-</td>
-                        <td style="padding: 12px;" id="dash-diff-30d">-</td>
-                        <td style="padding: 12px;" id="dash-diff-3m">-</td>
-                        <td style="padding: 12px;" id="dash-diff-6m">-</td>
-                        <td style="padding: 12px;" id="dash-diff-1y">-</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <div class="update-timestamp" id="update-timestamp"></div>
-
-    <div class="chart-box">
-        <h4 style="margin-bottom: 10px; color: #475569; font-size: 14px;">Portfolio Growth (Investment vs Value)</h4>
-        <div style="position: relative; height: 260px; width: 100%;">
-            <canvas id="dashboardChart"></canvas>
-        </div>
-    </div>
-</section><section id="sec-portfolio-analysis" class="tab-content hidden">
-    <div style="padding: 10px 15px; background: #667eea; border-radius: 12px 12px 0 0; color: white;">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div>
-                <h3 style="margin: 0; font-size: 16px;">📊 Portfolio Performance Dashboard</h3>
-                <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.9;">Real-time analysis from Firebase data</p>
-            </div>
-            <div style="background: rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 20px; font-size: 12px;">
-                <span>🔤 Click on <strong>Code</strong> column to sort</span>
-                <span id="sort-indicator-badge" style="margin-left: 5px;">⬆️ A→Z</span>
-            </div>
-        </div>
-    </div>
-    
-    <div class="bull-analysis-container">
-        <div class="bull-header" style="cursor: pointer;" onclick="sortPortfolioAnalysis()">
-            <div class="bull-col-code" style="display: flex; align-items: center; gap: 5px;">
-                📋 Code 
-                <span id="header-sort-icon" style="font-size: 12px;">⬆️</span>
-            </div>
-            <div class="bull-col-value">Value/Cost</div>
-            <div class="bull-col-daily">Daily G/L</div>
-            <div class="bull-col-total">Total G/L</div>
-        </div>
-        <div id="bull-analysis-list">
-            <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</div>
-        </div>
-    </div>
-    
-    <!-- 💎 প্রিমিয়াম সামারি কার্ডস -->
-    <div class="portfolio-summary-cards" style="margin: 15px;">
-        <div class="premium-card card-1">
-            <div class="card-icon">💰</div>
-            <div class="card-label">TOTAL VALUE</div>
-            <div class="card-value" id="summary-total-value">৳0.00</div>
-            <div class="card-footer">Current Portfolio Value</div>
-        </div>
-        
-        <div class="premium-card card-2">
-            <div class="card-icon">📈</div>
-            <div class="card-label">TOTAL COST</div>
-            <div class="card-value" id="summary-total-cost">৳0.00</div>
-            <div class="card-footer">Including Commission</div>
-        </div>
-        
-        <div class="premium-card card-3">
-            <div class="card-icon">📉</div>
-            <div class="card-label">DAILY P/L</div>
-            <div class="card-value" id="summary-total-daily">৳0.00</div>
-            <div class="card-percent" id="summary-total-daily-pct">(0.00%)</div>
-            <div class="card-footer">Today's Change</div>
-        </div>
-        
-        <div class="premium-card card-4">
-            <div class="card-icon">🎯</div>
-            <div class="card-label">TOTAL P/L</div>
-            <div class="card-value" id="summary-total-gl">৳0.00</div>
-            <div class="card-percent" id="summary-total-gl-pct">(0.00%)</div>
-            <div class="card-footer">Overall Return</div>
-        </div>
-    </div>
-</section>
-<!-- ==========================================
-     💰 DIVIDEND ANALYSIS SECTION
-     ========================================== -->
-<section id="sec-dividend" class="tab-content hidden">
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
-        <h3 style="color: white; margin: 0 0 5px 0;">💰 Dividend Analysis</h3>
-        <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Track stock dividends and cash dividends</p>
-    </div>
-    
-    <!-- সার্চ ও ইনপুট সেকশন -->
-    <div class="dividend-input-section" style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: var(--card-shadow);">
-        <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end;">
-            <div style="flex: 2; min-width: 180px;">
-                <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: bold; color: var(--text-secondary);">Search Share Name</label>
-                <div style="position: relative;">
-                    <input type="text" id="div-search-ticker" placeholder="e.g., GP, ROBI, SQURPHARMA" autocomplete="off" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
-                    <div id="div-suggestion-box" class="suggestion-list hidden" style="top: 42px;"></div>
-                </div>
-            </div>
-            <div style="flex: 1; min-width: 120px;">
-                <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: bold; color: var(--text-secondary);">Stock Dividend (%)</label>
-                <input type="number" id="div-stock-percent" placeholder="e.g., 10" step="0.01" value="0" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
-            </div>
-            <div style="flex: 1; min-width: 120px;">
-                <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: bold; color: var(--text-secondary);">Cash Dividend (per share)</label>
-                <input type="number" id="div-cash-amount" placeholder="e.g., 5.50" step="0.01" value="0" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
-            </div>
-            <div style="flex: 0.5; min-width: 100px;">
-                <button id="btn-save-dividend" style="width: 100%; padding: 10px 16px; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                    💾 Save
-                </button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- টেবিল সেকশন -->
-    <div style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-            <h4 style="margin: 0; color: var(--text-primary);">📊 Dividend Ledger</h4>
-            <div style="display: flex; gap: 10px;">
-                <span style="font-size: 12px; padding: 4px 10px; background: #10b98120; border-radius: 20px; color: #10b981;">✓ Stock Gain</span>
-                <span style="font-size: 12px; padding: 4px 10px; background: #ef444420; border-radius: 20px; color: #ef4444;">✓ Cash Gain</span>
-            </div>
-        </div>
-        
-        <div style="overflow-x: auto;">
-            <table id="dividend-table" style="width: 100%; font-size: 13px;">
-                <thead>
-                    <tr style="background: var(--bg-tertiary);">
-                        <th style="padding: 12px;">Share Name</th>
-                        <th style="padding: 12px;">Stock (%)</th>
-                        <th style="padding: 12px;">Cash (৳)</th>
-                        <th style="padding: 12px;">Dividend Gain (৳)</th>
-                        <th style="padding: 12px;">Unrealized P/L (৳)</th>
-                        <th style="padding: 12px; text-align: center;">Action</th>
-                    </tr>
-                </thead>
-                <tbody id="dividend-table-body">
-                    <tr>
-                        <td colspan="6" style="text-align: center; padding: 30px; color: #64748b;">
-                            No dividend records. Search and add a share above.
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</section>
-            <section id="sec-buy" class="tab-content hidden">
-    <h3>Buy Shares</h3>
-    <div class="trade-form" style="position: relative;">
-        <input type="text" id="trade-ticker" placeholder="Share Name (e.g., GP, SQURPHARMA)" autocomplete="off">
-        <div id="suggestion-box" class="suggestion-list hidden"></div>
-        <input type="number" id="trade-qty" placeholder="Quantity">
-        <input type="number" id="trade-price" placeholder="Price">
-        
-        <!-- 🆕 Date Picker যোগ করুন -->
-        <div style="margin: 10px 0;">
-            <label style="font-size: 12px; color: #64748b;">📅 Transaction Date</label>
-            <input type="date" id="trade-date" style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 4px;">
-        </div>
-        
-        <button class="btn-buy">Buy</button>
-    </div>
-</section>
-
-            <section id="sec-sell" class="tab-content hidden">
-                <h3>Sell Shares from Holdings</h3>
-                <div class="trade-form" style="position: relative; display: flex; gap: 10px; margin-bottom: 20px;">
-                    <div style="position: relative; flex: 1;">
-                        <input type="text" id="sell-ticker" placeholder="Enter Share Name to Sell (e.g., GP, ROBI)" autocomplete="off" style="margin-bottom: 0;">
-                        <div id="sell-suggestion-box" class="suggestion-list hidden"></div>
+            <!-- Dashboard Section -->
+            <section id="sec-dashboard" class="tab-content">
+                <div class="data-source-indicator" id="data-source-indicator">
+                    <div class="source-info">
+                        <span class="source-icon" id="source-icon">💾</span>
+                        <span class="source-text" id="source-text">Firebase Mode</span>
                     </div>
-                    <button class="btn-sell" id="btn-execute-sell" style="padding: 0 20px; height: 42px;">Save / Sell</button>
-                </div>
-<div style="margin: 10px 0; padding: 10px; background: var(--bg-tertiary); border-radius: 8px;">
-        <label style="font-size: 12px; color: var(--text-secondary);">📅 Sell Transaction Date</label>
-        <input type="date" id="sell-trade-date" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-primary);">
+                    <!-- ডেটা ইনফো বার -->
+<div class="data-info-bar" style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-secondary); padding: 10px 20px; border-radius: 12px; margin: 10px 0; border: 1px solid var(--border-color); flex-wrap: wrap; gap: 10px;">
+    <div>
+        <span style="font-weight: bold;">📅 Previous Data Date:</span>
+        <span id="previous-data-date" style="color: var(--text-muted);">-</span>
     </div>
-                <div id="sell-holdings-container" class="hidden">
-                    <h4>Your Current Holdings for <span id="selected-sell-ticker" style="color: #007bff;"></span></h4>
-                    <table>
-    <thead>
-    <tr>
-        <th class="small-col">Buy Price</th>
-        <th class="small-col">Available Qty</th>
-        <th class="small-col">Buy Date</th>
-        <th class="small-col">Sell Details</th>
-    </tr>
-</thead>
-                        <tbody id="sell-portfolio-table-body"></tbody>
-                    </table>
+    <div>
+        <span style="font-weight: bold;">🕐 Last Updated:</span>
+        <span id="last-updated-time" style="color: var(--text-muted);">-</span>
+    </div>
+</div>
+                    <!-- DSEX Live Indicator -->
+<div id="dsex-indicator" class="dsex-card" 
+onclick="openDSEXChartModal()"
+style="
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border-radius: 16px;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+    color: white;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+">
+    <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+        <div>
+            <div style="font-size: 12px; opacity: 0.8;">DSEX Index</div>
+            <div style="font-size: 28px; font-weight: bold;" id="dsex-value">--</div>
+        </div>
+        <div>
+            <div style="font-size: 12px; opacity: 0.8;">Change (Prev Day)</div>
+            <div style="font-size: 18px; font-weight: bold;" id="dsex-change">--</div>
+        </div>
+        <div>
+            <div style="font-size: 12px; opacity: 0.8;">Market Status</div>
+            <div style="font-size: 16px; font-weight: bold;" id="market-status">--</div>
+        </div>
+    </div>
+    <div style="font-size: 11px; opacity: 0.6;" id="dsex-last-updated"></div>
+</div>
+<!-- 🔍 স্টক সার্চ বক্স (ড্যাশবোর্ডের উপরের দিকে) -->
+<div class="dashboard-search-container" style="margin: 15px 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+    <div style="position: relative; flex: 1; min-width: 250px; max-width: 450px;">
+        <input type="text" id="dashboard-search-input" 
+               placeholder="🔍 Search share (e.g., GP, ROBI, SQURPHARMA)" 
+               autocomplete="off"
+               style="width: 100%; padding: 10px 16px; border-radius: 30px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 14px; outline: none; transition: all 0.3s;">
+        <div id="dashboard-search-suggestions" class="suggestion-list hidden" 
+             style="top: 46px; left: 0; width: 100%; position: absolute; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 999;"></div>
+    </div>
+    <span style="font-size: 12px; color: var(--text-muted);">🔍 Type to search any share</span>
+</div>
+
+
+                    <div class="data-details">
+                        <span>📅 Data: </span>
+                        <span id="data-date-value">Loading...</span>
+                    </div>
+                    <div class="mode-buttons">
+                        <button id="btn-firebase-mode" class="mode-btn active">💾 Firebase</button>
+                        <button id="btn-live-mode" class="mode-btn">📡 Live API</button>
+                    </div>
+                </div>
+
+                <div class="manual-reload-container" style="display: flex; justify-content: space-between; align-items: center; margin: 15px 0;">
+                    <div class="auto-refresh-control" style="display: flex; align-items: center; gap: 15px;">
+                        <label class="switch">
+                            <input type="checkbox" id="autoRefreshToggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <span style="font-size: 13px; color: var(--text-secondary);">🔄 Auto Refresh (30 min)</span>
+                        <span id="next-refresh-timer" style="font-size: 11px; color: var(--text-muted);"></span>
+                    </div>
+                    <button id="btn-manual-reload" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                        🔄 Manual Refresh
+                    </button>
+                </div>
+                
+                <div class="portfolio-summary-cards">
+                    <div class="premium-card card-1" id="card-total-value" title="Current Portfolio Value">
+                        <div class="card-icon">💰</div>
+                        <div class="card-label"><span>📊</span> TOTAL VALUE</div>
+                        <div class="card-value" id="dash-total-value">৳0.00</div>
+                        <div class="card-footer">Current Portfolio Value</div>
+                    </div>
+                    
+                    <div class="premium-card card-2" id="card-total-cost" title="Total Money Invested">
+                        <div class="card-icon">📈</div>
+                        <div class="card-label"><span>💰</span> TOTAL INVESTMENT</div>
+                        <div class="card-value" id="dash-total-cost">৳0.00</div>
+                        <div class="card-footer">Including Commission</div>
+                    </div>
+                    
+                    <div class="premium-card card-3" id="card-daily-pl" title="Today's Gain/Loss">
+                        <div class="card-icon">📉</div>
+                        <div class="card-label"><span>⚡</span> DAILY P/L</div>
+                        <div class="card-value" id="dash-total-daily">৳0.00</div>
+                        <div class="card-percent" id="dash-total-daily-pct">(0.00%)</div>
+                        <div class="card-footer">Today's Change</div>
+                    </div>
+                    
+                    <div class="premium-card card-4" id="card-total-pl" title="Overall Gain/Loss">
+                        <div class="card-icon">🎯</div>
+                        <div class="card-label"><span>🏆</span> TOTAL P/L</div>
+                        <div class="card-value" id="dash-total-gl">৳0.00</div>
+                        <div class="card-percent" id="dash-total-gl-pct">(0.00%)</div>
+                        <div class="card-footer">Overall Return</div>
+                    </div>
+                    <div class="premium-card card-5" id="card-total-income" onclick="openDepositModal()" title="Total Income (Deposit + Realized Profit)">
+        <div class="card-icon">💰</div>
+        <div class="card-label"><span>💵</span> TOTAL INCOME</div>
+        <div class="card-value" id="dash-total-income">৳0.00</div>
+        <div class="card-percent" id="dash-total-income-pct">(0.00%)</div>
+        <div class="card-footer">Deposit + Realized Profit</div>
+    </div>
+                </div>
+
+                <div class="dashboard-performance" style="background: var(--bg-secondary); border-radius: 12px; margin-top: 20px; overflow: hidden; box-shadow: var(--card-shadow);">
+                    <div style="padding: 12px 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                        <span style="font-weight: bold; color: white;">📈 Portfolio Performance Summary</span>
+                        <span style="font-size: 12px; color: rgba(255,255,255,0.8); margin-left: 10px;">Last updated: <span id="dash-perf-update-time">-</span></span>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table class="dashboard-performance-table" style="width: 100%; font-size: 13px; min-width: 600px; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: var(--bg-tertiary);">
+                                    <th style="padding: 12px;">Period</th>
+                                    <th style="padding: 12px;">Today</th>
+                                    <th style="padding: 12px;">5 Days</th>
+                                    <th style="padding: 12px;">15 Days</th>
+                                    <th style="padding: 12px;">30 Days</th>
+                                    <th style="padding: 12px;">3 Months</th>
+                                    <th style="padding: 12px;">6 Months</th>
+                                    <th style="padding: 12px;">1 Year</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <td style="padding: 12px; font-weight: bold;">Portfolio Return</td>
+                                    <td style="padding: 12px;" id="dash-perf-today">-</td>
+                                    <td style="padding: 12px;" id="dash-perf-5d">-</td>
+                                    <td style="padding: 12px;" id="dash-perf-15d">-</td>
+                                    <td style="padding: 12px;" id="dash-perf-30d">-</td>
+                                    <td style="padding: 12px;" id="dash-perf-3m">-</td>
+                                    <td style="padding: 12px;" id="dash-perf-6m">-</td>
+                                    <td style="padding: 12px;" id="dash-perf-1y">-</td>
+                                </tr>
+                                <tr style="background: var(--bg-tertiary);">
+                                    <td style="padding: 12px; font-weight: bold;">Benchmark (DSEX)</td>
+                                    <td style="padding: 12px;" id="dash-bench-today">-</td>
+                                    <td style="padding: 12px;" id="dash-bench-5d">-</td>
+                                    <td style="padding: 12px;" id="dash-bench-15d">-</td>
+                                    <td style="padding: 12px;" id="dash-bench-30d">-</td>
+                                    <td style="padding: 12px;" id="dash-bench-3m">-</td>
+                                    <td style="padding: 12px;" id="dash-bench-6m">-</td>
+                                    <td style="padding: 12px;" id="dash-bench-1y">-</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 12px; font-weight: bold;">Difference</td>
+                                    <td style="padding: 12px;" id="dash-diff-today">-</td>
+                                    <td style="padding: 12px;" id="dash-diff-5d">-</td>
+                                    <td style="padding: 12px;" id="dash-diff-15d">-</td>
+                                    <td style="padding: 12px;" id="dash-diff-30d">-</td>
+                                    <td style="padding: 12px;" id="dash-diff-3m">-</td>
+                                    <td style="padding: 12px;" id="dash-diff-6m">-</td>
+                                    <td style="padding: 12px;" id="dash-diff-1y">-</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="update-timestamp" id="update-timestamp"></div>
+
+                <!-- 📅 ডেট ফিল্টার (চার্টের আগে সরানো হয়েছে) -->
+                <div class="dashboard-filter-container" style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; background: var(--bg-secondary); padding: 12px 16px; border-radius: 12px; margin: 20px 0 15px 0; border: 1px solid var(--border-color);">
+                    <span style="font-weight: bold; font-size: 14px;">📅 Date Range:</span>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <label style="font-size: 12px;">From:</label>
+                        <input type="date" id="dash-chart-start" style="padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 13px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <label style="font-size: 12px;">To:</label>
+                        <input type="date" id="dash-chart-end" style="padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 13px;">
+                    </div>
+                    <button onclick="applyDashboardDateFilter()" style="padding: 4px 16px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">Apply</button>
+                    <button onclick="resetDashboardDateFilter()" style="padding: 4px 16px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-size: 13px;">Reset (30d)</button>
+                </div>
+
+                <!-- ড্যাশবোর্ডে দৈনিক গ্রোথ চার্ট -->
+                <div style="margin-top: 20px; background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow);">
+                    <h4 style="margin-bottom: 15px;">📈 Portfolio Growth (Daily Value)</h4>
+                    <div style="position: relative; height: 280px; width: 100%;">
+                        <canvas id="dashboardHistoryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- ড্যাশবোর্ডে Daily P&L হিস্টোরি চার্ট (নতুন) -->
+                <div style="margin-top: 30px; background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow);">
+                    <h4 style="margin-bottom: 15px;">📈 Daily P&L History</h4>
+                    <div style="position: relative; height: 280px; width: 100%;">
+                        <canvas id="dashboardDailyPLChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- 🔍 সিগন্যাল ফিল্টার (সিগন্যাল বক্সের আগে সরানো হয়েছে) -->
+                <div class="signal-filters" style="display: flex; gap: 20px; flex-wrap: wrap; align-items: center; background: var(--bg-secondary); padding: 12px 20px; border-radius: 12px; margin: 30px 0 15px 0; border: 1px solid var(--border-color);">
+                    
+                    <!-- Market Filter -->
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="font-weight: bold; font-size: 13px; color: var(--text-secondary);">📊 Market:</label>
+                        <select id="signal-market-filter" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 13px;">
+                            <option value="portfolio">My Portfolio</option>
+                            <option value="all" selected>All Market</option>
+                            <option value="watchlist">Watchlist</option>
+                        </select>
+                    </div>
+
+                    <!-- Scanner Filter -->
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="font-weight: bold; font-size: 13px; color: var(--text-secondary);">🔎 Scanner:</label>
+                        <select id="signal-scanner-filter" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 13px;">
+                            <option value="psar">Parabolic SAR</option>
+                            <option value="rsi">RSI</option>
+                            <option value="all-scanner">All Scanner</option>
+                            <option value="smart-signal">Smart Signal</option>
+                            <option value="price-position">Price Position</option> 
+                        </select>
+                    </div>
+
+                    <button onclick="applySignalFilters()" style="padding: 6px 20px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Apply</button>
+                    <span style="font-size: 12px; color: var(--text-muted); margin-left: auto;">Last updated: <span id="signal-update-time">-</span></span>
+                </div>
+
+                <!-- সিগন্যাল বক্স -->
+                <div class="signal-boxes-container" style="margin-top: 5px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+
+                    <!-- বাম দিকের বক্স: Buy Signals -->
+                    <div class="signal-box" style="background: var(--bg-secondary); border-radius: 16px; box-shadow: var(--card-shadow); border-left: 4px solid #10b981; overflow: hidden;">
+                        <div style="padding: 10px 16px; background: rgba(16, 185, 129, 0.1); border-bottom: 1px solid var(--border-color);">
+                            <h4 style="margin: 0; color: #10b981; font-size: 16px;">📈 Buy Signals</h4>
+                            <span style="font-size: 12px; color: var(--text-muted);" id="buy-signal-count">0 stocks</span>
+                        </div>
+                        <div id="buy-signal-list" style="max-height: 400px; overflow-y: auto; padding: 6px 8px;">
+                            <div style="text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px;">Select filters to see Buy signals</div>
+                        </div>
+                    </div>
+
+                    <!-- ডান দিকের বক্স: Sell Signals -->
+                    <div class="signal-box" style="background: var(--bg-secondary); border-radius: 16px; box-shadow: var(--card-shadow); border-left: 4px solid #ef4444; overflow: hidden;">
+                        <div style="padding: 10px 16px; background: rgba(239, 68, 68, 0.1); border-bottom: 1px solid var(--border-color);">
+                            <h4 style="margin: 0; color: #ef4444; font-size: 16px;">📉 Sell Signals</h4>
+                            <span style="font-size: 12px; color: var(--text-muted);" id="sell-signal-count">0 stocks</span>
+                        </div>
+                        <div id="sell-signal-list" style="max-height: 400px; overflow-y: auto; padding: 6px 8px;">
+                            <div style="text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px;">Select filters to see Sell signals</div>
+                        </div>
+                    </div>
+                </div>
+
+            </section> <!-- শেষ Dashboard Section -->
+
+            <!-- Portfolio Analysis Section -->
+            <section id="sec-portfolio-analysis" class="tab-content hidden">
+                <div style="padding: 10px 15px; background: #667eea; border-radius: 12px 12px 0 0; color: white;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <h3 style="margin: 0; font-size: 16px;">📊 Portfolio Performance Dashboard</h3>
+                            <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.9;">Real-time analysis from Firebase data</p>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 20px; font-size: 12px;">
+                            <span>🔤 Click on <strong>Code</strong> column to sort</span>
+                            <span id="sort-indicator-badge" style="margin-left: 5px;">⬆️ A→Z</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bull-analysis-container">
+                    <div class="bull-header" style="cursor: pointer;" onclick="sortPortfolioAnalysis()">
+                        <div class="bull-col-code" style="display: flex; align-items: center; gap: 5px;">
+                            📋 Code 
+                            <span id="header-sort-icon" style="font-size: 12px;">⬆️</span>
+                        </div>
+                        <div class="bull-col-value">Value/Cost</div>
+                        <div class="bull-col-daily">Daily G/L</div>
+                        <div class="bull-col-total">Total G/L</div>
+                    </div>
+                    <div id="bull-analysis-list">
+                        <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</div>
+                    </div>
+                </div>
+                
+                <div class="portfolio-summary-cards" style="margin: 15px;">
+                    <div class="premium-card card-1">
+                        <div class="card-icon">💰</div>
+                        <div class="card-label">TOTAL VALUE</div>
+                        <div class="card-value" id="summary-total-value">৳0.00</div>
+                        <div class="card-footer">Current Portfolio Value</div>
+                    </div>
+                    
+                    <div class="premium-card card-2">
+                        <div class="card-icon">📈</div>
+                        <div class="card-label">TOTAL COST</div>
+                        <div class="card-value" id="summary-total-cost">৳0.00</div>
+                        <div class="card-footer">Including Commission</div>
+                    </div>
+                    
+                    <div class="premium-card card-3">
+                        <div class="card-icon">📉</div>
+                        <div class="card-label">DAILY P/L</div>
+                        <div class="card-value" id="summary-total-daily">৳0.00</div>
+                        <div class="card-percent" id="summary-total-daily-pct">(0.00%)</div>
+                        <div class="card-footer">Today's Change</div>
+                    </div>
+                    
+                    <div class="premium-card card-4">
+                        <div class="card-icon">🎯</div>
+                        <div class="card-label">TOTAL P/L</div>
+                        <div class="card-value" id="summary-total-gl">৳0.00</div>
+                        <div class="card-percent" id="summary-total-gl-pct">(0.00%)</div>
+                        <div class="card-footer">Overall Return</div>
+                    </div>
+                    <!-- Total Income Card -->
+<div class="premium-card card-5" id="card-total-income" onclick="openDepositModal()" title="Total Income (Deposit + Realized Profit)">
+    <div class="card-icon">💰</div>
+    <div class="card-label"><span>💵</span> TOTAL INCOME</div>
+    <div class="card-value" id="dash-total-income">৳0.00</div>
+    <div class="card-percent" id="dash-total-income-pct">(0.00%)</div>
+    <div class="card-footer">Deposit + Realized Profit</div>
+</div>
                 </div>
             </section>
 
-<!-- Stock Table Section - মোবাইল ফ্রেন্ডলি স্টিকি কলাম -->
+            <!-- Dividend Analysis Section -->
+            <section id="sec-dividend" class="tab-content hidden">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+                    <h3 style="color: white; margin: 0 0 5px 0;">💰 Dividend Analysis</h3>
+                    <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Track stock dividends and cash dividends</p>
+                </div>
+                
+                <div class="dividend-input-section" style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: var(--card-shadow);">
+                    <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end;">
+                        <div style="flex: 2; min-width: 180px;">
+                            <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: bold; color: var(--text-secondary);">Search Share Name</label>
+                            <div style="position: relative;">
+                                <input type="text" id="div-search-ticker" placeholder="e.g., GP, ROBI, SQURPHARMA" autocomplete="off" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
+                                <div id="div-suggestion-box" class="suggestion-list hidden" style="top: 42px;"></div>
+                            </div>
+                        </div>
+                        <div style="flex: 1; min-width: 120px;">
+                            <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: bold; color: var(--text-secondary);">Stock Dividend (%)</label>
+                            <input type="number" id="div-stock-percent" placeholder="e.g., 10" step="0.01" value="0" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
+                        </div>
+                        <div style="flex: 1; min-width: 120px;">
+                            <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: bold; color: var(--text-secondary);">Cash Dividend (per share)</label>
+                            <input type="number" id="div-cash-amount" placeholder="e.g., 5.50" step="0.01" value="0" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
+                        </div>
+                        <div style="flex: 0.5; min-width: 100px;">
+                            <button id="btn-save-dividend" style="width: 100%; padding: 10px 16px; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">💾 Save</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                        <h4 style="margin: 0; color: var(--text-primary);">📊 Dividend Ledger</h4>
+                        <div style="display: flex; gap: 10px;">
+                            <span style="font-size: 12px; padding: 4px 10px; background: #10b98120; border-radius: 20px; color: #10b981;">✓ Stock Gain</span>
+                            <span style="font-size: 12px; padding: 4px 10px; background: #ef444420; border-radius: 20px; color: #ef4444;">✓ Cash Gain</span>
+                        </div>
+                    </div>
+                    
+                    <div style="overflow-x: auto;">
+                        <table id="dividend-table" style="width: 100%; font-size: 13px;">
+                            <thead>
+                                <tr style="background: var(--bg-tertiary);">
+                                    <th style="padding: 12px;">Share Name</th>
+                                    <th style="padding: 12px;">Stock (%)</th>
+                                    <th style="padding: 12px;">Cash (৳)</th>
+                                    <th style="padding: 12px;">Dividend Gain (৳)</th>
+                                    <th style="padding: 12px;">Unrealized P/L (৳)</th>
+                                    <th style="padding: 12px; text-align: center;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dividend-table-body">
+                                <tr><td colspan="6" style="text-align: center; padding: 30px; color: #64748b;">No dividend records. Search and add a share above.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+<!-- Buy Section -->
+<section id="sec-buy" class="tab-content hidden">
+    <h3>Buy Shares</h3>
+
+    <!-- ট্যাব বাটন -->
+    <div class="buy-tabs" style="display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color);">
+        <button class="buy-tab-btn active" data-tab="buy" style="padding: 8px 20px; background: var(--primary-color); color: white; border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: bold;">📥 Buy</button>
+        <button class="buy-tab-btn" data-tab="history" style="padding: 8px 20px; background: transparent; color: var(--text-primary); border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: bold; border: 1px solid var(--border-color); border-bottom: none;">📜 Buy History</button>
+    </div>
+
+    <!-- Buy ট্যাব কন্টেন্ট -->
+    <div id="buy-tab-content" class="buy-tab-panel" style="display: block;">
+        <div class="trade-form">
+            <!-- ✅ সাজেশন বক্স ইনপুটের নিচে আসবে (input-wrapper) -->
+            <div class="input-wrapper" style="position: relative; width: 100%;">
+                <input type="text" id="trade-ticker" placeholder="Share Name (e.g., GP, SQURPHARMA)" autocomplete="off">
+                <div id="suggestion-box" class="suggestion-list hidden"></div>
+            </div>
+            
+            <input type="number" id="trade-qty" placeholder="Quantity">
+            <input type="number" id="trade-price" placeholder="Price">
+            
+            <div style="margin: 10px 0;">
+                <label style="font-size: 12px; color: #64748b;">📅 Transaction Date</label>
+                <input type="date" id="trade-date" style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 4px;">
+            </div>
+            
+            <button class="btn-buy">Buy</button>
+        </div>
+    </div>
+
+    <!-- Buy History ট্যাব কন্টেন্ট -->
+    <div id="buy-history-tab-content" class="buy-tab-panel" style="display: none; margin-top: 20px;">
+        <div style="margin-bottom: 20px; position: relative; max-width: 400px;">
+            <div class="input-wrapper" style="position: relative; width: 100%;">
+                <input type="text" id="buy-history-search" placeholder="🔍 Search share name (e.g., GP, ROBI)" 
+                       style="width: 100%; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 14px; outline: none;"
+                       autocomplete="off">
+                <div id="buy-history-suggestion-box" class="suggestion-list hidden" 
+                     style="top: 46px; left: 0; width: 100%; position: absolute; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 999;"></div>
+            </div>
+        </div>
+        <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+            <table id="buy-history-table" style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 10px;">Date</th>
+                        <th style="padding: 10px;">Share</th>
+                        <th style="padding: 10px;">Buy Qty</th>
+                        <th style="padding: 10px;">Buy Price</th>
+                        <th style="padding: 10px;">Total Value</th>
+                        <th style="padding: 10px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="buy-history-body">
+                    <tr><td colspan="6" style="text-align: center; padding: 30px; color: var(--text-muted);">Search a share to see buy history.</td></tr>
+                </tbody>
+                <tfoot id="buy-history-footer" style="background: var(--bg-tertiary); font-weight: bold;">
+                    <tr>
+                        <td colspan="6" style="padding: 10px; text-align: center; font-size: 13px;">
+                            <span id="buy-history-avg-price">📊 Avg Buy: -</span> &nbsp;|&nbsp;
+                            <span id="buy-history-total-qty">📦 Total Qty: -</span> &nbsp;|&nbsp;
+                            <span id="buy-history-total-cost">💰 Total Cost: -</span>
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</section>
+
+            <!-- Sell Section -->
+<!-- Sell Section -->
+<section id="sec-sell" class="tab-content hidden">
+    <h3>Sell Shares from Holdings</h3>
+
+    <!-- ট্যাব বাটন -->
+    <div class="sell-tabs" style="display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color);">
+        <button class="sell-tab-btn active" data-tab="sell" style="padding: 8px 20px; background: var(--primary-color); color: white; border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: bold;">📤 Sell</button>
+        <button class="sell-tab-btn" data-tab="history" style="padding: 8px 20px; background: transparent; color: var(--text-primary); border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: bold; border: 1px solid var(--border-color); border-bottom: none;">📜 Sell History</button>
+    </div>
+
+    <!-- Sell ট্যাব কন্টেন্ট -->
+    <div id="sell-tab-content" class="sell-tab-panel">
+        <div class="trade-form" style="position: relative; display: flex; gap: 10px; margin-bottom: 20px;">
+            <div style="position: relative; flex: 1;">
+                <input type="text" id="sell-ticker" placeholder="Enter Share Name to Sell (e.g., GP, ROBI)" autocomplete="off" style="margin-bottom: 0;">
+                <div id="sell-suggestion-box" class="suggestion-list hidden"></div>
+            </div>
+            <button class="btn-sell" id="btn-execute-sell" style="padding: 0 20px; height: 42px;">Save / Sell</button>
+        </div>
+        
+        <div style="margin: 10px 0; padding: 10px; background: var(--bg-tertiary); border-radius: 8px;">
+            <label style="font-size: 12px; color: var(--text-secondary);">📅 Sell Transaction Date</label>
+            <input type="date" id="sell-trade-date" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-primary);">
+        </div>
+        
+        <div id="sell-holdings-container" class="hidden">
+            <h4>Your Current Holdings for <span id="selected-sell-ticker" style="color: #007bff;"></span></h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th class="small-col">Buy Price</th>
+                        <th class="small-col">Available Qty</th>
+                        <th class="small-col">Buy Date</th>
+                        <th class="small-col">Sell Details</th>
+                    </tr>
+                </thead>
+                <tbody id="sell-portfolio-table-body"></tbody>
+            </table>
+        </div>
+        
+        <!-- ব্যাচ সেল লিস্ট -->
+        <div id="batch-sell-container" style="margin-top: 25px; background: var(--bg-secondary); border-radius: 12px; padding: 15px; box-shadow: var(--card-shadow);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+                <h4 style="margin: 0; color: var(--text-primary);">📋 Batch Sell List</h4>
+                <div>
+                    <button id="btn-execute-batch-sell" class="btn-sell" style="padding: 8px 20px; font-size: 14px;">✅ Execute All Sales</button>
+                    <button id="btn-clear-batch" style="padding: 8px 16px; background: #64748b; color: white; border: none; border-radius: 6px; cursor: pointer;">🗑️ Clear List</button>
+                </div>
+            </div>
+            
+            <div style="overflow-x: auto; max-height: 300px; overflow-y: auto;">
+                <table id="batch-sell-table" style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: var(--bg-tertiary);">
+                            <th style="padding: 8px;">Share</th>
+                            <th style="padding: 8px;">Buy Price</th>
+                            <th style="padding: 8px;">Sell Qty</th>
+                            <th style="padding: 8px;">Sell Price</th>
+                            <th style="padding: 8px;">Total Value</th>
+                            <th style="padding: 8px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="batch-sell-body">
+                        <tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-muted);">No items added yet. Add from holdings below.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sell History ট্যাব কন্টেন্ট -->
+    <div id="sell-history-tab-content" class="sell-tab-panel" style="display: none; margin-top: 20px;">
+<div style="margin-bottom: 20px; position: relative; max-width: 400px;">
+    <input type="text" id="sell-history-search" placeholder="🔍 Search share name (e.g., GP, ROBI)" 
+           style="width: 100%; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 14px; outline: none;"
+           autocomplete="off">
+    <div id="sell-history-suggestion-box" class="suggestion-list hidden" 
+         style="top: 46px; left: 0; width: 100%; position: absolute; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 999;"></div>
+</div>
+        <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+            <table id="sell-history-table" style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 10px;">Date</th>
+                        <th style="padding: 10px;">Share</th>
+                        <th style="padding: 10px;">Sell Qty</th>
+                        <th style="padding: 10px;">Sell Price</th>
+                        <th style="padding: 10px;">Buy Price</th>
+                        <th style="padding: 10px;">Total Value</th>
+                        <th style="padding: 10px;">Profit/Loss</th>
+                    </tr>
+                </thead>
+                <tbody id="sell-history-body">
+                    <tr><td colspan="7" style="text-align: center; padding: 30px; color: var(--text-muted);">Search a share to see sell history.</td></tr>
+                </tbody>
+                <tfoot id="sell-history-footer" style="background: var(--bg-tertiary); font-weight: bold;">
+    <tr>
+        <td colspan="7" style="padding: 10px; text-align: center; font-size: 13px;">
+            <span id="sell-history-avg-price">📊 Avg: -</span> &nbsp;|&nbsp;
+            <span id="sell-history-high-price" style="color: #10b981;">📈 High: -</span> &nbsp;|&nbsp;
+            <span id="sell-history-low-price" style="color: #ef4444;">📉 Low: -</span>
+        </td>
+    </tr>
+</tfoot>
+            </table>
+        </div>
+    </div>
+</section>
+<!-- Screener Section -->
+<section id="sec-screener" class="tab-content hidden">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+        <h3 style="color: white; margin: 0 0 5px 0;">📊 Screener - Parabolic SAR</h3>
+        <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Identify potential buy/sell signals based on PSAR vs Current Price</p>
+    </div>
+
+    <!-- Buy/Sell ট্যাব বাটন -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color);">
+        <button id="screener-tab-buy" class="screener-tab-btn active" data-tab="buy" style="background: var(--primary-color); color: white; border: none; padding: 10px 24px; border-radius: 30px; cursor: pointer; font-weight: bold;">📈 Buy Signal</button>
+        <button id="screener-tab-sell" class="screener-tab-btn" data-tab="sell" style="background: transparent; border: 1px solid var(--border-color); padding: 10px 24px; border-radius: 30px; cursor: pointer; font-weight: bold;">📉 Sell Signal</button>
+    </div>
+
+    <!-- টেবিল কন্টেইনার -->
+    <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+        <table id="screener-table" style="width: 100%; font-size: 13px; border-collapse: collapse;">
+            <thead>
+                <tr style="background: var(--bg-tertiary);">
+                    <th style="padding: 12px; text-align: left;">Share Name</th>
+                    <th style="padding: 12px; text-align: right;">Current Price (৳)</th>
+                    <th style="padding: 12px; text-align: right;">Parabolic SAR (৳)</th>
+                    <th style="padding: 12px; text-align: center;">Signal</th>
+                </tr>
+            </thead>
+            <tbody id="screener-table-body">
+                <tr><td colspan="4" style="text-align: center; padding: 40px;">Loading screener data...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- লাস্ট আপডেট সময় -->
+    <div style="margin-top: 15px; font-size: 12px; color: var(--text-muted); text-align: right;">
+        Last updated: <span id="screener-update-time">-</span>
+    </div>
+</section>
+<!-- All Scanner Section -->
+<section id="sec-all-scanner" class="tab-content hidden">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+            <div>
+                <h3 style="color: white; margin: 0 0 5px 0;">📊 All Scanner <span style="font-size: 14px; opacity: 0.8;">(PSAR + RSI)</span></h3>
+                <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Strong Buy (RSI &lt; 30 &amp; PSAR &lt; Price) &amp; Strong Sell (RSI &gt; 70 &amp; PSAR &gt; Price)</p>
+            </div>
+            <button onclick="refreshAllScannerPage()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 30px; cursor: pointer;">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <!-- ট্যাব বাটন -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap;">
+        <button id="all-scanner-tab-buy" class="all-scanner-tab-btn active" onclick="switchAllScannerTab('buy')" style="padding: 8px 24px; flex-shrink: 0; background: var(--primary-color); color: white; border: none; border-radius: 30px; cursor: pointer; font-weight: bold;">📈 Strong Buy</button>
+        <button id="all-scanner-tab-sell" class="all-scanner-tab-btn" onclick="switchAllScannerTab('sell')" style="padding: 8px 24px; flex-shrink: 0; background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 30px; cursor: pointer; font-weight: bold;">📉 Strong Sell</button>
+        <button id="all-scanner-tab-analysis" class="all-scanner-tab-btn" onclick="switchAllScannerTab('analysis')" style="padding: 8px 24px; flex-shrink: 0; background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 30px; cursor: pointer; font-weight: bold;">🔍 Analysis</button>
+    </div>
+
+    <!-- Strong Buy Container -->
+    <div id="all-scanner-buy-container" style="display: block;">
+        <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+            <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 12px; text-align: left;">Share Name</th>
+                        <th style="padding: 12px; text-align: right;">Price (৳)</th>
+                        <th style="padding: 12px; text-align: right;">PSAR (৳)</th>
+                        <th style="padding: 12px; text-align: right;">RSI (14)</th>
+                        <th style="padding: 12px; text-align: center;">Signal</th>
+                    </tr>
+                </thead>
+                <tbody id="all-scanner-buy-body">
+                    <tr><td colspan="5" style="text-align:center; padding:40px;">⏳ Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Strong Sell Container -->
+    <div id="all-scanner-sell-container" style="display: none;">
+        <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+            <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 12px; text-align: left;">Share Name</th>
+                        <th style="padding: 12px; text-align: right;">Price (৳)</th>
+                        <th style="padding: 12px; text-align: right;">PSAR (৳)</th>
+                        <th style="padding: 12px; text-align: right;">RSI (14)</th>
+                        <th style="padding: 12px; text-align: center;">Signal</th>
+                    </tr>
+                </thead>
+                <tbody id="all-scanner-sell-body">
+                    <tr><td colspan="5" style="text-align:center; padding:40px;">⏳ Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Analysis Container -->
+    <div id="all-scanner-analysis-container" style="display: none;">
+        <div style="margin-bottom: 15px; position: relative; max-width: 400px;">
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="all-scanner-analysis-search" placeholder="🔍 Search share (e.g., GP, ROBI)" 
+                       style="flex: 1; padding: 10px 16px; border-radius: 30px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 14px; outline: none;">
+                <button id="all-scanner-analysis-search-btn" style="padding: 10px 20px; background: var(--primary-color); color: white; border: none; border-radius: 30px; cursor: pointer;">Search</button>
+            </div>
+            <div id="all-scanner-analysis-suggestions" class="suggestion-list hidden" style="top: 50px;"></div>
+        </div>
+        <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+            <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 12px; text-align: left;">Share Name</th>
+                        <th style="padding: 12px; text-align: right;">Price (৳)</th>
+                        <th style="padding: 12px; text-align: right;">PSAR (৳)</th>
+                        <th style="padding: 12px; text-align: right;">RSI (14)</th>
+                        <th style="padding: 12px; text-align: center;">Signal</th>
+                    </tr>
+                </thead>
+                <tbody id="all-scanner-analysis-body">
+                    <tr><td colspan="5" style="text-align:center; padding:30px; color:var(--text-muted);">Type a share name and click Search</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div style="margin-top: 15px; font-size: 12px; color: var(--text-muted); text-align: right;">
+        Last updated: <span id="all-scanner-update-time">-</span>
+    </div>
+</section>
+<!-- RSI Indicator Section -->
+<section id="sec-rsi-indicator" class="tab-content hidden">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+            <div>
+                <h3 style="color: white; margin: 0 0 5px 0;">📊 RSI Indicator</h3>
+                <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Filter stocks by RSI (Relative Strength Index)</p>
+            </div>
+            <button onclick="refreshRSIIndicator()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 30px; cursor: pointer;">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <!-- ট্যাব বাটন -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); overflow-x: auto; padding-bottom: 2px; flex-wrap: nowrap;">
+        <button id="rsi-tab-buy" class="rsi-tab-btn active" onclick="switchRSITab('buy')" style="padding: 8px 24px; flex-shrink: 0; background: var(--primary-color); color: white; border: none; border-radius: 30px; cursor: pointer; font-weight: bold;">📈 Buy Signal (RSI &lt; 30)</button>
+        <button id="rsi-tab-sell" class="rsi-tab-btn" onclick="switchRSITab('sell')" style="padding: 8px 24px; flex-shrink: 0; background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 30px; cursor: pointer; font-weight: bold;">📉 Sell Signal (RSI &gt; 70)</button>
+    </div>
+
+    <!-- Buy Container -->
+    <div id="rsi-buy-container" style="display: block;">
+        <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <label style="font-size: 13px; font-weight: bold;">RSI Threshold (below):</label>
+            <input type="number" id="rsi-buy-threshold" value="30" min="1" max="100" step="1" style="width: 80px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+            <button onclick="applyRSIFilter('buy')" style="padding: 6px 16px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer;">Apply</button>
+            <span style="font-size: 12px; color: var(--text-muted);">(Shows stocks with RSI below this value)</span>
+        </div>
+        <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+            <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <<thead>
+    <tr style="background: var(--bg-tertiary);">
+        <th style="padding: 12px; text-align: left;">Share Name</th>
+        <th style="padding: 12px; text-align: left;">Category</th>
+        <th style="padding: 12px; text-align: right;">Price (৳)</th>
+        <th style="padding: 12px; text-align: right;">RSI (14)</th>
+        <th style="padding: 12px; text-align: right;">ATH (৳)</th>
+        <th style="padding: 12px; text-align: right;">ATL (৳)</th>
+        <th style="padding: 12px; text-align: center;">Signal</th>
+    </tr>
+</thead>
+                <tbody id="rsi-buy-body">
+                    <tr><td colspan="4" style="text-align:center; padding:40px;">⏳ Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Sell Container -->
+    <div id="rsi-sell-container" style="display: none;">
+        <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <label style="font-size: 13px; font-weight: bold;">RSI Threshold (above):</label>
+            <input type="number" id="rsi-sell-threshold" value="70" min="1" max="100" step="1" style="width: 80px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+            <button onclick="applyRSIFilter('sell')" style="padding: 6px 16px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer;">Apply</button>
+            <span style="font-size: 12px; color: var(--text-muted);">(Shows stocks with RSI above this value)</span>
+        </div>
+        <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+            <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <thead>
+    <tr style="background: var(--bg-tertiary);">
+        <th style="padding: 12px; text-align: left;">Share Name</th>
+        <th style="padding: 12px; text-align: left;">Category</th>
+        <th style="padding: 12px; text-align: right;">Price (৳)</th>
+        <th style="padding: 12px; text-align: right;">RSI (14)</th>
+        <th style="padding: 12px; text-align: right;">ATH (৳)</th>
+        <th style="padding: 12px; text-align: right;">ATL (৳)</th>
+        <th style="padding: 12px; text-align: center;">Signal</th>
+    </tr>
+</thead>
+                <tbody id="rsi-sell-body">
+                    <tr><td colspan="4" style="text-align:center; padding:40px;">⏳ Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div style="margin-top: 15px; font-size: 12px; color: var(--text-muted); text-align: right;">
+        Last updated: <span id="rsi-update-time">-</span>
+    </div>
+</section>
+<!-- Stock Table Section -->
 <section id="sec-table" class="tab-content hidden">
     <div class="section-header">
         <h2>📊 Stock Portfolio</h2>
@@ -670,78 +1226,77 @@
         </div>
     </div>
 
-    <!-- সরাসরি স্টাইল সহ স্ক্রোলেবল টেবিল -->
     <div style="overflow-x: auto; width: 100%; position: relative; border: 1px solid #e2e8f0; border-radius: 12px; background: white;">
-        <table style="min-width: 950px; width: 100%; border-collapse: collapse; font-size: 13px;">
+        <table class="stock-table" style="min-width: 950px; width: 100%; border-collapse: collapse; font-size: 13px;">   <!-- ⬅️ এখানে class যোগ হয়েছে -->
             <thead>
-                <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
-                    <th style="position: sticky; left: 0; background: #f8fafc; z-index: 20; min-width: 110px; padding: 12px; text-align: left;">📋 Share Name</th>
-                    <th style="padding: 12px; text-align: left;">📥 Buy Qty</th>
-                    <th style="padding: 12px; text-align: left;">💰 Avg Buy</th>
-                    <th style="padding: 12px; text-align: left;">📦 Remaining</th>
-                    <th style="padding: 12px; text-align: left;">⚡ Current</th>
-                    <th style="padding: 12px; text-align: left;">📈 Unrealized</th>
-                    <th style="padding: 12px; text-align: left;">📊 Unrealized%</th>
-                    <th style="padding: 12px; text-align: left;">📤 Sell Qty</th>
-                    <th style="padding: 12px; text-align: left;">💵 Sell Price</th>
-                    <th style="padding: 12px; text-align: left;">✅ Realized</th>
-                </tr>
-            </thead>
-            <tbody id="portfolio-table-body">
-                <tr>
-                    <td colspan="10" style="text-align: center; padding: 40px;">Loading...</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
+                            <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+                                <th style="position: sticky; left: 0; background: #f8fafc; z-index: 20; min-width: 110px; padding: 12px; text-align: left;">📋 Share Name</th>
+                                <th style="padding: 12px; text-align: left;">📥 Buy Qty</th>
+                                <th style="padding: 12px; text-align: left;">💰 Avg Buy</th>
+                                <th style="padding: 12px; text-align: left;">📦 Remaining</th>
+                                <th style="padding: 12px; text-align: left;">⚡ Current</th>
+                                <th style="padding: 12px; text-align: left;">📈 Unrealized</th>
+                                <th style="padding: 12px; text-align: left;">📊 Unrealized%</th>
+                                <th style="padding: 12px; text-align: left;">📤 Sell Qty</th>
+                                <th style="padding: 12px; text-align: left;">💵 Sell Price</th>
+                                <th style="padding: 12px; text-align: left;">✅ Realized</th>
+                                <th style="padding: 12px; text-align: left;">📊 Daily Change %</th>
+        <th style="padding: 12px; text-align: left;">📈 Daily G/L</th>
+                            </tr>
+                        </thead>
+                        <tbody id="portfolio-table-body">
+                            <tr><td colspan="10" style="text-align: center; padding: 40px;">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
 
-    <!-- Summary Cards -->
-    <div class="summary-cards">
-        <div class="summary-card">
-            <div class="summary-card-icon">💰</div>
-            <div class="summary-card-content">
-                <div class="summary-card-label">Total Investment</div>
-                <div class="summary-card-value" id="foot-total-invest">৳0.00</div>
-            </div>
-        </div>
-        <div class="summary-card">
-            <div class="summary-card-icon">📊</div>
-            <div class="summary-card-content">
-                <div class="summary-card-label">Current Value</div>
-                <div class="summary-card-value" id="foot-total-current-value">৳0.00</div>
-            </div>
-        </div>
-        <div class="summary-card">
-            <div class="summary-card-icon">📈</div>
-            <div class="summary-card-content">
-                <div class="summary-card-label">Unrealized P/L</div>
-                <div class="summary-card-value" id="foot-total-unrealized">৳0.00</div>
-            </div>
-        </div>
-        <div class="summary-card">
-            <div class="summary-card-icon">✅</div>
-            <div class="summary-card-content">
-                <div class="summary-card-label">Realized P/L</div>
-                <div class="summary-card-value" id="foot-total-realized">৳0.00</div>
-            </div>
-        </div>
-        <div class="summary-card">
-            <div class="summary-card-icon">📦</div>
-            <div class="summary-card-content">
-                <div class="summary-card-label">Remaining Shares</div>
-                <div class="summary-card-value" id="foot-total-remaining-qty">0</div>
-            </div>
-        </div>
-        <div class="summary-card">
-            <div class="summary-card-icon">🏢</div>
-            <div class="summary-card-content">
-                <div class="summary-card-label">Active Companies</div>
-                <div class="summary-card-value" id="company-count-value">0</div>
-            </div>
-        </div>
-    </div>
-</section>
+                <div class="summary-cards">
+                    <div class="summary-card">
+                        <div class="summary-card-icon">💰</div>
+                        <div class="summary-card-content">
+                            <div class="summary-card-label">Total Investment</div>
+                            <div class="summary-card-value" id="foot-total-invest">৳0.00</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">📊</div>
+                        <div class="summary-card-content">
+                            <div class="summary-card-label">Current Value</div>
+                            <div class="summary-card-value" id="foot-total-current-value">৳0.00</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">📈</div>
+                        <div class="summary-card-content">
+                            <div class="summary-card-label">Unrealized P/L</div>
+                            <div class="summary-card-value" id="foot-total-unrealized">৳0.00</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">✅</div>
+                        <div class="summary-card-content">
+                            <div class="summary-card-label">Realized P/L</div>
+                            <div class="summary-card-value" id="foot-total-realized">৳0.00</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">📦</div>
+                        <div class="summary-card-content">
+                            <div class="summary-card-label">Remaining Shares</div>
+                            <div class="summary-card-value" id="foot-total-remaining-qty">0</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">🏢</div>
+                        <div class="summary-card-content">
+                            <div class="summary-card-label">Active Companies</div>
+                            <div class="summary-card-value" id="company-count-value">0</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
+            <!-- Analysis Section -->
             <section id="sec-analysis" class="tab-content hidden">
                 <div class="card">
                     <div class="card-header">
@@ -788,6 +1343,7 @@
                 </div>
             </section>
 
+            <!-- Statement Section -->
             <section id="sec-statement" class="tab-content hidden">
                 <div class="card">
                     <div class="card-header">
@@ -810,7 +1366,7 @@
                                     <th>Total Amount ৳</th>
                                     <th>Realized Profit ৳</th>
                                     <th>Running Qty</th>
-                                               </tr>
+                                </tr>
                             </thead>
                             <tbody id="statement-table-body"></tbody>
                             <tfoot>
@@ -826,80 +1382,545 @@
                     </div>
                 </div>
             </section>
-<!-- 📊 PORTFOLIO VALUE HISTORY TABLE -->
-<section id="sec-history" class="tab-content hidden">
+
+            <!-- History Section -->
+            <section id="sec-history" class="tab-content hidden">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <h3 style="color: white; margin: 0 0 5px 0;">📈 Portfolio Value History</h3>
+                            <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Track your portfolio growth day by day</p>
+                        </div>
+                        <button id="refresh-history-btn" onclick="loadPortfolioHistory()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer;">🔄 Refresh</button>
+                    </div>
+                </div>
+                
+                <div style="background: var(--bg-secondary); border-radius: 12px; padding: 15px; margin-bottom: 20px; box-shadow: var(--card-shadow);">
+                    <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <span style="font-size: 13px; color: var(--text-secondary);">📅 From:</span>
+                            <input type="date" id="history-start-date" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+                            <span style="font-size: 13px; color: var(--text-secondary);">To:</span>
+                            <input type="date" id="history-end-date" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+                            <button onclick="filterHistoryByDate()" style="padding: 6px 12px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer;">Apply</button>
+                            <button onclick="resetHistoryFilter()" style="padding: 6px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">Reset</button>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="history-firebase-mode" class="history-mode-btn active" onclick="setHistoryMode('firebase')" style="padding: 6px 12px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;">💾 Firebase Data</button>
+                         <button id="history-live-mode" class="history-mode-btn" onclick="setHistoryMode('live')" style="padding: 6px 12px; background: #64748b; color: white; border: none; border-radius: 6px; cursor: pointer;">📡 Live API</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: var(--bg-secondary); border-radius: 12px; overflow-x: auto; box-shadow: var(--card-shadow);">
+                    <table id="portfolio-history-table" style="width: 100%; min-width: 700px;">
+                        <thead>
+                            <tr style="background: var(--bg-tertiary);">
+                                <th style="padding: 14px 12px;">📅 Date</th>
+                                <th style="padding: 14px 12px; text-align: right;">💰 Total Investment (৳)</th>
+                                <th style="padding: 14px 12px; text-align: right;">📊 Current Value (৳)</th>
+                                <th style="padding: 14px 12px; text-align: right;">📈 Daily P/L (৳)</th>
+                                <th style="padding: 14px 12px; text-align: right;">📉 Daily P/L (%)</th>
+                                <th style="padding: 14px 12px; text-align: center;">ℹ️ Info</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-table-body">
+                            <tr><td colspan="6" style="text-align: center; padding: 40px;">Loading portfolio history...</td></tr>
+                        </tbody>
+                        <tfoot id="history-table-footer" style="background: var(--bg-tertiary); font-weight: bold;">
+                            <tr>
+                                <td style="padding: 12px;"><strong>Summary</strong></td>
+                                <td id="history-footer-invest" style="padding: 12px; text-align: right;">-</td>
+                                <td id="history-footer-value" style="padding: 12px; text-align: right;">-</td>
+                                <td id="history-footer-pl" style="padding: 12px; text-align: right;">-</td>
+                                <td id="history-footer-plpct" style="padding: 12px; text-align: right;">-</td>
+                                <td style="padding: 12px; text-align: center;">-</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                
+                <div style="margin-top: 20px; background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow);">
+                    <h4 style="margin-bottom: 15px;">📈 Portfolio Growth Chart</h4>
+                    <div style="position: relative; height: 280px;">
+                        <canvas id="historyChart"></canvas>
+                    </div>
+                </div>
+            </section>
+            <section id="sec-record-date" class="tab-content hidden">
     <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div>
-                <h3 style="color: white; margin: 0 0 5px 0;">📈 Portfolio Value History</h3>
-                <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Track your portfolio growth day by day</p>
-            </div>
-            <button id="refresh-history-btn" onclick="loadPortfolioHistory()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer;">
-                🔄 Refresh
-            </button>
-        </div>
+        <h3 style="color: white; margin: 0 0 5px 0;">📅 Record Date & Dividend Calendar</h3>
+        <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Track record dates and dividends for all companies</p>
     </div>
-    
-    <!-- ফিল্টার ও কন্ট্রোল -->
-    <div style="background: var(--bg-secondary); border-radius: 12px; padding: 15px; margin-bottom: 20px; box-shadow: var(--card-shadow);">
-        <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
-            <div style="display: flex; gap: 10px; align-items: center;">
-                <span style="font-size: 13px; color: var(--text-secondary);">📅 From:</span>
-                <input type="date" id="history-start-date" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
-                <span style="font-size: 13px; color: var(--text-secondary);">To:</span>
-                <input type="date" id="history-end-date" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
-                <button onclick="filterHistoryByDate()" style="padding: 6px 12px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer;">Apply</button>
-                <button onclick="resetHistoryFilter()" style="padding: 6px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">Reset</button>
-            </div>
-            <div style="display: flex; gap: 10px;">
-                <button id="history-firebase-mode" class="history-mode-btn active" onclick="setHistoryMode('firebase')" style="padding: 6px 12px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;">💾 Firebase Data</button>
-                <button id="history-live-mode" class="history-mode-btn" onclick="setHistoryMode('live')" style="padding: 6px 12px; background: #64748b; color: white; border: none; border-radius: 6px; cursor: pointer;">📡 Live API</button>
-            </div>
-        </div>
+
+    <!-- ট্যাব বাটন -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color);">
+        <button id="sec-tab-all-rec" class="rec-sec-tab-btn active" data-tab="all">📋 All Record Date</button>
+        <button id="sec-tab-upcoming-rec" class="rec-sec-tab-btn" data-tab="upcoming">⏳ Upcoming</button>
+        <button id="sec-tab-previous-rec" class="rec-sec-tab-btn" data-tab="previous">📅 Previous</button>
     </div>
-    
+
+    <!-- ফিল্টার বাটন কন্টেইনার (শুধু Upcoming/Previous ট্যাবে দৃশ্যমান) -->
+    <div id="sec-filter-buttons-container" style="display: none; gap: 8px; flex-wrap: wrap; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color);"></div>
+
     <!-- টেবিল -->
-    <div style="background: var(--bg-secondary); border-radius: 12px; overflow-x: auto; box-shadow: var(--card-shadow);">
-        <table id="portfolio-history-table" style="width: 100%; min-width: 700px;">
+    <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+        <table id="sec-record-date-table" style="width:100%; border-collapse: collapse; font-size: 13px;">
             <thead>
                 <tr style="background: var(--bg-tertiary);">
-                    <th style="padding: 14px 12px;">📅 Date</th>
-                    <th style="padding: 14px 12px; text-align: right;">💰 Total Investment (৳)</th>
-                    <th style="padding: 14px 12px; text-align: right;">📊 Current Value (৳)</th>
-                    <th style="padding: 14px 12px; text-align: right;">📈 Daily P/L (৳)</th>
-                    <th style="padding: 14px 12px; text-align: right;">📉 Daily P/L (%)</th>
-                    <th style="padding: 14px 12px; text-align: center;">ℹ️ Info</th>
+                    <th style="padding: 12px;">Share Name</th>
+                    <th style="padding: 12px;">Record Date</th>
+                    <th style="padding: 12px;">Dividend</th>
+                    <th style="padding: 12px;">Days Left / Ago</th>
                 </tr>
             </thead>
-            <tbody id="history-table-body">
-                <tr>
-                    <td colspan="6" style="text-align: center; padding: 40px;">Loading portfolio history...</td>
-                </tr>
+            <tbody id="sec-record-date-tbody">
+                <tr><td colspan="4" style="text-align:center; padding: 40px;">Loading...</td></tr>
             </tbody>
-            <tfoot id="history-table-footer" style="background: var(--bg-tertiary); font-weight: bold;">
-                <tr>
-                    <td style="padding: 12px;"><strong>Summary</strong></td>
-                    <td id="history-footer-invest" style="padding: 12px; text-align: right;">-</td>
-                    <td id="history-footer-value" style="padding: 12px; text-align: right;">-</td>
-                    <td id="history-footer-pl" style="padding: 12px; text-align: right;">-</td>
-                    <td id="history-footer-plpct" style="padding: 12px; text-align: right;">-</td>
-                    <td style="padding: 12px; text-align: center;">-</td>
-                </tr>
-            </tfoot>
         </table>
     </div>
-    
-    <!-- চার্ট ভিউ -->
-    <div style="margin-top: 20px; background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow);">
-        <h4 style="margin-bottom: 15px;">📈 Portfolio Growth Chart</h4>
-        <div style="position: relative; height: 280px;">
-            <canvas id="historyChart"></canvas>
+</section>
+<!-- Buy/Sell Suggestion Section -->
+<section id="sec-suggestion" class="tab-content hidden">
+   <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+            <div>
+                <h3 style="color: white; margin: 0 0 5px 0;">💡 Buy/Sell Suggestion</h3>
+                <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">
+                    Smart suggestions based on your unrealized gain/loss
+                </p>
+            </div>
+            <!-- ✅ থ্রেশহোল্ড ইনপুট বক্স (এখানে যোগ করুন) -->
+            <div style="display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.15); padding: 8px 16px; border-radius: 30px;">
+                <span style="color: white; font-size: 13px;">🎯 Threshold:</span>
+                <input type="number" id="suggestion-threshold" value="50" min="1" max="100" step="1"
+                       style="width: 70px; padding: 6px 10px; border-radius: 20px; border: none; background: white; color: #1e293b; font-weight: bold; text-align: center; font-size: 14px;">
+                <span style="color: white; font-size: 13px;">%</span>
+                <button id="suggestion-apply-btn" 
+                        style="background: white; color: #667eea; border: none; padding: 6px 16px; border-radius: 20px; cursor: pointer; font-weight: bold; font-size: 13px; transition: all 0.2s;"
+                        onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                    Apply
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Buy Suggestion টেবিল -->
+    <div style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; margin-bottom: 25px; box-shadow: var(--card-shadow); border-left: 4px solid #10b981;">
+        <h4 style="color: #10b981; margin-top: 0; margin-bottom: 15px;">📈 Buy Suggestion (Gain ≥ 50%)</h4>
+        <div style="overflow-x: auto;">
+            <table id="suggestion-buy-table" style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 10px; text-align: left;">Share Name</th>
+                        <th style="padding: 10px; text-align: right;">Avg Buy (৳)</th>
+                        <th style="padding: 10px; text-align: right;">Share Qty</th>
+                        <th style="padding: 10px; text-align: right;">Unrealized Gain (৳)</th>
+                        <th style="padding: 10px; text-align: right;">Unrealized (%)</th>
+                    </tr>
+                </thead>
+                <tbody id="suggestion-buy-body">
+                    <tr><td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Sell Suggestion টেবিল -->
+    <div style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow); border-left: 4px solid #ef4444;">
+        <h4 style="color: #ef4444; margin-top: 0; margin-bottom: 15px;">📉 Sell Suggestion (Loss ≤ -50%)</h4>
+        <div style="overflow-x: auto;">
+            <table id="suggestion-sell-table" style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 10px; text-align: left;">Share Name</th>
+                        <th style="padding: 10px; text-align: right;">Avg Buy (৳)</th>
+                        <th style="padding: 10px; text-align: right;">Share Qty</th>
+                        <th style="padding: 10px; text-align: right;">Unrealized Loss (৳)</th>
+                        <th style="padding: 10px; text-align: right;">Unrealized (%)</th>
+                    </tr>
+                </thead>
+                <tbody id="suggestion-sell-body">
+                    <tr><td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">Loading...</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </section>
-        </main>
+<!-- Market Watch Section -->
+<section id="sec-market-watch" class="tab-content hidden">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+            <div>
+                <h3 style="color: white; margin: 0 0 5px 0;">📊 Market Watch</h3>
+                <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Track your watchlist and full market performance</p>
+            </div>
+            <button onclick="loadMarketWatchPage()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 30px; cursor: pointer;">🔄 Refresh</button>
+        </div>
     </div>
 
+    <!-- ট্যাব বাটন -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); overflow-x: auto; padding-bottom: 2px; flex-wrap: nowrap;">
+        <button id="market-tab-watchlist" class="market-tab-btn active" onclick="switchMarketWatchTab('watchlist')" 
+                style="padding: 8px 24px; flex-shrink: 0; background: var(--primary-color); color: white; border: none; border-radius: 30px; cursor: pointer; font-weight: bold;">
+            ⭐ Watch List <span id="watchlist-count-badge" style="background: rgba(255,255,255,0.2); padding: 1px 8px; border-radius: 12px; font-size: 11px; margin-left: 5px;">0</span>
+        </button>
+        <button id="market-tab-fullview" class="market-tab-btn" onclick="switchMarketWatchTab('fullview')" 
+                style="padding: 8px 24px; flex-shrink: 0; background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 30px; cursor: pointer; font-weight: bold;">
+            📋 Full View <span id="fullview-count-badge" style="background: var(--bg-tertiary); padding: 1px 8px; border-radius: 12px; font-size: 11px; margin-left: 5px;">0</span>
+        </button>
+    </div>
+
+    <!-- প্রগ্রেস বার (Full View লোডের জন্য) -->
+    <div id="market-progress-container" style="display: none; margin-bottom: 15px; background: var(--bg-secondary); padding: 12px 16px; border-radius: 12px; box-shadow: var(--card-shadow);">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
+            <span id="market-progress-text">⏳ Loading market data...</span>
+            <span id="market-progress-detail">0 / 0 stocks</span>
+        </div>
+        <div style="width: 100%; background: var(--bg-tertiary); border-radius: 10px; height: 8px; overflow: hidden;">
+            <div id="market-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #667eea, #764ba2, #667eea); background-size: 200% 100%; border-radius: 10px; transition: width 0.4s ease; animation: shimmer 1.5s infinite;"></div>
+        </div>
+    </div>
+
+    <!-- Watch List Container -->
+    <div id="market-watchlist-container" style="display: block;">
+        <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <div style="position: relative; flex: 1; min-width: 250px; max-width: 450px;">
+                <input type="text" id="watchlist-search" placeholder="🔍 Search share to add (e.g., GP, ROBI)" 
+                       style="width: 100%; padding: 10px 16px; border-radius: 30px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 14px; outline: none;">
+                <div id="watchlist-suggestions" class="suggestion-list hidden" style="top: 46px;"></div>
+            </div>
+            <button id="watchlist-add-btn" style="padding: 10px 20px; background: var(--primary-color); color: white; border: none; border-radius: 30px; cursor: pointer; font-weight: bold;">➕ Add</button>
+            <span style="font-size: 12px; color: var(--text-muted);">Total: <span id="watchlist-count">0</span> stocks</span>
+        </div>
+        <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+            <table id="watchlist-table" style="width: 100%; font-size: 13px; border-collapse: collapse; min-width: 800px;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 12px; text-align: left;">Share Name</th>
+                        <th style="padding: 12px; text-align: left;">Category</th>
+                        <th style="padding: 12px; text-align: right;">Price (৳)</th>
+                        <th style="padding: 12px; text-align: right;">1 Day</th>
+                        <th style="padding: 12px; text-align: right;">3 Days</th>
+                        <th style="padding: 12px; text-align: right;">7 Days</th>
+                        <th style="padding: 12px; text-align: right;">15 Days</th>
+                        <th style="padding: 12px; text-align: right;">30 Days</th>
+                        <th style="padding: 12px; text-align: center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="watchlist-table-body">
+                    <tr><td colspan="9" style="text-align:center; padding:40px; color:var(--text-muted);">No stocks in watchlist. Search and add above.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Full View Container -->
+    <div id="market-fullview-container" style="display: none;">
+        <div style="margin-bottom: 10px; font-size: 12px; color: var(--text-muted);">
+            Showing <span id="fullview-count">0</span> stocks &nbsp;|&nbsp; Click on column headers to sort
+        </div>
+        <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+            <table id="fullview-table" style="width: 100%; font-size: 13px; border-collapse: collapse; min-width: 800px;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 12px; text-align: left; cursor: pointer;" onclick="sortFullView(0)">Share Name</th>
+                        <th style="padding: 12px; text-align: left; cursor: pointer;" onclick="sortFullView(1)">Category</th>
+                        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortFullView(2)">Price (৳)</th>
+                        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortFullView(3)">1 Day</th>
+                        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortFullView(4)">3 Days</th>
+                        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortFullView(5)">7 Days</th>
+                        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortFullView(6)">15 Days</th>
+                        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortFullView(7)">30 Days</th>
+                    </tr>
+                </thead>
+                <tbody id="fullview-table-body">
+                    <tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-muted);">Loading market data...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+<!-- Deep Analysis Section -->
+<section id="sec-deep-analysis" class="tab-content hidden">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+            <div>
+                <h3 style="color: white; margin: 0 0 5px 0;">🔬 Deep Analysis</h3>
+                <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">21‑column advanced view – click headers to sort</p>
+            </div>
+            <button onclick="refreshDeepAnalysis()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 30px; cursor: pointer;">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <!-- ✅ টুলবার: কুইক ফিল্টার + কলাম ভিজিবিলিটি টগল -->
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <input type="text" id="deep-quick-filter" placeholder="🔍 Filter by ticker or category..." 
+                   style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 13px; min-width: 200px;">
+            <span id="deep-filter-count" style="font-size: 12px; color: var(--text-muted);"></span>
+        </div>
+        <div style="position: relative;">
+            <button id="deep-column-toggle-btn" onclick="toggleDeepColumnMenu()" style="padding: 6px 14px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-primary);">📋 Columns</button>
+            <div id="deep-column-menu" style="display: none; position: absolute; right: 0; top: 32px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; z-index: 100; min-width: 150px; max-height: 300px; overflow-y: auto; box-shadow: var(--card-shadow);">
+                <!-- চেকবক্সগুলো JS দিয়ে তৈরি হবে -->
+            </div>
+        </div>
+    </div>
+
+    <!-- টেবিল কন্টেইনার (আগের মতো) -->
+    <div style="overflow: auto; max-height: 75vh; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-secondary); position: relative;">
+        <table id="deep-analysis-table" style="width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1200px;">
+            <thead id="deep-analysis-thead" style="position: sticky; top: 0; z-index: 20; background: var(--bg-tertiary);">
+                <tr id="deep-analysis-header-row">
+                    <!-- কলাম হেডারগুলো static থাকবে, ডাইনামিক hidden/show হবে JS দিয়ে -->
+                    <th data-col="0" style="position: sticky; left: 0; z-index: 30; background: var(--bg-tertiary); min-width: 100px; text-align: left; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(0)">Share Name ⬍</th>
+                    <th data-col="1" style="min-width: 80px; text-align: left; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(1)">Category ⬍</th>
+                    <th data-col="2" style="min-width: 70px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(2)">Buy Qty ⬍</th>
+                    <th data-col="3" style="min-width: 80px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(3)">Avg Buy ⬍</th>
+                    <th data-col="4" style="min-width: 80px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(4)">Buy Cost ⬍</th>
+                    <th data-col="5" style="min-width: 80px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(5)">Remaining ⬍</th>
+                    <th data-col="6" style="min-width: 80px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(6)">Current Price ⬍</th>
+                    <th data-col="7" style="min-width: 80px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(7)">Current Value ⬍</th>
+                    <th data-col="8" style="min-width: 80px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(8)">Unrealized P/L ⬍</th>
+                    <th data-col="9" style="min-width: 70px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(9)">Unrealized % ⬍</th>
+                    <th data-col="10" style="min-width: 70px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(10)">Sell Qty ⬍</th>
+                    <th data-col="11" style="min-width: 80px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(11)">Avg Sell ⬍</th>
+                    <th data-col="12" style="min-width: 80px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(12)">Realized Value ⬍</th>
+                    <th data-col="13" style="min-width: 70px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(13)">Realized % ⬍</th>
+                    <th data-col="14" style="min-width: 90px; text-align: left; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(14)">Record Date ⬍</th>
+                    <th data-col="15" style="min-width: 80px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(15)">Days Left ⬍</th>
+                    <th data-col="16" style="min-width: 70px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(16)">ATH ⬍</th>
+                    <th data-col="17" style="min-width: 70px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(17)">ATL ⬍</th>
+                    <th data-col="18" style="min-width: 60px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(18)">RSI ⬍</th>
+                    <th data-col="19" style="min-width: 70px; text-align: right; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(19)">PSAR ⬍</th>
+                    <th data-col="20" style="min-width: 80px; text-align: center; padding: 8px 6px; cursor: pointer;" onclick="sortDeepTable(20)">Signal ⬍</th>
+                </tr>
+            </thead>
+            <tbody id="deep-analysis-tbody">
+                <tr><td colspan="21" style="text-align:center; padding:40px; color:var(--text-muted);">Loading data...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div style="margin-top: 10px; font-size: 12px; color: var(--text-muted); text-align: right;">
+        Last updated: <span id="deep-analysis-update-time">-</span>
+    </div>
+</section>
+<!-- Smart Signals Section -->
+<section id="sec-smart-signals" class="tab-content hidden">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+            <div>
+                <h3 style="color: white; margin: 0 0 5px 0;">🧠 Smart Signals</h3>
+                <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">AI-powered buy/sell recommendations using multiple indicators</p>
+            </div>
+            <button onclick="refreshSmartSignals()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 30px; cursor: pointer;">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <!-- ফিল্টার -->
+    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
+        <label style="font-size: 13px; font-weight: bold;">Market:</label>
+        <select id="smart-market-filter" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+            <option value="portfolio">📊 My Portfolio</option>
+            <option value="watchlist">⭐ Watchlist</option>
+            <option value="all">🌍 All Market</option>
+        </select>
+        <span style="font-size: 12px; color: var(--text-muted);" id="smart-signals-count"></span>
+    </div>
+
+    <!-- টেবিল -->
+    <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+        <table id="smart-signals-table" style="width: 100%; font-size: 13px; border-collapse: collapse; min-width: 800px;">
+<thead>
+    <tr style="background: var(--bg-tertiary);">
+        <th style="padding: 12px; text-align: left; cursor: pointer;" onclick="sortSmartTable(0)">Share Name ⬍</th>
+        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortSmartTable(1)">Price (৳) ⬍</th>
+        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortSmartTable(2)">RSI ⬍</th>
+        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortSmartTable(3)">PSAR ⬍</th>
+        <th style="padding: 12px; text-align: right; cursor: pointer;" onclick="sortSmartTable(4)">Score ⬍</th>
+        <th style="padding: 12px; text-align: center; cursor: pointer;" onclick="sortSmartTable(5)">Recommendation ⬍</th>
+        <th style="padding: 12px; text-align: center; cursor: pointer;" onclick="sortSmartTable(6)">Confidence ⬍</th>
+    </tr>
+</thead>
+            <tbody id="smart-signals-tbody">
+                <tr><td colspan="7" style="text-align:center; padding:40px; color:var(--text-muted);">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div style="margin-top: 10px; font-size: 12px; color: var(--text-muted); text-align: right;">
+        Last updated: <span id="smart-signals-update-time">-</span>
+    </div>
+</section>
+<!-- Trade History Section -->
+<section id="sec-trade-history" class="tab-content hidden">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+        <h3 style="color: white; margin: 0 0 5px 0;">📜 Trade History</h3>
+        <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">View and manage all your buy/sell transactions</p>
+    </div>
+
+    <!-- Date Range Filter -->
+    <div style="background: var(--bg-secondary); border-radius: 12px; padding: 15px; margin-bottom: 20px;">
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <div>
+                <label style="font-size: 13px;">From:</label>
+                <input type="date" id="trade-history-start" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+            </div>
+            <div>
+                <label style="font-size: 13px;">To:</label>
+                <input type="date" id="trade-history-end" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary);">
+            </div>
+            <button id="apply-trade-filter" style="padding: 6px 12px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer;">Apply</button>
+            <button id="reset-trade-filter" style="padding: 6px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">Reset</button>
+        </div>
+    </div>
+
+    <!-- Transactions Table -->
+    <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+        <table id="trade-history-table" style="width:100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+                <tr style="background: var(--bg-tertiary);">
+                    <th style="padding: 12px;">Date</th>
+                    <th style="padding: 12px;">Share Name</th>
+                    <th style="padding: 12px;">Quantity</th>
+                    <th style="padding: 12px;">Price (৳)</th>
+                    <th style="padding: 12px;">Type</th>
+                    <th style="padding: 12px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="trade-history-tbody">
+                <tr><td colspan="6" style="text-align:center; padding: 40px;">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+        </main>
+    </div>
+    <!-- ========================================== -->
+<!-- 📊 Signal Detail Modal (Full List)        -->
+<!-- ========================================== -->
+<div id="signal-detail-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto; border-radius: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color);">
+            <h3 style="margin:0; font-size: 20px; color: var(--text-primary);">
+                <span id="signal-detail-title">📈 Buy Signals</span>
+                <span style="font-size: 13px; color: var(--text-muted); margin-left: 10px;" id="signal-detail-count">0 stocks</span>
+            </h3>
+            <span onclick="closeSignalDetailModal()" style="cursor: pointer; font-size: 28px; line-height: 1; color: var(--text-muted);">&times;</span>
+        </div>
+        <div style="overflow-x: auto;">
+            <table id="signal-detail-table" style="width:100%; border-collapse: collapse; font-size: 13px;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 10px; text-align: left;">Share Name</th>
+                        <th style="padding: 10px; text-align: right;">Price (৳)</th>
+                        <th style="padding: 10px; text-align: right;">RSI (14)</th>
+                        <th style="padding: 10px; text-align: right;">PSAR (৳)</th>
+                        <th style="padding: 10px; text-align: right;">ATH (৳)</th>
+                        <th style="padding: 10px; text-align: right;">ATL (৳)</th>
+                        <th style="padding: 10px; text-align: center;">Signal</th>
+                        <th style="padding: 10px; text-align: center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="signal-detail-tbody">
+                    <tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted);">
+            <span>🕐 Updated: <span id="signal-detail-time">-</span></span>
+            <span>Click on any row to view details</span>
+        </div>
+    </div>
+</div>
+<!-- ========================================== -->
+<!-- 💰 Total Income Modal (With Filters)       -->
+<!-- ========================================== -->
+<div id="deposit-modal" class="modal">
+    <div class="modal-content" style="max-width: 750px; max-height: 90vh; display: flex; flex-direction: column; border-radius: 16px; overflow: hidden;">
+        <!-- হেডার (স্টিকি) -->
+        <div style="flex-shrink: 0; padding: 16px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0;">💰 Total Income Settings</h3>
+                <span onclick="closeDepositModal()" style="cursor: pointer; font-size: 28px; line-height: 1; color: var(--text-muted);">&times;</span>
+            </div>
+        </div>
+
+        <!-- স্ক্রোলযোগ্য কন্টেন্ট -->
+        <div style="flex: 1; overflow-y: auto; padding: 16px 20px; background: var(--bg-secondary);">
+            <!-- ডিপোজিট ইনপুট -->
+            <div style="margin-bottom: 15px;">
+                <label style="font-weight: bold; display:block; margin-bottom:5px;">Current Deposit (৳)</label>
+                <input type="number" id="deposit-input" step="0.01" placeholder="Enter deposit amount"
+                       style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:4px; background:var(--input-bg); color:var(--text-primary);">
+            </div>
+
+            <!-- সামারি -->
+            <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-color);">
+                <span>Realized Profit from Sells</span>
+                <span id="deposit-realized-profit" style="font-weight:bold;">৳0.00</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-color); font-weight:bold; font-size:16px;">
+                <span>Total Income</span>
+                <span id="deposit-total-income" style="color:#10b981;">৳0.00</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; padding:8px 0; font-size:14px;">
+                <span>Profit % (vs Deposit)</span>
+                <span id="deposit-income-pct" style="font-weight:bold;">0.00%</span>
+            </div>
+
+            <!-- সেভ বাটন -->
+            <div style="margin-top:15px; display:flex; gap:8px;">
+                <button onclick="saveDeposit()" style="flex:1; background:#10b981; color:white; border:none; padding:8px; border-radius:6px; cursor:pointer;">💾 Save Deposit</button>
+                <button onclick="closeDepositModal()" style="flex:1; background:#64748b; color:white; border:none; padding:8px; border-radius:6px; cursor:pointer;">Cancel</button>
+            </div>
+
+            <!-- 📊 চার্ট ও টেবিল (ডেট ফিল্টার সহ) -->
+            <div id="income-chart-container" style="margin-top:20px; border-top:1px solid var(--border-color); padding-top:15px;">
+                <h4 style="margin:0 0 10px 0; font-size:15px;">📈 Cumulative Income Growth</h4>
+
+                <!-- 🔍 ডেট ফিল্টার -->
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; background: var(--bg-tertiary); padding: 8px 12px; border-radius: 8px;">
+                    <span style="font-weight: bold; font-size: 13px;">📅 Range:</span>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <label style="font-size: 11px;">From:</label>
+                        <input type="date" id="income-chart-start" style="padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 12px;">
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <label style="font-size: 11px;">To:</label>
+                        <input type="date" id="income-chart-end" style="padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 12px;">
+                    </div>
+                    <button onclick="applyIncomeFilter()" style="padding: 3px 14px; background: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Apply</button>
+                    <button onclick="resetIncomeFilter()" style="padding: 3px 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; font-size: 12px;">Reset</button>
+                </div>
+
+                <!-- চার্ট -->
+                <div style="position:relative; height:200px; width:100%;">
+                    <canvas id="incomeHistoryChart"></canvas>
+                </div>
+
+                <!-- টেবিল -->
+                <div style="margin-top:15px; overflow-x:auto; max-height: 220px; overflow-y: auto;">
+                    <table style="width:100%; font-size:12px; border-collapse:collapse;">
+                        <thead style="position: sticky; top: 0; background: var(--bg-secondary); z-index: 5;">
+                            <tr style="background:var(--bg-tertiary);">
+                                <th style="padding:6px 8px; text-align:left;">Date</th>
+                                <th style="padding:6px 8px; text-align:right;">Daily Income (৳)</th>
+                                <th style="padding:6px 8px; text-align:right;">Cumulative Income (৳)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="income-history-tbody">
+                            <tr><td colspan="3" style="text-align:center; padding:20px; color:var(--text-muted);">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+    <!-- Modals -->
     <div id="ledger-modal" class="modal">
         <div class="modal-content">
             <h3 style="margin-top:0; display:flex; justify-content:between; align-items:center;">
@@ -926,272 +1947,541 @@
             </div>
         </div>
     </div>
-<!-- 🆕 অ্যাডভান্সড স্টক ডিটেইল মডাল -->
-<!-- 🆕 অ্যাডভান্সড স্টক ডিটেইল মডাল (কার্ড ২×২ গ্রিড) -->
-<div id="advanced-stock-modal" class="modal">
-    <div class="modal-content" style="max-width: 680px; max-height: 90vh; overflow-y: auto;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h2 id="adv-modal-ticker" style="color: #007bff; margin: 0; font-size: 24px;">STOCK NAME</h2>
-            <span onclick="closeAdvancedModal()" style="cursor: pointer; font-size: 32px; line-height: 1;">&times;</span>
+<!-- ========================================== -->
+<!-- 📊 Gain/Loss History Modal (Small Popup)   -->
+<!-- ========================================== -->
+<div id="gain-history-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width: 650px; max-height: 80vh; overflow-y: auto; border-radius: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color);">
+            <h3 style="margin:0; font-size: 18px; color: var(--text-primary);">
+                📊 Gain/Loss History - <span id="gl-modal-ticker" style="color: var(--primary-color);">TICKER</span>
+            </h3>
+            <span onclick="closeGainHistoryModal()" style="cursor: pointer; font-size: 28px; line-height: 1; color: var(--text-muted);">&times;</span>
         </div>
         
-        <!-- 📊 কার্ড গ্রিড - 2x2 লেআউট -->
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 25px;">
-            
-            <!-- Card 1: LTP + Change -->
-            <div class="adv-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; border-radius: 14px;">
-                <div style="font-size: 12px; opacity: 0.85; margin-bottom: 5px;">LTP (৳)</div>
-                <div style="font-size: 32px; font-weight: bold;" id="adv-ltp">-</div>
-                <div style="font-size: 13px; margin-top: 5px;" id="adv-change">Change: -</div>
-            </div>
-            
-            <!-- Card 2: Previous Close -->
-            <div class="adv-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 16px; border-radius: 14px;">
-                <div style="font-size: 12px; opacity: 0.85; margin-bottom: 5px;">Previous Close (৳)</div>
-                <div style="font-size: 32px; font-weight: bold;" id="adv-prev-close">-</div>
-                <div style="font-size: 12px; margin-top: 5px;" id="adv-prev-date">-</div>
-            </div>
-            
-            <!-- Card 3: My Holdings + Avg Buy -->
-            <div class="adv-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 16px; border-radius: 14px;">
-                <div style="font-size: 12px; opacity: 0.85; margin-bottom: 5px;">My Holdings</div>
-                <div style="font-size: 32px; font-weight: bold;" id="adv-holdings-qty">-</div>
-                <div style="font-size: 12px; margin-top: 5px;">Avg Buy: ৳<span id="adv-avg-buy">-</span></div>
-            </div>
-            
-            <!-- Card 4: Total Gain/Loss -->
-            <div class="adv-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 16px; border-radius: 14px;" id="adv-gain-card">
-                <div style="font-size: 12px; opacity: 0.85; margin-bottom: 5px;">Total Gain/Loss</div>
-                <div style="font-size: 32px; font-weight: bold;" id="adv-gain-amount">-</div>
-                <div style="font-size: 12px; margin-top: 5px;" id="adv-gain-percent">-</div>
-            </div>
+        <div style="overflow-x: auto; max-height: 400px; overflow-y: auto;">
+            <table id="gl-history-table" style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary); position: sticky; top: 0; z-index: 10;">
+                        <th style="padding: 10px 12px; text-align: left;">📅 Date</th>
+                        <th style="padding: 10px 12px; text-align: right;">📈 Total Gain/Loss (৳)</th>
+                        <th style="padding: 10px 12px; text-align: right;">📊 Holdings</th>
+                        <th style="padding: 10px 12px; text-align: right;">💵 Avg Buy</th>
+                        <th style="padding: 10px 12px; text-align: right;">⚡ LTP</th>
+                    </tr>
+                </thead>
+                <tbody id="gl-history-body">
+                    <tr><td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">Loading...</td></tr>
+                </tbody>
+            </table>
         </div>
-        <!-- 📊 পারফরম্যান্স টেবিল (কার্ডের পরে, চার্টের আগে) -->
-<div style="margin-top: 20px; background: var(--bg-tertiary); border-radius: 12px; overflow: hidden;">
-    <div style="padding: 10px 15px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border-color);">
-        <span style="font-weight: bold; font-size: 13px;">📈 Performance Summary</span>
-        <span style="font-size: 11px; color: var(--text-muted); margin-left: 10px;">Period-wise return</span>
-    </div>
-    <div style="overflow-x: auto;">
-        <table class="modal-performance-table" style="width: 100%; font-size: 12px; border-collapse: collapse;">
-            <thead>
-                <tr style="background: var(--bg-secondary);">
-                    <th style="padding: 10px 8px; text-align: center;">Period</th>
-                    <th style="padding: 10px 8px; text-align: center;">Today</th>
-                    <th style="padding: 10px 8px; text-align: center;">5 Days</th>
-                    <th style="padding: 10px 8px; text-align: center;">15 Days</th>
-                    <th style="padding: 10px 8px; text-align: center;">30 Days</th>
-                    <th style="padding: 10px 8px; text-align: center;">3 Months</th>
-                    <th style="padding: 10px 8px; text-align: center;">6 Months</th>
-                    <th style="padding: 10px 8px; text-align: center;">1 Year</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td style="padding: 10px 8px; text-align: center; font-weight: bold;">Return (%)</td>
-                    <td style="padding: 10px 8px; text-align: center;" id="modal-perf-today">-</td>
-                    <td style="padding: 10px 8px; text-align: center;" id="modal-perf-5d">-</td>
-                    <td style="padding: 10px 8px; text-align: center;" id="modal-perf-15d">-</td>
-                    <td style="padding: 10px 8px; text-align: center;" id="modal-perf-30d">-</td>
-                    <td style="padding: 10px 8px; text-align: center;" id="modal-perf-3m">-</td>
-                    <td style="padding: 10px 8px; text-align: center;" id="modal-perf-6m">-</td>
-                    <td style="padding: 10px 8px; text-align: center;" id="modal-perf-1y">-</td>
-                </tr>
-            </tbody>
-        </table>
+        
+        <div style="margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted);">
+            <span id="gl-history-summary">📊 Showing daily cumulative P&L</span>
+            <span>🕐 Updated: <span id="gl-history-time">-</span></span>
+        </div>
     </div>
 </div>
-        <!-- 📈 প্রাইস হিস্ট্রি চার্ট -->
-        <div style="margin-top: 20px;">
-            <h4 style="margin-bottom: 12px; color: var(--text-primary); font-size: 16px;">📈 Price History (Last 30 Days)</h4>
+
+<!-- ========================================== -->
+<!-- 📊 অ্যাডভান্সড স্টক মডাল (3-2-3 গ্রিড)    -->
+<!-- ========================================== -->
+<div id="advanced-stock-modal" class="modal">
+    <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto; background: var(--bg-secondary); border-radius: 24px; padding: 24px;">
+        
+        <!-- হেডার -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+            <h2 id="adv-modal-ticker" style="color: var(--primary-color); margin: 0; font-size: 26px; font-weight: 700;">STOCK</h2>
+            <span onclick="closeAdvancedModal()" style="cursor: pointer; font-size: 32px; line-height: 1; color: var(--text-muted);">&times;</span>
+        </div>
+
+        <!-- ১ম সারি: ৪টি কার্ড (LTP+Change, High/Low+ATH/ATL, Previous Close, My Holdings) – মোবাইলে 3-2-3 গ্রিড -->
+        <div class="adv-card-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px;">
+            
+            <!-- কার্ড 1: LTP ও পরিবর্তন (তারিখসহ) -->
+            <div class="adv-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 16px; border-radius: 16px; color: white;">
+                <div style="font-size: 12px; opacity: 0.8;">LTP (৳)</div>
+                <div style="font-size: 28px; font-weight: 700;" id="adv-ltp">-</div>
+                <div style="font-size: 13px; margin-top: 4px;" id="adv-change">Change: -</div>
+                <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;" id="adv-ltp-date">-</div>
+            </div>
+
+            <!-- কার্ড 2: Today's Range + ATH/ATL (তারিখসহ) -->
+            <div class="adv-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 16px; border-radius: 16px; color: white;">
+                <div style="font-size: 12px; opacity: 0.8;">Today's Range</div>
+                <div style="font-size: 22px; font-weight: 700;" id="adv-highlow">- / -</div>
+                
+                <div style="display: flex; justify-content: space-between; margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 10px;">
+                    <div>
+                        <div style="font-size: 10px; opacity: 0.7;">ATH</div>
+                        <div style="font-size: 16px; font-weight: 700;" id="adv-ath">-</div>
+                        <div style="font-size: 10px; opacity: 0.6;" id="adv-ath-date">-</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 10px; opacity: 0.7;">ATL</div>
+                        <div style="font-size: 16px; font-weight: 700;" id="adv-atl">-</div>
+                        <div style="font-size: 10px; opacity: 0.6;" id="adv-atl-date">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- কার্ড 3: Previous Close (তারিখসহ) -->
+            <div class="adv-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 16px; border-radius: 16px; color: white;">
+                <div style="font-size: 12px; opacity: 0.8;">Previous Close</div>
+                <div style="font-size: 24px; font-weight: 700;" id="adv-prev-close">-</div>
+                <div style="font-size: 11px; margin-top: 4px; opacity: 0.8;" id="adv-prev-date">as on: -</div>
+            </div>
+
+            <!-- কার্ড 4: My Holdings & Avg Buy -->
+            <div class="adv-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 16px; border-radius: 16px; color: #0f172a;">
+                <div style="font-size: 12px; opacity: 0.8;">My Holdings</div>
+                <div style="font-size: 26px; font-weight: 700;" id="adv-holdings-qty">-</div>
+                <div style="font-size: 13px; margin-top: 4px;">Avg Buy: ৳<span id="adv-avg-buy">-</span></div>
+            </div>
+        </div>
+
+        <!-- ২য় সারি: ৩টি কার্ড (Total Gain/Loss, EPS, P/E) -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
+            
+            <div class="adv-card" style="background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); padding: 16px; border-radius: 16px; color: white;" id="adv-gain-card">
+                <div style="font-size: 12px; opacity: 0.8;">Total Gain/Loss</div>
+                <div style="font-size: 24px; font-weight: 700;" id="adv-gain-amount">-</div>
+                <div style="font-size: 14px; margin-top: 4px;" id="adv-gain-percent">-</div>
+            </div>
+
+            <div class="adv-card" style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); padding: 16px; border-radius: 16px; color: #1e293b;">
+                <div style="font-size: 12px; opacity: 0.8;">EPS (৳)</div>
+                <div style="font-size: 24px; font-weight: 700;" id="adv-eps">-</div>
+                <div style="font-size: 11px; margin-top: 4px;">Earnings Per Share</div>
+            </div>
+
+            <div class="adv-card" style="background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); padding: 16px; border-radius: 16px; color: #1e293b;">
+                <div style="font-size: 12px; opacity: 0.8;">P/E Ratio</div>
+                <div style="font-size: 24px; font-weight: 700;" id="adv-pe">-</div>
+                <div style="font-size: 11px; margin-top: 4px;">Price to Earnings</div>
+            </div>
+        </div>
+
+        <!-- Dividend Information (ক্লিকযোগ্য) -->
+        <div style="background: var(--bg-tertiary); border-radius: 16px; margin-bottom: 20px; overflow: hidden; border: 1px solid var(--border-color);">
+            <div style="padding: 12px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 15px;">💰 Dividend Information</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; padding: 12px 16px; gap: 8px;">
+                <div>
+                    <div style="font-size: 11px; color: var(--text-muted);">DIVIDEND (%)</div>
+                    <div id="adv-dividend-percent" style="font-size: 16px; font-weight: 600; color: var(--primary-color); cursor: pointer; text-decoration: underline;" title="Click to view full dividend history">-</div>
+                </div>
+                <div>
+                    <div style="font-size: 11px; color: var(--text-muted);">RECORD DATE</div>
+                    <div id="adv-record-date" style="font-size: 16px; font-weight: 600; cursor: pointer; text-decoration: underline; color: var(--primary-color);" title="Click to view dividend history">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Summary (Period-wise return) -->
+        <div style="margin-top: 0px; background: var(--bg-tertiary); border-radius: 16px; overflow: hidden; border: 1px solid var(--border-color); margin-bottom: 20px;">
+            <div style="padding: 10px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 15px;">📈 Performance Summary</div>
+            <div style="overflow-x: auto; padding: 8px 12px;">
+                <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: var(--bg-secondary);">
+                            <th style="padding: 8px 6px; text-align: center;">Period</th>
+                            <th style="padding: 8px 6px; text-align: center;">Today</th>
+                            <th style="padding: 8px 6px; text-align: center;">5 Days</th>
+                            <th style="padding: 8px 6px; text-align: center;">15 Days</th>
+                            <th style="padding: 8px 6px; text-align: center;">30 Days</th>
+                            <th style="padding: 8px 6px; text-align: center;">3 Months</th>
+                            <th style="padding: 8px 6px; text-align: center;">6 Months</th>
+                            <th style="padding: 8px 6px; text-align: center;">1 Year</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 8px 6px; text-align: center; font-weight: 600;">Return (%)</td>
+                            <td style="padding: 8px 6px; text-align: center;" id="modal-perf-today">-</td>
+                            <td style="padding: 8px 6px; text-align: center;" id="modal-perf-5d">-</td>
+                            <td style="padding: 8px 6px; text-align: center;" id="modal-perf-15d">-</td>
+                            <td style="padding: 8px 6px; text-align: center;" id="modal-perf-30d">-</td>
+                            <td style="padding: 8px 6px; text-align: center;" id="modal-perf-3m">-</td>
+                            <td style="padding: 8px 6px; text-align: center;" id="modal-perf-6m">-</td>
+                            <td style="padding: 8px 6px; text-align: center;" id="modal-perf-1y">-</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Date Range Filter for Charts -->
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--bg-tertiary); padding: 8px 14px; border-radius: 8px; margin-bottom: 16px;">
+            <span style="font-weight: 600; font-size: 13px;">📅 Range:</span>
+            <div style="display: flex; gap: 6px; align-items: center;">
+                <label style="font-size: 11px;">From:</label>
+                <input type="date" id="modal-chart-start" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 12px;">
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+                <label style="font-size: 11px;">To:</label>
+                <input type="date" id="modal-chart-end" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 12px;">
+            </div>
+            <button onclick="applyModalDateFilter()" style="padding: 4px 16px; background: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Apply</button>
+            <button onclick="resetModalDateFilter()" style="padding: 4px 16px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; font-size: 12px;">30d</button>
+        </div>
+
+        <!-- Charts -->
+        <div style="margin-top: 4px;">
+            <h4 style="margin-bottom: 10px; color: var(--text-primary); font-size: 16px;">📈 Price History (Last 30 Days)</h4>
             <div style="position: relative; height: 260px; width: 100%;">
                 <canvas id="adv-stock-chart"></canvas>
             </div>
         </div>
-        
-        <!-- ⏱️ টাইমস্ট্যাম্প ও ডাটা সোর্স -->
-        <div style="margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; font-size: 11px; color: #64748b;">
+
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+            <h4 style="margin-bottom: 10px; color: var(--text-primary); font-size: 16px;">📊 Day-wise Unrealized Gain/Loss & Trade Events</h4>
+            <div style="position: relative; height: 280px; width: 100%;">
+                <canvas id="adv-gain-chart"></canvas>
+            </div>
+            <div style="font-size: 10px; color: var(--text-muted); margin-top: 8px; display: flex; gap: 18px; justify-content: center; flex-wrap: wrap;">
+                <span><span style="display:inline-block; width:14px; height:14px; background:#10b981; border-radius:50%; vertical-align: middle;"></span> Buy Event</span>
+                <span><span style="display:inline-block; width:14px; height:14px; background:#ef4444; border-radius:50%; vertical-align: middle;"></span> Sell Event</span>
+                <span><span style="display:inline-block; width:20px; height:2px; background:#f59e0b; vertical-align: middle; border-top:2px dashed #f59e0b;"></span> Record Date</span>
+                <span><span style="display:inline-block; width:20px; height:3px; background:#3b82f6; vertical-align: middle;"></span> Cumulative P&L</span>
+                <span><span style="display:inline-block; width:14px; height:14px; background:rgba(59,130,246,0.3); vertical-align: middle; border-radius:2px;"></span> Daily Change</span>
+            </div>
+        </div>
+
+        <!-- RSI Chart -->
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+            <h4 style="margin-bottom: 10px; color: var(--text-primary); font-size: 16px;">📊 RSI (14-day) History</h4>
+            <div style="position: relative; height: 200px; width: 100%;">
+                <canvas id="adv-rsi-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted);">
             <span>📡 Data source: <span id="adv-data-source">Firebase</span></span>
             <span>🕐 Updated: <span id="adv-updated-time">-</span></span>
         </div>
     </div>
 </div>
-    <script src="firebase-config.js"></script>
-    <script src="app.js"></script>
-  <script>
-// ✅ PWA আপডেট চেকার
-let newWorker = null;
-
-// Service Worker আপডেট মনিটর করা
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.ready.then(registration => {
-        registration.addEventListener('updatefound', () => {
-            newWorker = registration.installing;
-            console.log('🔄 New Service Worker found!');
-            
-            newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                    // নতুন ভার্সন পেয়েছে
-                    showUpdateToast();
-                }
-            });
-        });
-    });
-    
-    // প্রতি 60 মিনিটে checking for updates
-    setInterval(() => {
-        navigator.serviceWorker.ready.then(registration => {
-            registration.update();
-            console.log('🔍 Checking for updates...');
-        });
-    }, 3600000); // 60 minutes
-}
-
-// আপডেট টোস্ট নোটিফিকেশন দেখান
-function showUpdateToast() {
-    const toast = document.createElement('div');
-    toast.innerHTML = `
-        <div style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); 
-                    background: #3b82f6; color: white; padding: 12px 20px; 
-                    border-radius: 12px; z-index: 10000; display: flex; gap: 12px;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
-            <span>🔄 New update available!</span>
-            <button onclick="updateApp()" style="background: white; color: #3b82f6; 
-                    border: none; padding: 4px 12px; border-radius: 6px; cursor: pointer;">
-                Update Now
-            </button>
+<!-- ========================================== -->
+<!-- 📊 All Scanner Modal (PSAR + RSI)          -->
+<!-- ========================================== -->
+<div id="all-scanner-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width: 1000px; max-height: 90vh; overflow-y: auto; border-radius: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color);">
+            <h3 style="margin:0; font-size: 20px; color: var(--text-primary);">
+                📊 All Scanner <span style="font-size: 13px; color: var(--text-muted);">(PSAR + RSI)</span>
+            </h3>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button onclick="refreshAllScannerData()" style="background: var(--primary-color); color: white; border: none; padding: 6px 14px; border-radius: 30px; cursor: pointer; font-size: 12px;">🔄 Refresh</button>
+                <span onclick="closeAllScannerModal()" style="cursor: pointer; font-size: 28px; line-height: 1; color: var(--text-muted);">&times;</span>
+            </div>
         </div>
-    `;
-    document.body.appendChild(toast);
-    
-    // 10 সেকেন্ড পর auto remove
-    setTimeout(() => {
-        if (toast.parentNode) toast.remove();
-    }, 10000);
-}
 
-// ম্যানুয়াল আপডেট ফাংশন
-function updateApp() {
-    if (newWorker) {
-        newWorker.postMessage({ action: 'skipWaiting' });
-        newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'activated') {
-                window.location.reload();
-            }
-        });
-    } else {
-        window.location.reload();
-    }
-}
+        <!-- ট্যাব বাটন -->
+      <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); overflow-x: auto; padding-bottom: 2px; flex-wrap: nowrap;">
+            <button id="all-scanner-tab-buy" class="scanner-tab-btn active" onclick="switchAllScannerTab('buy')" style="padding: 8px 24px; background: var(--primary-color); color: white; border: none; border-radius: 30px; cursor: pointer; font-weight: bold;">📈 Strong Buy</button>
+            <button id="all-scanner-tab-sell" class="scanner-tab-btn" onclick="switchAllScannerTab('sell')" style="padding: 8px 24px; background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 30px; cursor: pointer; font-weight: bold;">📉 Strong Sell</button>
+            <button id="all-scanner-tab-analysis" class="scanner-tab-btn" onclick="switchAllScannerTab('analysis')" style="padding: 8px 24px; background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 30px; cursor: pointer; font-weight: bold;">🔍 Analysis</button>
+        </div>
+<!-- প্রগ্রেস বার -->
+<div id="all-scanner-progress-container" style="display: none; margin-bottom: 15px; background: var(--bg-secondary); padding: 12px 16px; border-radius: 12px; box-shadow: var(--card-shadow);">
+    <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
+        <span id="all-scanner-progress-text">⏳ Scanning market...</span>
+        <span id="all-scanner-progress-detail">0 / 0 stocks</span>
+    </div>
+    <div style="width: 100%; background: var(--bg-tertiary); border-radius: 10px; height: 8px; overflow: hidden; position: relative;">
+        <div id="all-scanner-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #667eea, #764ba2, #667eea); background-size: 200% 100%; border-radius: 10px; transition: width 0.4s ease; animation: shimmer 1.5s infinite;"></div>
+    </div>
+    <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px; opacity: 0.7;" id="all-scanner-status-text">Initializing...</div>
+</div>
 
-// Force Refresh বাটন (ঐচ্ছিক)
-function forceRefresh() {
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(registrations => {
-            for (let registration of registrations) {
-                registration.unregister();
-                console.log('🗑️ Service Worker unregistered');
-            }
-        }).then(() => {
-            localStorage.clear();
-            window.location.reload();
-        });
-    } else {
-        window.location.reload();
+<style>
+    @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
     }
-}
-    // ✅ Service Worker controller change listener (যোগ করুন)
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-        console.log('🔄 Service Worker changed, reloading...');
-        window.location.reload();
-    });
-</script>
-        <!-- ========== 👇 আপনার existing scripts এর পরে যোগ করুন ========== -->
+</style>
+        <!-- Strong Buy Container -->
+        <div id="screener-buy-container" style="display: block;">
+            <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+                <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: var(--bg-tertiary);">
+                            <th style="padding: 12px; text-align: left;">Share Name</th>
+                            <th style="padding: 12px; text-align: right;">Price (৳)</th>
+                            <th style="padding: 12px; text-align: right;">PSAR (৳)</th>
+                            <th style="padding: 12px; text-align: right;">RSI (14)</th>
+                            <th style="padding: 12px; text-align: center;">Signal</th>
+                        </tr>
+                    </thead>
+                    <tbody id="screener-buy-body">
+                        <tr><td colspan="5" style="text-align:center; padding:40px;">⏳ Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Strong Sell Container -->
+        <div id="screener-sell-container" style="display: none;">
+            <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+                <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: var(--bg-tertiary);">
+                            <th style="padding: 12px; text-align: left;">Share Name</th>
+                            <th style="padding: 12px; text-align: right;">Price (৳)</th>
+                            <th style="padding: 12px; text-align: right;">PSAR (৳)</th>
+                            <th style="padding: 12px; text-align: right;">RSI (14)</th>
+                            <th style="padding: 12px; text-align: center;">Signal</th>
+                        </tr>
+                    </thead>
+                    <tbody id="screener-sell-body">
+                        <tr><td colspan="5" style="text-align:center; padding:40px;">⏳ Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Analysis Container -->
+        <div id="screener-analysis-container" style="display: none;">
+            <div style="margin-bottom: 15px; position: relative; max-width: 400px;">
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="screener-analysis-search" placeholder="🔍 Search share (e.g., GP, ROBI)" 
+                           style="flex: 1; padding: 10px 16px; border-radius: 30px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 14px; outline: none;">
+                    <button id="screener-analysis-search-btn" style="padding: 10px 20px; background: var(--primary-color); color: white; border: none; border-radius: 30px; cursor: pointer;">Search</button>
+                </div>
+                <div id="screener-analysis-suggestions" class="suggestion-list hidden" style="top: 50px;"></div>
+            </div>
+            <div style="overflow-x: auto; background: var(--bg-secondary); border-radius: 12px; box-shadow: var(--card-shadow);">
+                <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: var(--bg-tertiary);">
+                            <th style="padding: 12px; text-align: left;">Share Name</th>
+                            <th style="padding: 12px; text-align: right;">Price (৳)</th>
+                            <th style="padding: 12px; text-align: right;">PSAR (৳)</th>
+                            <th style="padding: 12px; text-align: right;">RSI (14)</th>
+                            <th style="padding: 12px; text-align: center;">Signal</th>
+                        </tr>
+                    </thead>
+                    <tbody id="screener-analysis-body">
+                        <tr><td colspan="5" style="text-align:center; padding:30px; color:var(--text-muted);">Type a share name and click Search</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="margin-top: 15px; font-size: 11px; color: var(--text-muted); text-align: right;">
+            Last updated: <span id="screener-modal-update-time">-</span>
+        </div>
+    </div>
+</div>
+<!-- Dividend History Modal -->
+<div id="dividend-history-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width: 800px; max-height: 85vh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin:0;">Dividend History - <span id="div-ticker-name">STOCK</span></h3>
+            <span onclick="closeDividendModal()" style="cursor: pointer; font-size: 28px;">&times;</span>
+        </div>
+        <div style="overflow-x: auto; margin-bottom: 25px;">
+            <table id="dividend-history-table" style="width:100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 10px;">Year</th>
+                        <th style="padding: 10px;">Stock Dividend (%)</th>
+                        <th style="padding: 10px;">Cash Dividend (৳)</th>
+                        <th style="padding: 10px;">Record Date</th>
+                    </tr>
+                </thead>
+                <tbody id="dividend-history-tbody">
+                    <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div style="height: 320px; position: relative;">
+            <canvas id="dividend-chart"></canvas>
+        </div>
+    </div>
+</div>
+<!-- User Menu Modal -->
+<div id="user-menu-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width: 450px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin:0;">👤 User Profile</h3>
+            <span onclick="closeUserMenu()" style="cursor: pointer; font-size: 28px;">&times;</span>
+        </div>
+        <div id="user-info">
+            <div style="margin-bottom: 15px;">
+                <label style="font-weight: bold;">Email:</label>
+                <span id="user-email" style="margin-left: 10px;"></span>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="font-weight: bold;">User ID:</label>
+                <span id="user-uid" style="margin-left: 10px;"></span>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="font-weight: bold;">Account Created:</label>
+                <span id="user-created" style="margin-left: 10px;"></span>
+            </div>
+        </div>
+        <hr>
+        <h4>🔑 Change Password</h4>
+        <div id="password-change-form">
+            <div style="margin-bottom: 12px;">
+                <input type="password" id="current-password" placeholder="Current Password" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--border-color);">
+            </div>
+            <div style="margin-bottom: 12px;">
+                <input type="password" id="new-password" placeholder="New Password (min 6 chars)" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--border-color);">
+            </div>
+            <div style="margin-bottom: 12px;">
+                <input type="password" id="confirm-password" placeholder="Confirm New Password" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--border-color);">
+            </div>
+            <button id="btn-change-password" style="background: var(--primary-color); color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer;">Update Password</button>
+            <span id="password-status" style="margin-left: 10px; font-size:12px;"></span>
+        </div>
+    </div>
+</div>
+<!-- DSEX Historical Chart Modal -->
+<div id="dsex-chart-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width: 800px; max-height: 85vh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin:0;">📈 DSEX Historical Index</h3>
+            <span onclick="closeDSEXChartModal()" style="cursor: pointer; font-size: 28px;">&times;</span>
+        </div>
+        <div style="height: 400px; position: relative;">
+            <canvas id="dsex-history-chart"></canvas>
+        </div>
+        <div style="margin-top: 15px; text-align: center; font-size: 12px; color: var(--text-muted);">
+            Data source: dse_daily_index
+        </div>
+    </div>
+</div>
+<!-- Record Date Modal with Tabs and Filter Buttons -->
+<div id="record-date-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width: 1000px; max-height: 85vh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin:0;">📅 Record Date & Dividend Calendar</h3>
+            <span onclick="closeRecordDateModal()" style="cursor: pointer; font-size: 28px;">&times;</span>
+        </div>
+        
+        <!-- ট্যাব বাটন -->
+        <div style="display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid var(--border-color);">
+            <button id="tab-all-rec" class="rec-tab-btn active" style="background: var(--primary-color); color: white; border: none; padding: 8px 20px; border-radius: 30px; cursor: pointer;">📋 All Record Date</button>
+            <button id="tab-upcoming-rec" class="rec-tab-btn" style="background: transparent; border: 1px solid var(--border-color); padding: 8px 20px; border-radius: 30px; cursor: pointer;">⏳ Upcoming</button>
+            <button id="tab-previous-rec" class="rec-tab-btn" style="background: transparent; border: 1px solid var(--border-color); padding: 8px 20px; border-radius: 30px; cursor: pointer;">📅 Previous</button>
+        </div>
+        
+        <!-- ফিল্টার বাটন কন্টেইনার (শুধু Upcoming/Previous ট্যাবে দৃশ্যমান) -->
+        <div id="filter-buttons-container" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color);"></div>
+        
+        <!-- টেবিল -->
+        <div style="overflow-x: auto;">
+            <table id="record-date-table" style="width:100%; border-collapse: collapse; font-size: 13px;">
+                <thead>
+                    <tr style="background: var(--bg-tertiary);">
+                        <th style="padding: 10px;">Share Name</th>
+                        <th style="padding: 10px;">Record Date</th>
+                        <th style="padding: 10px;">Dividend</th>
+                        <th style="padding: 10px;">Days Left / Ago</th>
+                    </tr>
+                </thead>
+                <tbody id="record-date-tbody">
+                    <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+    <!-- Install App Button -->
+    <button id="install-btn" style="position: fixed; bottom: 20px; left: 20px; background: #10b981; color: white; border: none; border-radius: 50px; padding: 12px 20px; cursor: pointer; z-index: 9999; display: none; align-items: center; gap: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
+        📲 Install App
+    </button>
+
+    <!-- ✅ সমস্ত Script সঠিক অর্ডারে -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- 📁 কনফিগ ফাইল (সবার আগে) -->
+    <script src="firebase-config.js" defer></script>
+    <script src="supabase-config.js" defer></script>
+    <script src="config.js" defer></script>
     
-    <!-- PWA Service Worker Registration -->
+    <!-- 📁 ডেটা সার্ভিস -->
+    <script src="data-service.js" defer></script>
+    
+    <!-- 📁 কোর মডিউল -->
+    <script src="core.js" defer></script>
+    <script src="portfolio.js" defer></script>
+    <script src="dashboard.js" defer></script>
+    <script src="scanner.js" defer></script>
+    <script src="marketwatch.js" defer></script>
+    <script src="deep-analysis.js" defer></script>
+    <script src="smart-signals.js" defer></script>
+    <script src="record-date.js" defer></script>
+    
+    <!-- 📁 নোটিফিকেশন -->
+    <script src="notification.js" defer></script>
+    
+    <!-- 📁 ইউআই (সবশেষে) -->
+    <script src="ui.js" defer></script>
+
     <script>
-        // ব্রাউজার Service Worker support করে কিনা চেক করা
-        if ('serviceWorker' in navigator) {
-            // পুরো পেজ লোড হওয়ার পর SW register করা
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then(registration => {
-                        console.log('✅ Service Worker registered successfully:', registration.scope);
-                    })
-                    .catch(error => {
-                        console.log('❌ Service Worker registration failed:', error);
+        function toggleScreenerDropdown() {
+            const dropdown = document.getElementById('screener-dropdown');
+            const arrow = document.getElementById('screener-arrow');
+            if (dropdown.style.display === 'none' || dropdown.style.display === '') {
+                dropdown.style.display = 'block';
+                arrow.innerHTML = '▼';
+            } else {
+                dropdown.style.display = 'none';
+                arrow.innerHTML = '▶';
+            }
+        }
+    </script>
+    <script>
+        // Install বাটন দেখানোর জন্য
+        let deferredPrompt;
+        const installBtn = document.getElementById('install-btn');
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            if (installBtn) installBtn.style.display = 'flex';
+        });
+        
+        if (installBtn) {
+            installBtn.addEventListener('click', () => {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    deferredPrompt.userChoice.then(() => {
+                        if (installBtn) installBtn.style.display = 'none';
+                        deferredPrompt = null;
                     });
+                }
             });
         }
         
-        // 📱 App Install Prompt (যখন ব্রাউজার App install করতে দেয়)
-        let deferredPrompt;
-        
-        // ব্রাউজার যখন install prompt দেখানোর জন্য ready হয়
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();  // ডিফল্ট prompt বন্ধ রাখা (পরে manually দেখাবো)
-            deferredPrompt = e;   // prompt কে store করে রাখা
-            console.log('📱 App can be installed - look for install button');
-            
-            // আপনি চাইলে এখানে একটি "Install App" বাটন দেখাতে পারেন
-            // আমরা পরে একটি ফ্লোটিং বাটন যোগ করব
-        });
-        
-        // Install বাটন ক্লিক করলে এই ফাংশন কল হবে (ঐচ্ছিক)
-        window.installPWA = function() {
-            if (deferredPrompt) {
-                deferredPrompt.prompt();  // install prompt দেখানো
-                deferredPrompt.userChoice.then((choiceResult) => {
-                    if (choiceResult.outcome === 'accepted') {
-                        console.log('✅ User accepted the install prompt');
-                    } else {
-                        console.log('❌ User dismissed the install prompt');
-                    }
-                    deferredPrompt = null;
-                });
-            } else {
-                console.log('No install prompt available');
-            }
-        };
-        
-        // Optional: পেইজ লোডের পর install prompt ready কিনা চেক করা
-        setTimeout(() => {
-            if (deferredPrompt) {
-                console.log('💡 Tip: Call installPWA() to show install prompt');
-            }
-        }, 3000);
+        // Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('✅ Service Worker registered:', reg.scope))
+                    .catch(err => console.log('❌ SW registration failed:', err));
+            });
+        }
     </script>
-    <!-- ========== যোগ করা শেষ ========== -->
- <!-- ==========================================
-     📊 PORTFOLIO VALUE HISTORY TABLE
-     ========================================== -->
+    <!-- Console Log Viewer Button -->
+<button id="toggle-console-btn" style="position: fixed; bottom: 80px; right: 70px; background: #3b82f6; color: white; border: none; border-radius: 50%; width: 48px; height: 48px; font-size: 24px; cursor: pointer; z-index: 1000;">🐞</button>
 
-    <!-- Install App Floating Button (Optional) -->
-<button id="install-btn" style="position: fixed; bottom: 20px; left: 20px; background: #10b981; color: white; border: none; border-radius: 50px; padding: 12px 20px; cursor: pointer; z-index: 9999; display: none; align-items: center; gap: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
-    📲 Install App
-</button>
-
-<script>
-    // Install বাটন দেখানোর জন্য
-    const installBtn = document.getElementById('install-btn');
-    
-    window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        if (installBtn) installBtn.style.display = 'flex';  // বাটন দেখানো
-    });
-    
-    if (installBtn) {
-        installBtn.addEventListener('click', () => {
-            if (deferredPrompt) {
-                deferredPrompt.prompt();
-                deferredPrompt.userChoice.then(() => {
-                    if (installBtn) installBtn.style.display = 'none';
-                    deferredPrompt = null;
-                });
-            }
-        });
-    }
-</script>
+<!-- Console Log Panel -->
+<div id="console-panel" style="position: fixed; right: 0; top: 60px; bottom: 0; width: 400px; background: var(--bg-secondary); border-left: 1px solid var(--border-color); z-index: 9999; display: none; flex-direction: column; box-shadow: -2px 0 10px rgba(0,0,0,0.2);">
+    <div style="padding: 10px; background: var(--bg-tertiary); display: flex; justify-content: space-between;">
+        <span>📋 Console Logs</span>
+        <button id="clear-console-logs" style="background: none; border: none; cursor: pointer;">Clear</button>
+        <button id="close-console-panel" style="background: none; border: none; cursor: pointer;">✖</button>
+    </div>
+    <div id="console-logs-list" style="flex: 1; overflow-y: auto; padding: 8px; font-family: monospace; font-size: 12px;"></div>
+</div>
 </body>
 </html>
