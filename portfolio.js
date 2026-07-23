@@ -87,7 +87,7 @@
             const quantity = qtyInput ? qtyInput.value : '';
             const price = priceInput ? priceInput.value : '';
             const user = auth.currentUser;
-            if (!user) { alert("দয়া করে আগে লগইন করুন!"); return; }
+            if (!user) { showToast("Please login first", "error"); return; }
             if (!shareName || !quantity || !price) { alert("সবগুলো ঘর সঠিকভাবে পূরণ করুন!"); return; }
 
             let selectedDate = tradeDateInput ? tradeDateInput.value : getBangladeshDateString();
@@ -121,7 +121,7 @@
                 if (result.supabaseSuccess || result.firebaseSuccess) {
                     resetUnifiedCache();
                     resetUnifiedPriceCache();
-                    alert(`✅ ${shareName} purchased successfully!`);
+                    showToast(`✅ ${shareName} purchased successfully!`, 'success');
                     if (tickerInput) tickerInput.value = "";
                     if (qtyInput) qtyInput.value = "";
                     if (priceInput) priceInput.value = "";
@@ -2119,6 +2119,51 @@ function initBuyHistorySearch() {
         }
     });
 }
+// ==========================================
+// 📥 CSV Export Function
+// ==========================================
+window.downloadTableAsCSV = function() {
+    const tableBody = document.getElementById('portfolio-table-body');
+    if (!tableBody) {
+        if (typeof showToast === 'function') showToast('Table not found', 'warning');
+        return;
+    }
+    const rows = tableBody.querySelectorAll('tr');
+    if (rows.length === 0 || rows[0].innerText.includes('No trade history')) {
+        if (typeof showToast === 'function') showToast('No data to export', 'warning');
+        return;
+    }
+
+    const headers = ['Share Name', 'Buy Qty', 'Avg Buy', 'Remaining', 'Current', 'Unrealized', 'Unrealized%', 'Sell Qty', 'Sell Price', 'Realized', 'Daily Change %', 'Daily G/L'];
+    let csv = headers.join(',') + '\n';
+
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length > 0 && !row.innerText.includes('TOTAL')) {
+            const rowData = [];
+            cells.forEach(cell => {
+                let text = cell.innerText.trim().replace(/,/g, '').replace(/[৳,]/g, '');
+                rowData.push(text);
+            });
+            csv += rowData.join(',') + '\n';
+        }
+    });
+
+    try {
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `portfolio_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+        if (typeof showToast === 'function') showToast('✅ CSV downloaded!', 'success');
+    } catch (err) {
+        console.error('CSV download error:', err);
+        if (typeof showToast === 'function') showToast('❌ Download failed', 'error');
+    }
+};
 
 function initBuyTabs() {
     const tabsContainer = document.querySelector('.buy-tabs');

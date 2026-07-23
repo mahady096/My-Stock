@@ -330,7 +330,21 @@
 
     <!-- ডার্ক মোড টগল বাটন -->
     <div class="theme-switch">
-        <button id="theme-toggle" onclick="toggleDarkMode()" title="Dark/Light Mode">🌙</button>
+<button id="theme-toggle" onclick="toggleDarkMode()" style="
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    border-radius: 30px;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-primary);
+">
+    <span id="theme-icon">🌙</span>
+    <span id="theme-text">Dark</span>
+</button>
     </div>
 
     <div id="app-container" class="hidden">
@@ -704,18 +718,28 @@ style="
 
             <!-- Portfolio Analysis Section -->
             <section id="sec-portfolio-analysis" class="tab-content hidden">
-                <div style="padding: 10px 15px; background: #667eea; border-radius: 12px 12px 0 0; color: white;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                        <div>
-                            <h3 style="margin: 0; font-size: 16px;">📊 Portfolio Performance Dashboard</h3>
-                            <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.9;">Real-time analysis from Firebase data</p>
-                        </div>
-                        <div style="background: rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 20px; font-size: 12px;">
-                            <span>🔤 Click on <strong>Code</strong> column to sort</span>
-                            <span id="sort-indicator-badge" style="margin-left: 5px;">⬆️ A→Z</span>
-                        </div>
-                    </div>
-                </div>
+              <div style="padding: 10px 15px; background: #667eea; border-radius: 12px 12px 0 0; color: white;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <h3 style="margin: 0; font-size: 16px;">📊 Portfolio Performance Dashboard</h3>
+            <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.9;">Real-time analysis from Firebase data</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <button id="btn-refresh-portfolio-analysis" onclick="refreshPortfolioAnalysis()" 
+                    style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 5px 14px; border-radius: 20px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 5px; transition: all 0.2s;"
+                    onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                🔄 Refresh
+            </button>
+            <span id="portfolio-analysis-update-time" style="font-size: 11px; opacity: 0.85; white-space: nowrap;">
+                Last updated: <span id="pa-updated-time-text">-</span>
+            </span>
+            <div style="background: rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 20px; font-size: 12px;">
+                <span>🔤 Click on <strong>Code</strong> column to sort</span>
+                <span id="sort-indicator-badge" style="margin-left: 5px;">⬆️ A→Z</span>
+            </div>
+        </div>
+    </div>
+</div>
                 
                 <div class="bull-analysis-container">
                     <div class="bull-header" style="cursor: pointer;" onclick="sortPortfolioAnalysis()">
@@ -1999,12 +2023,17 @@ style="
         <div class="adv-card-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px;">
             
             <!-- কার্ড 1: LTP ও পরিবর্তন (তারিখসহ) -->
-            <div class="adv-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 16px; border-radius: 16px; color: white;">
-                <div style="font-size: 12px; opacity: 0.8;">LTP (৳)</div>
-                <div style="font-size: 28px; font-weight: 700;" id="adv-ltp">-</div>
-                <div style="font-size: 13px; margin-top: 4px;" id="adv-change">Change: -</div>
-                <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;" id="adv-ltp-date">-</div>
-            </div>
+<div class="adv-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 16px; border-radius: 16px; color: white;">
+    <div style="font-size: 12px; opacity: 0.8;">LTP (৳)</div>
+    <div style="font-size: 28px; font-weight: 700;" id="adv-ltp">-</div>
+    <div style="font-size: 13px; margin-top: 4px;" id="adv-change">Change: -</div>
+    <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;" id="adv-ltp-date">-</div>
+    <!-- DSE & CSE -->
+    <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 6px;">
+        <span>DSE: ৳<span id="adv-dse-price">-</span></span>
+        <span>CSE: ৳<span id="adv-cse-price">-</span></span>
+    </div>
+</div>
 
             <!-- কার্ড 2: Today's Range + ATH/ATL (তারিখসহ) -->
             <div class="adv-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 16px; border-radius: 16px; color: white;">
@@ -2472,16 +2501,7 @@ style="
         }
     </script>
     <!-- Console Log Viewer Button -->
-<button id="toggle-console-btn" style="position: fixed; bottom: 80px; right: 70px; background: #3b82f6; color: white; border: none; border-radius: 50%; width: 48px; height: 48px; font-size: 24px; cursor: pointer; z-index: 1000;">🐞</button>
 
-<!-- Console Log Panel -->
-<div id="console-panel" style="position: fixed; right: 0; top: 60px; bottom: 0; width: 400px; background: var(--bg-secondary); border-left: 1px solid var(--border-color); z-index: 9999; display: none; flex-direction: column; box-shadow: -2px 0 10px rgba(0,0,0,0.2);">
-    <div style="padding: 10px; background: var(--bg-tertiary); display: flex; justify-content: space-between;">
-        <span>📋 Console Logs</span>
-        <button id="clear-console-logs" style="background: none; border: none; cursor: pointer;">Clear</button>
-        <button id="close-console-panel" style="background: none; border: none; cursor: pointer;">✖</button>
-    </div>
-    <div id="console-logs-list" style="flex: 1; overflow-y: auto; padding: 8px; font-family: monospace; font-size: 12px;"></div>
-</div>
+
 </body>
 </html>

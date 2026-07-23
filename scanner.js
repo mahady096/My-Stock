@@ -1,7 +1,8 @@
 // ==========================================
-// 🔍 scanner.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন
+// 🔍 scanner.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন (ডুপ্লিকেশন মুক্ত)
 //    All Scanner (PSAR + RSI) - Supabase for live, Firebase for historical
 //    RSI Indicator Section সহ
+//    ⚡ ব্যাচ কোয়েরি দিয়ে পারফরম্যান্স অপটিমাইজড
 // ==========================================
 
 // ==========================================
@@ -38,7 +39,7 @@ function clearAllScannerCache() {
 }
 
 // ==========================================
-// 📊 RSI ক্যালকুলেটর (14-day)
+// 📊 RSI ক্যালকুলেটর (14-day) – এটি core.js-এ নেই, তাই এখানে রাখা হলো
 // ==========================================
 function calcRSI(priceData, period = 14) {
     if (!priceData || !Array.isArray(priceData) || priceData.length < period + 1) return [];
@@ -89,70 +90,18 @@ function calcRSI(priceData, period = 14) {
 }
 
 // ==========================================
-// 📈 Parabolic SAR ক্যালকুলেটর
+// 🧩 হেলপার: অ্যারে ভাগ করা (ব্যাচ কোয়েরির জন্য)
 // ==========================================
-function calcPSAR(priceData, step = 0.02, maxStep = 0.20) {
-    if (!priceData || !Array.isArray(priceData) || priceData.length < 2) return [];
-
-    const sorted = [...priceData].sort((a, b) => {
-        const dateA = a.date ? new Date(a.date) : new Date(0);
-        const dateB = b.date ? new Date(b.date) : new Date(0);
-        return dateA - dateB;
-    });
-
-    let sar = [];
-    let trend = 'up';
-    let af = step;
-    let ep = sorted[0]?.high || sorted[0]?.ltp || sorted[0]?.close || 0;
-    let currentSAR = sorted[0]?.low || sorted[0]?.ltp || sorted[0]?.close || 0;
-    sar.push({ date: sorted[0]?.date || null, sar: currentSAR, trend: trend, af: af, ep: ep });
-
-    for (let i = 1; i < sorted.length; i++) {
-        const current = sorted[i];
-        const price = current?.ltp || current?.close || 0;
-        const high = current?.high || price;
-        const low = current?.low || price;
-
-        let newSAR;
-        if (trend === 'up') {
-            newSAR = currentSAR + af * (ep - currentSAR);
-        } else {
-            newSAR = currentSAR - af * (currentSAR - ep);
-        }
-
-        if (trend === 'up' && price < newSAR) {
-            trend = 'down';
-            newSAR = ep;
-            af = step;
-            ep = low;
-        } else if (trend === 'down' && price > newSAR) {
-            trend = 'up';
-            newSAR = ep;
-            af = step;
-            ep = high;
-        } else {
-            if (trend === 'up') {
-                if (high > ep) {
-                    ep = high;
-                    af = Math.min(af + step, maxStep);
-                }
-            } else {
-                if (low < ep) {
-                    ep = low;
-                    af = Math.min(af + step, maxStep);
-                }
-            }
-        }
-
-        sar.push({ date: current?.date || null, sar: newSAR, trend: trend, af: af, ep: ep });
-        currentSAR = newSAR;
+function chunkArray(array, chunkSize = 10) {
+    const chunks = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+        chunks.push(array.slice(i, i + chunkSize));
     }
-
-    return sar;
+    return chunks;
 }
 
 // ==========================================
-// 🔍 All Scanner ডেটা লোডার
+// 🔍 All Scanner ডেটা লোডার (⚡ ব্যাচ ভার্সন)
 // ==========================================
 async function loadAllScannerData(forceRefresh = false, onProgress = null) {
     if (!forceRefresh) {
@@ -186,143 +135,140 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
             return [];
         }
 
-        console.log(`📊 Scanning ${tickers.length} stocks...`);
+        console.log(`📊 Scanning ${tickers.length} stocks with batch queries...`);
         const totalTickers = tickers.length;
         if (typeof onProgress === 'function') onProgress(0, totalTickers);
 
         const allResults = [];
+        const BATCH_SIZE = 10;
 
-        // ১. Supabase থেকে লাইভ ডেটা
+        // ---------- ১. Supabase থেকে লাইভ ডেটা (ব্যাচে) ----------
         let supabasePriceMap = new Map();
         if (currentDataMode !== 'firebase' && typeof supabase !== 'undefined' && supabase) {
+            const supabaseChunks = chunkArray(tickers, BATCH_SIZE);
+            for (const chunk of supabaseChunks) {
+                try {
+                    const { data, error } = await supabase
+                        .from('cse_market_data')
+                        .select('code, ltp, high, low, category')
+                        .in('code', chunk)
+                        .order('date', { ascending: false });
+                    if (!error && data) {
+                        const seen = new Set();
+                        data.forEach(row => {
+                            if (!seen.has(row.code)) {
+                                seen.add(row.code);
+                                supabasePriceMap.set(row.code, {
+                                    ltp: parseFloat(row.ltp) || 0,
+                                    high: parseFloat(row.high) || 0,
+                                    low: parseFloat(row.low) || 0,
+                                    category: row.category || 'N/A'
+                                });
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Supabase batch fetch failed:', e);
+                }
+            }
+        }
+
+        // ---------- ২. Firebase থেকে হিস্টোরিক্যাল ডেটা (ব্যাচে) ----------
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 30);
+        const startDateStr = startDate.toISOString().split('T')[0];
+
+        // সব টিকার জন্য ৩০ দিনের ডেটা একবারে আনা (Firestore `in` দিয়ে)
+        const firebaseChunks = chunkArray(tickers, BATCH_SIZE);
+        let allFirebaseData = [];
+        for (const chunk of firebaseChunks) {
             try {
-                const { data, error } = await supabase
-                    .from('cse_market_data')
-                    .select('code, ltp, high, low, category')
-                    .in('code', tickers)
-                    .order('date', { ascending: false });
-                if (!error && data) {
-                    const seen = new Set();
-                    data.forEach(row => {
-                        if (!seen.has(row.code)) {
-                            seen.add(row.code);
-                            supabasePriceMap.set(row.code, {
-                                ltp: parseFloat(row.ltp) || 0,
-                                high: parseFloat(row.high) || 0,
-                                low: parseFloat(row.low) || 0,
-                                category: row.category || 'N/A'
+                const snap = await db.collection('cse_detailed_data')
+                    .where('code', 'in', chunk)
+                    .where('date', '>=', startDateStr)
+                    .orderBy('date', 'asc')
+                    .get();
+                if (!snap.empty) {
+                    snap.forEach(doc => {
+                        const data = doc.data();
+                        const ltp = parseFloat(data.ltp);
+                        if (ltp > 0) {
+                            allFirebaseData.push({
+                                code: data.code,
+                                date: data.date,
+                                ltp: ltp,
+                                high: parseFloat(data.high) || ltp,
+                                low: parseFloat(data.low) || ltp
                             });
                         }
                     });
                 }
             } catch (e) {
-                console.warn('Supabase fetch failed for scanner:', e);
+                console.warn('Firebase batch fetch failed:', e);
             }
         }
 
-        // ২. Firebase থেকে হিস্টোরিক্যাল ডেটা
-        const batchSize = 10;
+        // ফায়ারবেস ডেটা টিকার ভিত্তিতে গ্রুপ করা
+        const groupedData = {};
+        allFirebaseData.forEach(item => {
+            if (!groupedData[item.code]) groupedData[item.code] = [];
+            groupedData[item.code].push(item);
+        });
+
+        // ---------- ৩. প্রতিটি টিকার জন্য প্রসেসিং ----------
         let processed = 0;
-
-        for (let i = 0; i < tickers.length; i += batchSize) {
-            const batch = tickers.slice(i, i + batchSize);
-            const promises = batch.map(async (ticker) => {
-                try {
-                    const startDate = new Date();
-                    startDate.setDate(startDate.getDate() - 30);
-                    const startDateStr = startDate.toISOString().split('T')[0];
-
-                    let priceData = [];
-
-                    if (typeof db !== 'undefined') {
-                        try {
-                            const snap = await db.collection('cse_detailed_data')
-                                .where('code', '==', ticker)
-                                .where('date', '>=', startDateStr)
-                                .orderBy('date', 'asc')
-                                .limit(30)
-                                .get();
-
-                            if (!snap.empty) {
-                                snap.forEach(doc => {
-                                    const data = doc.data();
-                                    const ltp = parseFloat(data.ltp);
-                                    const high = parseFloat(data.high) || ltp;
-                                    const low = parseFloat(data.low) || ltp;
-                                    if (ltp > 0) {
-                                        priceData.push({
-                                            date: data.date,
-                                            ltp: ltp,
-                                            high: high,
-                                            low: low
-                                        });
-                                    }
-                                });
-                            }
-                        } catch (e) {
-                            console.warn(`Firebase fetch failed for ${ticker}:`, e);
-                        }
-                    }
-
-                    if (priceData.length < 15) return null;
-
-                    const sarData = calcPSAR(priceData);
-                    const lastSAR = sarData.length > 0 ? sarData[sarData.length - 1] : null;
-
-                    const rsiData = calcRSI(priceData, 14);
-                    const lastRSI = rsiData.filter(r => r.rsi !== null).pop();
-
-                    let currentPrice = priceData[priceData.length - 1]?.ltp || 0;
-                    let category = 'N/A';
-                    if (supabasePriceMap.has(ticker)) {
-                        const live = supabasePriceMap.get(ticker);
-                        if (live.ltp > 0) currentPrice = live.ltp;
-                        category = live.category || 'N/A';
-                    }
-
-                    // ATH/ATL
-                    let ath = 0, atl = Infinity;
-                    if (typeof db !== 'undefined') {
-                        try {
-                            const histSnap = await db.collection('cse_detailed_data')
-                                .where('code', '==', ticker)
-                                .get();
-                            histSnap.forEach(doc => {
-                                const data = doc.data();
-                                const ltp = parseFloat(data.ltp);
-                                if (ltp > ath) ath = ltp;
-                                if (ltp > 0 && ltp < atl) atl = ltp;
-                                const h = parseFloat(data.high) || ltp;
-                                if (h > ath) ath = h;
-                                const l = parseFloat(data.low) || ltp;
-                                if (l > 0 && l < atl) atl = l;
-                            });
-                        } catch (e) { /* ignore */ }
-                    }
-                    if (atl === Infinity) atl = 0;
-
-                    return {
-                        ticker: ticker,
-                        currentPrice: currentPrice,
-                        sar: lastSAR ? lastSAR.sar : currentPrice,
-                        trend: lastSAR ? lastSAR.trend : 'up',
-                        rsi: lastRSI ? lastRSI.rsi : null,
-                        date: priceData[priceData.length - 1]?.date || null,
-                        category: category,
-                        ath: ath,
-                        atl: atl
-                    };
-                } catch (err) {
-                    console.warn(`Error processing ${ticker}:`, err);
-                    return null;
+        for (const ticker of tickers) {
+            try {
+                const priceData = groupedData[ticker] || [];
+                if (priceData.length < 15) {
+                    processed++;
+                    continue;
                 }
-            });
 
-            const batchResults = await Promise.all(promises);
-            const validResults = batchResults.filter(r => r !== null && r.currentPrice > 0 && r.sar > 0);
-            allResults.push(...validResults);
+                // Parabolic SAR (core.js থেকে)
+                const sarData = calculateParabolicSAR(priceData);
+                const lastSAR = sarData.length > 0 ? sarData[sarData.length - 1] : null;
 
-            processed = Math.min(i + batchSize, totalTickers);
+                // RSI
+                const rsiData = calcRSI(priceData, 14);
+                const lastRSI = rsiData.filter(r => r.rsi !== null).pop();
+
+                // বর্তমান মূল্য (Supabase প্রাধান্য)
+                let currentPrice = priceData[priceData.length - 1]?.ltp || 0;
+                let category = 'N/A';
+                if (supabasePriceMap.has(ticker)) {
+                    const live = supabasePriceMap.get(ticker);
+                    if (live.ltp > 0) currentPrice = live.ltp;
+                    category = live.category || 'N/A';
+                }
+
+                // ATH/ATL (গোষ্ঠীবদ্ধ ডেটা থেকেই)
+                let ath = 0, atl = Infinity;
+                for (const item of priceData) {
+                    const ltp = item.ltp;
+                    if (ltp > ath) ath = ltp;
+                    if (ltp > 0 && ltp < atl) atl = ltp;
+                    if (item.high > ath) ath = item.high;
+                    if (item.low > 0 && item.low < atl) atl = item.low;
+                }
+                if (atl === Infinity) atl = 0;
+
+                allResults.push({
+                    ticker: ticker,
+                    currentPrice: currentPrice,
+                    sar: lastSAR ? lastSAR.sar : currentPrice,
+                    trend: lastSAR ? lastSAR.trend : 'up',
+                    rsi: lastRSI ? lastRSI.rsi : null,
+                    date: priceData[priceData.length - 1]?.date || null,
+                    category: category,
+                    ath: ath,
+                    atl: atl
+                });
+
+            } catch (err) {
+                console.warn(`Error processing ${ticker}:`, err);
+            }
+            processed++;
             if (typeof onProgress === 'function') onProgress(processed, totalTickers);
         }
 
@@ -874,6 +820,7 @@ async function loadScreenerData(tab = 'buy') {
 
                     if (priceData.length < 2) return null;
 
+                    // ✅ calculateParabolicSAR ব্যবহার করুন (core.js থেকে)
                     const sarData = calculateParabolicSAR(priceData);
                     const lastSAR = sarData[sarData.length - 1];
                     if (currentPrice === 0) currentPrice = priceData[priceData.length - 1]?.ltp || 0;
@@ -959,8 +906,8 @@ window.switchRSITab = switchRSITab;
 window.applyRSIFilter = applyRSIFilter;
 window.refreshRSIIndicator = refreshRSIIndicator;
 window.calcRSI = calcRSI;
-window.calcPSAR = calcPSAR;
 window.loadScreenerData = loadScreenerData;
 window.clearAllScannerCache = clearAllScannerCache;
+window.chunkArray = chunkArray; // ব্যাচ কোয়েরির জন্য হেলপার এক্সপোজ
 
-console.log('✅ scanner.js (Supabase for live, Firebase for historical) loaded successfully');
+console.log('✅ scanner.js (ডুপ্লিকেশন মুক্ত, ব্যাচ কোয়েরি অপটিমাইজড) loaded successfully');
