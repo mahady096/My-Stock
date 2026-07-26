@@ -1,5 +1,7 @@
 // ==========================================
 // 📊 marketwatch.js - Watch List & Full Market View
+//    ✅ null-check সহ ইরর হ্যান্ডলিং
+//    ✅ পোর্টফোলিও ফিল্টার সাপোর্ট
 // ==========================================
 
 // ==========================================
@@ -100,26 +102,16 @@ async function loadFullMarketData(forceRefresh = false) {
 
     const user = auth.currentUser;
     if (!user) {
-        showToast('Please login first', 'error');
+        if (typeof showToast === 'function') showToast('Please login first', 'error');
         return null;
     }
 
     try {
         const tickers = typeof dseStocks !== 'undefined' ? dseStocks : [];
         if (tickers.length === 0) {
-            showToast('No stock list available.', 'error');
+            if (typeof showToast === 'function') showToast('No stock list available.', 'error');
             return [];
         }
-
-        const progressContainer = document.getElementById('market-progress-container');
-        const progressBar = document.getElementById('market-progress-bar');
-        const progressText = document.getElementById('market-progress-text');
-        const progressDetail = document.getElementById('market-progress-detail');
-        
-        if (progressContainer) progressContainer.style.display = 'block';
-        if (progressBar) progressBar.style.width = '0%';
-        if (progressText) progressText.textContent = '⏳ Loading market data...';
-        if (progressDetail) progressDetail.textContent = '0 / ' + tickers.length + ' stocks';
 
         const allData = [];
         const batchSize = 10;
@@ -157,26 +149,16 @@ async function loadFullMarketData(forceRefresh = false) {
             allData.push(...valid);
 
             processed += batch.length;
-            const pct = Math.min(Math.round((processed / tickers.length) * 100), 100);
-            if (progressBar) progressBar.style.width = pct + '%';
-            if (progressText) progressText.textContent = `⏳ Loading ${pct}%`;
-            if (progressDetail) progressDetail.textContent = `${Math.min(processed, tickers.length)} / ${tickers.length} stocks`;
         }
 
         setCachedMarketData(allData);
         console.log(`✅ Full market data loaded: ${allData.length} stocks`);
 
-        if (progressContainer) {
-            setTimeout(() => {
-                progressContainer.style.display = 'none';
-            }, 1000);
-        }
-
         return allData;
 
     } catch (error) {
         console.error('Market data load error:', error);
-        showToast('Error loading market data', 'error');
+        if (typeof showToast === 'function') showToast('Error loading market data', 'error');
         return null;
     }
 }
@@ -210,7 +192,7 @@ function renderMarketTable(data, containerId, isWatchList = false) {
             return `<span style="color:${color}; font-weight:600;">${sign}${val.toFixed(2)}%</span>`;
         };
 
-        html += `<tr onclick="openStockDetailModal('${item.ticker}')" style="cursor:pointer; transition:background 0.2s;" 
+        html += `<tr onclick="if(typeof openStockDetailModal === 'function') openStockDetailModal('${item.ticker}')" style="cursor:pointer; transition:background 0.2s;" 
                     onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
         html += `<td style="padding:10px; font-weight:bold; color:var(--primary-color); text-decoration:underline;">${item.ticker}</td>`;
         html += `<td style="padding:10px;">${item.category}</td>`;
@@ -238,12 +220,12 @@ function addToWatchList(ticker) {
     if (!ticker) return;
     const list = getWatchList();
     if (list.includes(ticker)) {
-        showToast(`${ticker} already in watchlist`, 'warning');
+        if (typeof showToast === 'function') showToast(`${ticker} already in watchlist`, 'warning');
         return;
     }
     list.push(ticker);
     saveWatchList(list);
-    showToast(`✅ ${ticker} added to watchlist`, 'success');
+    if (typeof showToast === 'function') showToast(`✅ ${ticker} added to watchlist`, 'success');
     refreshWatchList();
 }
 
@@ -251,14 +233,16 @@ function removeFromWatchList(ticker) {
     let list = getWatchList();
     list = list.filter(t => t !== ticker);
     saveWatchList(list);
-    showToast(`🗑️ ${ticker} removed from watchlist`, 'info');
+    if (typeof showToast === 'function') showToast(`🗑️ ${ticker} removed from watchlist`, 'info');
     refreshWatchList();
 }
 
 async function refreshWatchList() {
     const list = getWatchList();
-    document.getElementById('watchlist-count').innerText = list.length;
-    document.getElementById('watchlist-count-badge').innerText = list.length;
+    const countEl = document.getElementById('watchlist-count');
+    const badgeEl = document.getElementById('watchlist-count-badge');
+    if (countEl) countEl.innerText = list.length;
+    if (badgeEl) badgeEl.innerText = list.length;
 
     if (list.length === 0) {
         renderMarketTable([], 'watchlist-table-body', true);
@@ -293,8 +277,10 @@ let fullViewSortDirection = 'asc';
 function renderFullView(data) {
     fullViewData = data;
     renderMarketTable(data, 'fullview-table-body', false);
-    document.getElementById('fullview-count').innerText = data.length;
-    document.getElementById('fullview-count-badge').innerText = data.length;
+    const countEl = document.getElementById('fullview-count');
+    const badgeEl = document.getElementById('fullview-count-badge');
+    if (countEl) countEl.innerText = data.length;
+    if (badgeEl) badgeEl.innerText = data.length;
 }
 
 function sortFullView(columnIndex) {
@@ -349,19 +335,24 @@ function updateSortIndicators(columnIndex) {
 // 🚀 Market Watch পেজ লোড
 // ==========================================
 async function loadMarketWatchPage() {
-    // সাজেশন ইভেন্ট ইনিশিয়ালাইজ
-    initWatchlistSearch();
+    try {
+        // সাজেশন ইভেন্ট ইনিশিয়ালাইজ
+        initWatchlistSearch();
 
-    // ট্যাব দেখান (ডিফল্ট watchlist)
-    switchMarketWatchTab('watchlist');
+        // ট্যাব দেখান (ডিফল্ট watchlist)
+        switchMarketWatchTab('watchlist');
 
-    // ওয়াচলিস্ট রিফ্রেশ
-    await refreshWatchList();
+        // ওয়াচলিস্ট রিফ্রেশ
+        await refreshWatchList();
 
-    // ফুল ভিউ ডেটা লোড (পিছনে)
-    const data = await loadFullMarketData(false);
-    if (data) {
-        renderFullView(data);
+        // ফুল ভিউ ডেটা লোড (পিছনে)
+        const data = await loadFullMarketData(false);
+        if (data) {
+            renderFullView(data);
+        }
+    } catch (error) {
+        console.error('Market watch page error:', error);
+        if (typeof showToast === 'function') showToast('Error loading market watch', 'error');
     }
 }
 
@@ -421,31 +412,16 @@ function initWatchlistSearch() {
         return;
     }
 
-    // 🔥 dseStocks চেক
     let stockList = [];
     if (typeof dseStocks !== 'undefined' && Array.isArray(dseStocks)) {
         stockList = dseStocks;
-        console.log(`✅ dseStocks loaded: ${stockList.length} stocks`);
+    } else if (window.dseStocks && Array.isArray(window.dseStocks)) {
+        stockList = window.dseStocks;
     } else {
-        console.warn('⚠️ dseStocks not available. Trying to load from window...');
-        if (window.dseStocks && Array.isArray(window.dseStocks)) {
-            stockList = window.dseStocks;
-            console.log(`✅ dseStocks from window: ${stockList.length} stocks`);
-        } else {
-            console.error('❌ dseStocks not found anywhere!');
-            showToast('Stock list not loaded. Please refresh the page.', 'error');
-            return;
-        }
+        console.error('❌ dseStocks not found anywhere!');
+        if (typeof showToast === 'function') showToast('Stock list not loaded. Please refresh the page.', 'error');
+        return;
     }
-
-    // লোকাল ডিবাউন্স
-    const debounce = (fn, delay) => {
-        let timer;
-        return function(...args) {
-            clearTimeout(timer);
-            timer = setTimeout(() => fn.apply(this, args), delay);
-        };
-    };
 
     // সাজেশন দেখানো
     const showSuggestions = function(query) {
@@ -457,12 +433,9 @@ function initWatchlistSearch() {
             return;
         }
 
-        // ফিল্টার
         const filtered = stockList
             .filter(stock => stock.toUpperCase().startsWith(trimmed))
             .slice(0, 10);
-
-        console.log(`🔍 Found ${filtered.length} suggestions for "${trimmed}"`);
 
         if (filtered.length > 0) {
             suggestionBox.classList.remove('hidden');
@@ -487,7 +460,6 @@ function initWatchlistSearch() {
                 div.onclick = function(e) {
                     e.stopPropagation();
                     const ticker = this.innerText.trim();
-                    console.log(`✅ Selected: ${ticker}`);
                     searchInput.value = ticker;
                     suggestionBox.classList.add('hidden');
                     addToWatchList(ticker);
@@ -500,21 +472,25 @@ function initWatchlistSearch() {
         }
     };
 
+    const debounce = (fn, delay) => {
+        let timer;
+        return function(...args) {
+            clearTimeout(timer);
+            timer = setTimeout(() => fn.apply(this, args), delay);
+        };
+    };
     const debouncedSearch = debounce(showSuggestions, 250);
 
-    // 🔥 ইনপুট ইভেন্ট
     searchInput.addEventListener('input', function() {
         const query = this.value;
         debouncedSearch(query);
     });
 
-    // ফোকাসে সাজেশন দেখান (যদি আগের ক্যুয়েরি থাকে)
     searchInput.addEventListener('focus', function() {
         const query = this.value.trim();
         if (query) debouncedSearch(query);
     });
 
-    // এন্টার প্রেস
     searchInput.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -528,18 +504,17 @@ function initWatchlistSearch() {
                     this.value = '';
                     suggestionBox.classList.add('hidden');
                 } else {
-                    showToast('Share not found. Please select from suggestions.', 'warning');
+                    if (typeof showToast === 'function') showToast('Share not found. Please select from suggestions.', 'warning');
                 }
             }
         }
     });
 
-    // Add বাটন
     if (addBtn) {
         addBtn.addEventListener('click', function() {
             const query = searchInput.value.trim().toUpperCase();
             if (!query) {
-                showToast('Please type a share name first.', 'warning');
+                if (typeof showToast === 'function') showToast('Please type a share name first.', 'warning');
                 return;
             }
             if (stockList.includes(query)) {
@@ -547,12 +522,11 @@ function initWatchlistSearch() {
                 searchInput.value = '';
                 suggestionBox.classList.add('hidden');
             } else {
-                showToast('Share not found. Please select from suggestions.', 'warning');
+                if (typeof showToast === 'function') showToast('Share not found. Please select from suggestions.', 'warning');
             }
         });
     }
 
-    // বাইরে ক্লিক করলে সাজেশন বন্ধ
     document.addEventListener('click', function(e) {
         if (!searchInput.contains(e.target) && !suggestionBox.contains(e.target)) {
             suggestionBox.classList.add('hidden');
@@ -565,6 +539,12 @@ function initWatchlistSearch() {
 // ==========================================
 // 📌 গ্লোবালি এক্সপোজ
 // ==========================================
+window.loadMarketWatchPage = loadMarketWatchPage;
+window.switchMarketWatchTab = switchMarketWatchTab;
+window.addToWatchList = addToWatchList;
+window.removeFromWatchList = removeFromWatchList;
+window.refreshWatchList = refreshWatchList;
+window.sortFullView = sortFullView;
 window.loadMarketWatchPage = loadMarketWatchPage;
 window.switchMarketWatchTab = switchMarketWatchTab;
 window.addToWatchList = addToWatchList;

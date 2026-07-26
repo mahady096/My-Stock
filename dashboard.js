@@ -24,9 +24,16 @@ let lastBuySignals = [];
 let lastSellSignals = [];
 
 // ==========================================
-// ১. Dashboard Data Loader
 // ==========================================
-async function loadDashboardData() {
+// ১. Dashboard Data Loader (পোর্টফোলিও আইডি সাপোর্ট সহ)
+// ==========================================
+
+/**
+ * ড্যাশবোর্ডের সব ডেটা লোড করে – পোর্টফোলিও ফিল্টার সহ
+ * @param {string|null} portfolioId - পোর্টফোলিও আইডি (null = গ্র্যান্ড / সব)
+ * @param {boolean} forceRefresh - true দিলে ক্যাশ উপেক্ষা করে
+ */
+async function loadDashboardData(portfolioId = null, forceRefresh = false) {
     const today = new Date();
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(today.getDate() - 30);
@@ -41,11 +48,56 @@ async function loadDashboardData() {
         console.log('No user logged in');
         return;
     }
+
+    // ---------- ক্যাশ চেক ----------
+    const cacheKey = `dashboard_${user.uid}_${portfolioId || 'all'}`;
+    if (!forceRefresh) {
+        try {
+            const cached = sessionStorage.getItem(cacheKey);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Date.now() - parsed.timestamp < 300000) { // ৫ মিনিট TTL
+                    console.log('📦 Dashboard loaded from cache');
+                    // ক্যাশ থেকে ডেটা রেন্ডার
+                    const data = parsed.data;
+                    updateDashboardCards(data);
+                    // চার্ট ও অন্যান্য UI আপডেট (ঐচ্ছিক)
+                    if (typeof renderDashboardHistoryChart === 'function') {
+                        renderDashboardHistoryChart();
+                    }
+                    if (typeof renderDashboardDailyPLChart === 'function') {
+                        renderDashboardDailyPLChart();
+                    }
+                    if (typeof updatePerformanceSummary === 'function') {
+                        updatePerformanceSummary();
+                    }
+                    if (typeof updateDSEXIndicator === 'function') {
+                        updateDSEXIndicator();
+                    }
+                    if (typeof updateTotalIncomeCard === 'function') {
+                        updateTotalIncomeCard();
+                    }
+                    if (typeof loadSignalData === 'function') {
+                        loadSignalData();
+                    }
+                    updateTimestamp();
+                    return;
+                }
+            }
+        } catch (e) { /* ignore */ }
+    }
+
     showDataLoading(true);
     try {
-        const unifiedData = await unifiedEngine.calculate(user.uid, false);
+        // ১. ইউনিফাইড ক্যালকুলেশন (পোর্টফোলিও ফিল্টার সহ)
+        const unifiedData = await unifiedEngine.calculate(user.uid, portfolioId, forceRefresh);
+        
+        let totalCurrentValue = 0;
+        let totalInvestment = 0;
+        let totalProfitLoss = 0;
+        let totalRemainingQty = 0;
+
         if (unifiedData && unifiedData.stockDetails.length > 0) {
-            let totalCurrentValue = 0;
             const tickers = unifiedData.stockDetails.map(s => s.ticker);
             const pricePromises = tickers.map(t => getUnifiedPrice(t));
             const currentPrices = await Promise.all(pricePromises);
@@ -55,31 +107,91 @@ async function loadDashboardData() {
                 let currentPrice = currentPrices[i];
                 if (currentPrice === 0) currentPrice = stock.avgBuyPriceWithCommission;
                 totalCurrentValue += stock.totalQty * currentPrice;
+                totalRemainingQty += stock.totalQty;
             }
 
-            const totalInvestment = unifiedData.totalInvestment;
-            const totalProfitLoss = totalCurrentValue - totalInvestment;
-
-            const dashTotalValue = document.getElementById('dash-total-value');
-            const dashTotalCost = document.getElementById('dash-total-cost');
-            const dashTotalGL = document.getElementById('dash-total-gl');
-            if (dashTotalValue) dashTotalValue.innerHTML = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-            if (dashTotalCost) dashTotalCost.innerHTML = `৳${totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-            if (dashTotalGL) {
-                dashTotalGL.innerHTML = `${totalProfitLoss >= 0 ? '+' : ''}৳${totalProfitLoss.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-                dashTotalGL.style.color = totalProfitLoss >= 0 ? '#90ffb0' : '#ffaaaa';
-            }
-            currentPortfolioTotalValue = totalCurrentValue;
-            updateTimestamp();
+            totalInvestment = unifiedData.totalInvestment;
+            totalProfitLoss = totalCurrentValue - totalInvestment;
         } else {
-            const dashTotalValue = document.getElementById('dash-total-value');
-            const dashTotalCost = document.getElementById('dash-total-cost');
-            const dashTotalGL = document.getElementById('dash-total-gl');
-            if (dashTotalValue) dashTotalValue.innerHTML = '৳0.00';
-            if (dashTotalCost) dashTotalCost.innerHTML = '৳0.00';
-            if (dashTotalGL) dashTotalGL.innerHTML = '৳0.00';
+            // পোর্টফোলিও খালি থাকলে ডিফল্ট ০
+            totalInvestment = 0;
+            totalCurrentValue = 0;
+            totalProfitLoss = 0;
         }
 
+        // ২. ড্যাশবোর্ড কার্ড আপডেট
+        const dashTotalValue = document.getElementById('dash-total-value');
+        const dashTotalCost = document.getElementById('dash-total-cost');
+        const dashTotalGL = document.getElementById('dash-total-gl');
+        const dashDaily = document.getElementById('dash-total-daily');
+        const dashDailyPct = document.getElementById('dash-total-daily-pct');
+        const dashGLPct = document.getElementById('dash-total-gl-pct');
+
+        if (dashTotalValue) dashTotalValue.innerHTML = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        if (dashTotalCost) dashTotalCost.innerHTML = `৳${totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        if (dashTotalGL) {
+            dashTotalGL.innerHTML = `${totalProfitLoss >= 0 ? '+' : ''}৳${totalProfitLoss.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+            dashTotalGL.style.color = totalProfitLoss >= 0 ? '#90ffb0' : '#ffaaaa';
+        }
+        if (dashGLPct && totalInvestment > 0) {
+            const totalPct = (totalProfitLoss / totalInvestment) * 100;
+            dashGLPct.innerHTML = `${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(2)}%`;
+            dashGLPct.style.color = totalPct >= 0 ? '#90ffb0' : '#ffaaaa';
+        }
+
+        // ডেইলি G/L – আগের দিনের প্রাইস দিয়ে হিসাব
+        if (unifiedData && unifiedData.stockDetails.length > 0) {
+            const tickers = unifiedData.stockDetails.map(s => s.ticker);
+            const priceMap = await getLatestAndPreviousPrices(tickers);
+            let dailyGL = 0, dailyPct = 0;
+            for (const stock of unifiedData.stockDetails) {
+                const priceData = priceMap.get(stock.ticker);
+                const currentPrice = priceData?.currentPrice || 0;
+                const prevPrice = priceData?.previousPrice || 0;
+                const qty = stock.totalQty || 0;
+                if (prevPrice > 0 && qty > 0) {
+                    dailyGL += qty * (currentPrice - prevPrice);
+                }
+            }
+            if (dashDaily) {
+                dashDaily.innerHTML = `${dailyGL >= 0 ? '+' : ''}৳${dailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                dashDaily.style.color = dailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
+            }
+            if (dashDailyPct && totalInvestment > 0) {
+                dailyPct = (dailyGL / totalInvestment) * 100;
+                dashDailyPct.innerHTML = `${dailyPct >= 0 ? '+' : ''}${dailyPct.toFixed(2)}%`;
+                dashDailyPct.style.color = dailyPct >= 0 ? '#90ffb0' : '#ffaaaa';
+            }
+        } else {
+            if (dashDaily) {
+                dashDaily.innerHTML = '৳0.00';
+                dashDaily.style.color = '#94a3b8';
+            }
+            if (dashDailyPct) {
+                dashDailyPct.innerHTML = '0.00%';
+                dashDailyPct.style.color = '#94a3b8';
+            }
+        }
+
+        currentPortfolioTotalValue = totalCurrentValue;
+        updateTimestamp();
+
+        // ৩. ক্যাশে সেভ (শুধু প্রয়োজনীয় ডেটা)
+        try {
+            const dataToCache = {
+                totalInvestment,
+                totalCurrentValue,
+                totalProfitLoss,
+                totalRemainingQty,
+                _portfolioId: portfolioId || 'all'
+            };
+            sessionStorage.setItem(cacheKey, JSON.stringify({
+                timestamp: Date.now(),
+                data: dataToCache
+            }));
+        } catch (e) { /* ignore */ }
+
+        // ৪. অন্যান্য UI কম্পোনেন্ট আপডেট
         await updatePerformanceSummary();
         await updateDSEXIndicator();
         await renderDashboardHistoryChart();
@@ -87,17 +199,63 @@ async function loadDashboardData() {
         await renderDashboardDailyPLChart();
         await loadSignalData();
         
-        // ✅ এখানে ড্যাশবোর্ড সার্চ ইনিশিয়ালাইজ করুন
+        // ৫. ড্যাশবোর্ড সার্চ ইনিশিয়ালাইজ
         if (typeof initDashboardSearch === 'function') {
             initDashboardSearch();
         } else {
             console.warn('initDashboardSearch not available yet');
         }
+
+        // ৬. পোর্টফোলিও ম্যানেজারের জন্য সাইডবার ও সিলেক্টর আপডেট
+        if (typeof updateSidebarPortfolioList === 'function') {
+            updateSidebarPortfolioList();
+        }
+        if (typeof updateBuyPortfolioSelect === 'function') {
+            updateBuyPortfolioSelect();
+        }
+
+        console.log(`✅ Dashboard loaded for ${portfolioId || 'grand'}`);
+
     } catch (error) {
         console.error('Dashboard load error:', error);
         if (typeof showToast === 'function') showToast('Error loading dashboard data', 'error');
     } finally {
         showDataLoading(false);
+    }
+}
+
+// ==========================================
+// 🏷️ ড্যাশবোর্ড কার্ড আপডেট (হেলপার ফাংশন)
+// ==========================================
+function updateDashboardCards(data) {
+    if (!data) return;
+    const dashTotalValue = document.getElementById('dash-total-value');
+    const dashTotalCost = document.getElementById('dash-total-cost');
+    const dashTotalGL = document.getElementById('dash-total-gl');
+    const dashGLPct = document.getElementById('dash-total-gl-pct');
+    const dashDaily = document.getElementById('dash-total-daily');
+    const dashDailyPct = document.getElementById('dash-total-daily-pct');
+
+    if (dashTotalValue) dashTotalValue.innerHTML = `৳${(data.totalCurrentValue || 0).toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    if (dashTotalCost) dashTotalCost.innerHTML = `৳${(data.totalInvestment || 0).toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    const pl = (data.totalCurrentValue || 0) - (data.totalInvestment || 0);
+    if (dashTotalGL) {
+        dashTotalGL.innerHTML = `${pl >= 0 ? '+' : ''}৳${pl.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        dashTotalGL.style.color = pl >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    if (dashGLPct && data.totalInvestment > 0) {
+        const pct = (pl / data.totalInvestment) * 100;
+        dashGLPct.innerHTML = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+        dashGLPct.style.color = pct >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    // ডেইলি P&L (যদি থাকে)
+    if (data.dailyGL !== undefined && dashDaily) {
+        dashDaily.innerHTML = `${data.dailyGL >= 0 ? '+' : ''}৳${data.dailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        dashDaily.style.color = data.dailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    if (data.dailyPct !== undefined && dashDailyPct && data.totalInvestment > 0) {
+        dashDailyPct.innerHTML = `${data.dailyPct >= 0 ? '+' : ''}${data.dailyPct.toFixed(2)}%`;
+        dashDailyPct.style.color = data.dailyPct >= 0 ? '#90ffb0' : '#ffaaaa';
     }
 }
 
@@ -282,18 +440,27 @@ window.toggleBullLot = function(blockId) {
 
 // ==========================================
 // 📊 পোর্টফোলিও অ্যানালাইসিস টেবিল (ডেইলি চেঞ্জ সহ)
+//    পোর্টফোলিও আইডি অনুযায়ী ফিল্টার করা যায়
 // ==========================================
-async function loadPortfolioAnalysisTable(userId, forceRefresh = false) {
+
+/**
+ * পোর্টফোলিও অ্যানালাইসিস টেবিল লোড করে
+ * @param {string} userId - ইউজার আইডি
+ * @param {string|null} portfolioId - পোর্টফোলিও আইডি (null = গ্র্যান্ড / সব)
+ * @param {boolean} forceRefresh - true দিলে ক্যাশ উপেক্ষা করে
+ */
+async function loadPortfolioAnalysisTable(userId, portfolioId = null, forceRefresh = false) {
     if (!userId) return;
 
-    // ক্যাশ চেক (৩০ সেকেন্ড)
-    const cacheKey = `analysis_${userId}`;
+    // ---------- ক্যাশ চেক ----------
+    const cacheKey = `analysis_${userId}_${portfolioId || 'all'}`;
     let cached = null;
     try {
         const cachedStr = sessionStorage.getItem(cacheKey);
         if (cachedStr) {
             const parsed = JSON.parse(cachedStr);
-            if (Date.now() - parsed.timestamp < 30000) {
+            // TTL: ৫ মিনিট (৩০০০০০ মিলিসেকেন্ড)
+            if (Date.now() - parsed.timestamp < 300000) {
                 cached = parsed.data;
             }
         }
@@ -301,7 +468,12 @@ async function loadPortfolioAnalysisTable(userId, forceRefresh = false) {
 
     if (cached && !forceRefresh) {
         renderPortfolioAnalysis(cached);
-        console.log('✅ Portfolio analysis loaded from cache');
+        console.log(`✅ Portfolio analysis loaded from cache (${portfolioId || 'all'})`);
+        // টাইমস্ট্যাম্প আপডেট
+        const timeText = document.getElementById('pa-updated-time-text');
+        if (timeText) {
+            timeText.innerText = new Date().toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' });
+        }
         return;
     }
 
@@ -311,196 +483,220 @@ async function loadPortfolioAnalysisTable(userId, forceRefresh = false) {
         portfolioAnalysisInterval = null;
     }
 
-async function fetchAndRenderAnalysis(force = false) {
-    // লোডিং শুরুতে স্কেলেটন দেখান
-    const listContainer = document.getElementById('bull-analysis-list');
-    if (listContainer) {
-        listContainer.innerHTML = `
-            <div class="skeleton" style="width:95%;"></div>
-            <div class="skeleton" style="width:85%;"></div>
-            <div class="skeleton" style="width:90%;"></div>
-            <div class="skeleton" style="width:75%;"></div>
-            <div class="skeleton" style="width:88%;"></div>
-        `;
-    }
-
-    const now = Date.now();
-    if (!force && cachedAnalysisData && (now - lastAnalysisTime) < ANALYSIS_CACHE_TTL) {
-        renderPortfolioAnalysis(cachedAnalysisData);
-        // টাইমস্ট্যাম্প আপডেট
-        const timeText = document.getElementById('pa-updated-time-text');
-        if (timeText) {
-            timeText.innerText = new Date().toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' });
-        }
-        return;
-    }
-    if (isAnalysisLoading) return;
-    isAnalysisLoading = true;
-
-    try {
-        console.log('📊 Fetching portfolio analysis...');
-        const unifiedData = await unifiedEngine.calculate(userId, force);
-        if (!unifiedData || unifiedData.stockDetails.length === 0) {
-            if (listContainer) {
-                listContainer.innerHTML = `<div style="text-align:center; padding:20px; color: var(--text-muted);">No active stocks found.</div>`;
-            }
-            return;
+    // ---------- ফেচ ও রেন্ডার ফাংশন ----------
+    async function fetchAndRenderAnalysis(force = false) {
+        // লোডিং শুরুতে স্কেলেটন দেখান
+        const listContainer = document.getElementById('bull-analysis-list');
+        if (listContainer) {
+            listContainer.innerHTML = `
+                <div class="skeleton" style="width:95%;"></div>
+                <div class="skeleton" style="width:85%;"></div>
+                <div class="skeleton" style="width:90%;"></div>
+                <div class="skeleton" style="width:75%;"></div>
+                <div class="skeleton" style="width:88%;"></div>
+            `;
         }
 
-        const tickers = unifiedData.stockDetails.map(s => s.ticker);
-        const priceDataMap = await getLatestAndPreviousPrices(tickers);
-
-        const portfolioDataForSorting = [];
-        let grandTotalCost = 0,
-            grandTotalCurrentValue = 0,
-            grandTotalDailyGL = 0,
-            grandTotalGL = 0,
-            grandTotalRemainingQty = 0;
-        let globalPreviousDate = null;
-
-        for (const stock of unifiedData.stockDetails) {
-            const ticker = stock.ticker;
-            const priceData = priceDataMap.get(ticker);
-            let currentPrice = priceData?.currentPrice || 0;
-            if (currentPrice === 0) {
-                currentPrice = await getUnifiedPrice(ticker);
-            }
-            const currentDate = priceData?.currentDate || null;
-            const previousPrice = priceData?.previousPrice || 0;
-            const previousDate = priceData?.previousDate || null;
-
-            let dailyChange = 0;
-            if (currentPrice > 0 && previousPrice > 0) {
-                dailyChange = currentPrice - previousPrice;
-            }
-            if (previousDate && (!globalPreviousDate || previousDate > globalPreviousDate)) {
-                globalPreviousDate = previousDate;
-            }
-
-            const totalRemainingQty = stock.totalQty;
-            const totalCost = stock.totalCost;
-            const avgBuyPrice = stock.avgBuyPriceWithCommission;
-            const currentValue = totalRemainingQty * currentPrice;
-            const totalGL = currentValue - totalCost;
-            const totalGLPcnt = totalCost > 0 ? (totalGL / totalCost) * 100 : 0;
-            const totalStockDailyGL = totalRemainingQty * dailyChange;
-            const totalStockDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
-
-            const activeLotsForDisplay = [];
-            for (const lot of stock.lots) {
-                const lotCurrentValue = lot.qty * currentPrice;
-                const lotTotalGL = lotCurrentValue - lot.totalCost;
-                const lotDailyGL = lot.qty * dailyChange;
-                const lotGLPcnt = lot.totalCost > 0 ? (lotTotalGL / lot.totalCost) * 100 : 0;
-                const lotDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
-                activeLotsForDisplay.push({
-                    qty: lot.qty,
-                    buyPrice: lot.buyPrice,
-                    cost: lot.totalCost,
-                    currentValue: lotCurrentValue,
-                    dailyGL: lotDailyGL,
-                    dailyGLPcnt: lotDailyPcnt,
-                    totalGL: lotTotalGL,
-                    totalGLPcnt: lotGLPcnt,
-                    commission: lot.commission || 0
-                });
-            }
-
-            const livePriceClass = dailyChange >= 0 ? "bull-profit" : "bull-loss";
-            const dailyGlClass = totalStockDailyGL >= 0 ? "bull-profit" : "bull-loss";
-            const totalGlClass = totalGL >= 0 ? "bull-profit" : "bull-loss";
-            const blockId = `block-${ticker.replace(/[^a-zA-Z0-9]/g, '')}`;
-
-            portfolioDataForSorting.push({
-                ticker,
-                avgBuyPrice,
-                totalRemainingQty,
-                totalCost,
-                currentPrice,
-                currentValue,
-                dailyChange,
-                totalGL,
-                totalGLPcnt,
-                totalStockDailyGL,
-                totalStockDailyPcnt,
-                activeLotsForDisplay,
-                livePriceClass,
-                dailyGlClass,
-                totalGlClass,
-                blockId,
-                commissionPercent: stock.lots[0]?.commissionPercent || 0,
-                prevDate: previousDate
-            });
-
-            grandTotalCost += totalCost;
-            grandTotalCurrentValue += currentValue;
-            grandTotalDailyGL += totalStockDailyGL;
-            grandTotalGL += totalGL;
-            grandTotalRemainingQty += totalRemainingQty;
-        }
-
-        cachedAnalysisData = portfolioDataForSorting;
-        lastAnalysisTime = now;
-        storePortfolioDataForSorting(portfolioDataForSorting);
-
-        const sortedData = [...portfolioDataForSorting].sort((a, b) =>
-            a.ticker.toUpperCase().localeCompare(b.ticker.toUpperCase())
-        );
-        renderPortfolioAnalysis(sortedData);
-
-        // 📌 টাইমস্ট্যাম্প আপডেট
-        const timeText = document.getElementById('pa-updated-time-text');
-        if (timeText) {
-            timeText.innerText = new Date().toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' });
-        }
-
-        const lastDataElement = document.getElementById('last-data-count');
-        if (lastDataElement) {
-            lastDataElement.innerText =
-                `৳${grandTotalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })} (${grandTotalRemainingQty} shares)`;
-        }
-
-        const lastUpdateElement = document.getElementById('last-updated-time');
-        if (lastUpdateElement) {
-            const lastUpdate = await firebaseDataManager.getLastUpdateTime();
-            lastUpdateElement.innerText = lastUpdate ? formatDisplayTime(lastUpdate) : new Date().toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' });
-        }
-
-        const prevDateElement = document.getElementById('previous-data-date');
-        if (prevDateElement) {
-            if (globalPreviousDate) {
-                const dateObj = new Date(globalPreviousDate);
-                prevDateElement.innerText = dateObj.toLocaleDateString('bn-BD', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                });
-            } else {
-                prevDateElement.innerText = 'No previous data';
+        const now = Date.now();
+        // গ্লোবাল ক্যাশ চেক (cachedAnalysisData, lastAnalysisTime) – যদি থাকে
+        if (!force && cachedAnalysisData && (now - lastAnalysisTime) < ANALYSIS_CACHE_TTL) {
+            // চেক করুন cachedAnalysisData একই পোর্টফোলিওর জন্য কিনা
+            if (cachedAnalysisData._portfolioId === (portfolioId || 'all')) {
+                renderPortfolioAnalysis(cachedAnalysisData);
+                const timeText = document.getElementById('pa-updated-time-text');
+                if (timeText) {
+                    timeText.innerText = new Date().toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' });
+                }
+                return;
             }
         }
+        if (isAnalysisLoading) return;
+        isAnalysisLoading = true;
 
         try {
-            sessionStorage.setItem(cacheKey, JSON.stringify({
-                timestamp: Date.now(),
+            console.log(`📊 Fetching portfolio analysis for ${portfolioId || 'all'}...`);
+            
+            // ১. ইউনিফাইড ক্যালকুলেশন (পোর্টফোলিও ফিল্টার সহ)
+            const unifiedData = await unifiedEngine.calculate(userId, portfolioId, force);
+            if (!unifiedData || unifiedData.stockDetails.length === 0) {
+                if (listContainer) {
+                    listContainer.innerHTML = `<div style="text-align:center; padding:20px; color: var(--text-muted);">No active stocks found.</div>`;
+                }
+                return;
+            }
+
+            // ২. প্রতিটি স্টকের বর্তমান ও আগের দিনের প্রাইস
+            const tickers = unifiedData.stockDetails.map(s => s.ticker);
+            const priceDataMap = await getLatestAndPreviousPrices(tickers);
+
+            // ৩. পোর্টফোলিও ডেটা প্রসেস করা
+            const portfolioDataForSorting = [];
+            let grandTotalCost = 0,
+                grandTotalCurrentValue = 0,
+                grandTotalDailyGL = 0,
+                grandTotalGL = 0,
+                grandTotalRemainingQty = 0;
+            let globalPreviousDate = null;
+
+            for (const stock of unifiedData.stockDetails) {
+                const ticker = stock.ticker;
+                const priceData = priceDataMap.get(ticker);
+                let currentPrice = priceData?.currentPrice || 0;
+                if (currentPrice === 0) {
+                    currentPrice = await getUnifiedPrice(ticker);
+                }
+                const currentDate = priceData?.currentDate || null;
+                const previousPrice = priceData?.previousPrice || 0;
+                const previousDate = priceData?.previousDate || null;
+
+                let dailyChange = 0;
+                if (currentPrice > 0 && previousPrice > 0) {
+                    dailyChange = currentPrice - previousPrice;
+                }
+                if (previousDate && (!globalPreviousDate || previousDate > globalPreviousDate)) {
+                    globalPreviousDate = previousDate;
+                }
+
+                const totalRemainingQty = stock.totalQty;
+                const totalCost = stock.totalCost;
+                const avgBuyPrice = stock.avgBuyPriceWithCommission;
+                const currentValue = totalRemainingQty * currentPrice;
+                const totalGL = currentValue - totalCost;
+                const totalGLPcnt = totalCost > 0 ? (totalGL / totalCost) * 100 : 0;
+                const totalStockDailyGL = totalRemainingQty * dailyChange;
+                const totalStockDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
+
+                // লট-ভিত্তিক ডেটা (ডিসপ্লের জন্য)
+                const activeLotsForDisplay = [];
+                for (const lot of stock.lots) {
+                    const lotCurrentValue = lot.qty * currentPrice;
+                    const lotTotalGL = lotCurrentValue - lot.totalCost;
+                    const lotDailyGL = lot.qty * dailyChange;
+                    const lotGLPcnt = lot.totalCost > 0 ? (lotTotalGL / lot.totalCost) * 100 : 0;
+                    const lotDailyPcnt = (currentPrice - dailyChange) > 0 ? (dailyChange / (currentPrice - dailyChange)) * 100 : 0;
+                    activeLotsForDisplay.push({
+                        qty: lot.qty,
+                        buyPrice: lot.buyPrice,
+                        cost: lot.totalCost,
+                        currentValue: lotCurrentValue,
+                        dailyGL: lotDailyGL,
+                        dailyGLPcnt: lotDailyPcnt,
+                        totalGL: lotTotalGL,
+                        totalGLPcnt: lotGLPcnt,
+                        commission: lot.commission || 0
+                    });
+                }
+
+                const livePriceClass = dailyChange >= 0 ? "bull-profit" : "bull-loss";
+                const dailyGlClass = totalStockDailyGL >= 0 ? "bull-profit" : "bull-loss";
+                const totalGlClass = totalGL >= 0 ? "bull-profit" : "bull-loss";
+                const blockId = `block-${ticker.replace(/[^a-zA-Z0-9]/g, '')}`;
+
+                portfolioDataForSorting.push({
+                    ticker,
+                    avgBuyPrice,
+                    totalRemainingQty,
+                    totalCost,
+                    currentPrice,
+                    currentValue,
+                    dailyChange,
+                    totalGL,
+                    totalGLPcnt,
+                    totalStockDailyGL,
+                    totalStockDailyPcnt,
+                    activeLotsForDisplay,
+                    livePriceClass,
+                    dailyGlClass,
+                    totalGlClass,
+                    blockId,
+                    commissionPercent: stock.lots[0]?.commissionPercent || 0,
+                    prevDate: previousDate
+                });
+
+                grandTotalCost += totalCost;
+                grandTotalCurrentValue += currentValue;
+                grandTotalDailyGL += totalStockDailyGL;
+                grandTotalGL += totalGL;
+                grandTotalRemainingQty += totalRemainingQty;
+            }
+
+            // ৪. ক্যাশে সংরক্ষণ
+            const portfolioDataWithMeta = {
+                _portfolioId: portfolioId || 'all',
                 data: portfolioDataForSorting
-            }));
-        } catch (e) { /* ignore */ }
+            };
+            cachedAnalysisData = portfolioDataForSorting;
+            lastAnalysisTime = now;
+            storePortfolioDataForSorting(portfolioDataForSorting);
 
-    } catch (error) {
-        console.error('Analysis error:', error);
-        if (listContainer) {
-            listContainer.innerHTML = `<div style="text-align:center; padding:20px; color:red;">Error loading data</div>`;
+            // ৫. সর্ট করে রেন্ডার
+            const sortedData = [...portfolioDataForSorting].sort((a, b) =>
+                a.ticker.toUpperCase().localeCompare(b.ticker.toUpperCase())
+            );
+            renderPortfolioAnalysis(sortedData);
+
+            // ৬. টাইমস্ট্যাম্প আপডেট
+            const timeText = document.getElementById('pa-updated-time-text');
+            if (timeText) {
+                timeText.innerText = new Date().toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' });
+            }
+
+            const lastDataElement = document.getElementById('last-data-count');
+            if (lastDataElement) {
+                lastDataElement.innerText =
+                    `৳${grandTotalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })} (${grandTotalRemainingQty} shares)`;
+            }
+
+            const lastUpdateElement = document.getElementById('last-updated-time');
+            if (lastUpdateElement) {
+                const lastUpdate = await firebaseDataManager.getLastUpdateTime();
+                lastUpdateElement.innerText = lastUpdate ? formatDisplayTime(lastUpdate) : new Date().toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' });
+            }
+
+            const prevDateElement = document.getElementById('previous-data-date');
+            if (prevDateElement) {
+                if (globalPreviousDate) {
+                    const dateObj = new Date(globalPreviousDate);
+                    prevDateElement.innerText = dateObj.toLocaleDateString('bn-BD', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    });
+                } else {
+                    prevDateElement.innerText = 'No previous data';
+                }
+            }
+
+            // ৭. সেশনস্টোরেজে ক্যাশ
+            try {
+                sessionStorage.setItem(cacheKey, JSON.stringify({
+                    timestamp: Date.now(),
+                    data: portfolioDataForSorting
+                }));
+            } catch (e) { /* ignore */ }
+
+            // ৮. পোর্টফোলিও ম্যানেজারের জন্য সাইডবার ও সিলেক্টর আপডেট
+            if (typeof updateSidebarPortfolioList === 'function') {
+                updateSidebarPortfolioList();
+            }
+            if (typeof updateBuyPortfolioSelect === 'function') {
+                updateBuyPortfolioSelect();
+            }
+
+        } catch (error) {
+            console.error('Analysis error:', error);
+            if (listContainer) {
+                listContainer.innerHTML = `<div style="text-align:center; padding:20px; color:red;">Error loading data</div>`;
+            }
+        } finally {
+            isAnalysisLoading = false;
         }
-    } finally {
-        isAnalysisLoading = false;
     }
-}
 
-    // প্রথমবার লোড (স্কেলেটন ভেতর থেকে দেখাবে)
-    await fetchAndRenderAnalysis(true);
+    // ---------- প্রথমবার লোড (স্কেলেটন দেখাবে) ----------
+    await fetchAndRenderAnalysis(forceRefresh || true);
 
-    // প্রতি ১০ মিনিটে রিফ্রেশ
+    // ---------- অটো-রিফ্রেশ (প্রতি ১০ মিনিট) ----------
     portfolioAnalysisInterval = setInterval(() => fetchAndRenderAnalysis(false), 600000);
     console.log('✅ Portfolio analysis auto-refresh set to 10 minutes');
 }
@@ -973,6 +1169,9 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
 // ==========================================
 // 🖥️ ড্যাশবোর্ড চার্ট রেন্ডার
 // ==========================================
+// ==========================================
+// 🖥️ ড্যাশবোর্ড চার্ট রেন্ডার (Portfolio Growth)
+// ==========================================
 async function renderDashboardHistoryChart(startDate = null, endDate = null) {
     const canvas = document.getElementById('dashboardHistoryChart');
     if (!canvas) return;
@@ -1211,8 +1410,8 @@ async function getUserDeposit(userId) {
         }
         return 0;
     } catch (e) {
-        console.error('Error getting deposit:', e);
-        return 0;
+        console.warn('Error getting deposit:', e);
+        return 0; // ফ্যালব্যাক
     }
 }
 
@@ -1250,17 +1449,15 @@ async function getTotalRealizedProfit(userId) {
 
 async function updateTotalIncomeCard() {
     const user = auth.currentUser;
-    if (!user) {
-        console.warn('⚠️ updateTotalIncomeCard: No user logged in');
-        return;
-    }
+    if (!user) return;
 
     try {
         const deposit = await getUserDeposit(user.uid);
         const unifiedData = await unifiedEngine.calculate(user.uid, true);
         let totalCurrentValue = 0;
 
-        if (unifiedData && unifiedData.stockDetails.length > 0) {
+        // 🔥 null চেক
+        if (unifiedData && unifiedData.stockDetails) {
             const tickers = unifiedData.stockDetails.map(s => s.ticker);
             const pricePromises = tickers.map(t => getUnifiedPrice(t));
             const currentPrices = await Promise.all(pricePromises);
@@ -1286,9 +1483,6 @@ async function updateTotalIncomeCard() {
             pctElem.innerText = `(${totalIncome >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%)`;
             pctElem.style.color = totalIncome >= 0 ? '#90ffb0' : '#ffaaaa';
         }
-
-        console.log('✅ Total Income updated (Current Value - Deposit):', { totalCurrentValue, deposit, totalIncome });
-
     } catch (error) {
         console.error('❌ Error in updateTotalIncomeCard:', error);
     }
@@ -1678,6 +1872,7 @@ async function manualReloadDashboard() {
         }
         if (typeof showToast === 'function') showToast('🔄 Manual refresh started...', 'info');
         firebaseDataManager.clearCache();
+        CacheManager.clearAll();
         try { localStorage.removeItem('cachedPrices'); } catch (e) { /* ignore */ }
         await loadDashboardData();
         if (typeof loadUnifiedStockTable === 'function') await loadUnifiedStockTable(user.uid);
@@ -1795,6 +1990,9 @@ function showDataLoading(isLoading) {
 // ==========================================
 // 📈 Performance Summary
 // ==========================================
+// ==========================================
+// 📈 Performance Summary (পোর্টফোলিও রিটার্ন)
+// ==========================================
 async function updatePerformanceSummary() {
     const user = auth.currentUser;
     if (!user) return;
@@ -1802,6 +2000,16 @@ async function updatePerformanceSummary() {
         const timelineData = await fetchPortfolioTimelineData();
         if (!timelineData || timelineData.length === 0) {
             console.warn('No timeline data available');
+            // সব সেলে '-' দেখান
+            ['dash-perf-today', 'dash-perf-5d', 'dash-perf-15d', 'dash-perf-30d', 
+             'dash-perf-3m', 'dash-perf-6m', 'dash-perf-1y',
+             'dash-bench-today', 'dash-bench-5d', 'dash-bench-15d', 'dash-bench-30d',
+             'dash-bench-3m', 'dash-bench-6m', 'dash-bench-1y',
+             'dash-diff-today', 'dash-diff-5d', 'dash-diff-15d', 'dash-diff-30d',
+             'dash-diff-3m', 'dash-diff-6m', 'dash-diff-1y'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) { el.innerHTML = '-'; el.style.color = '#64748b'; }
+            });
             return;
         }
 
@@ -1844,7 +2052,7 @@ async function updatePerformanceSummary() {
             }
         }
 
-        // Benchmark (DSEX)
+        // Benchmark (DSEX) - যদি ডেটা না থাকে তাহলে null
         let benchmarkReturns = { today: 0, '5d': null, '15d': null, '30d': null, '3m': null, '6m': null, '1y': null };
         try {
             if (typeof db !== 'undefined') {
@@ -1897,30 +2105,34 @@ async function updatePerformanceSummary() {
                 }
             }
         } catch (err) {
-            console.error('DSEX benchmark error:', err);
+            console.warn('DSEX benchmark error:', err);
         }
 
         // UI আপডেট
         const updateCell = (id, value) => {
             const elem = document.getElementById(id);
-            if (elem && value !== null && !isNaN(value) && isFinite(value)) {
-                elem.innerHTML = `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
-                elem.style.color = value >= 0 ? '#10b981' : '#ef4444';
-            } else if (elem) {
-                elem.innerHTML = '-';
-                elem.style.color = '#64748b';
+            if (elem) {
+                if (value !== null && !isNaN(value) && isFinite(value)) {
+                    elem.innerHTML = `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+                    elem.style.color = value >= 0 ? '#10b981' : '#ef4444';
+                } else {
+                    elem.innerHTML = '-';
+                    elem.style.color = '#64748b';
+                }
             }
         };
 
         const updateDiffCell = (id, port, bench) => {
             const elem = document.getElementById(id);
-            if (elem && port !== null && bench !== null && !isNaN(port) && !isNaN(bench) && isFinite(port) && isFinite(bench)) {
-                const diff = port - bench;
-                elem.innerHTML = `${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%`;
-                elem.style.color = diff >= 0 ? '#10b981' : '#ef4444';
-            } else if (elem) {
-                elem.innerHTML = '-';
-                elem.style.color = '#64748b';
+            if (elem) {
+                if (port !== null && bench !== null && !isNaN(port) && !isNaN(bench) && isFinite(port) && isFinite(bench)) {
+                    const diff = port - bench;
+                    elem.innerHTML = `${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%`;
+                    elem.style.color = diff >= 0 ? '#10b981' : '#ef4444';
+                } else {
+                    elem.innerHTML = '-';
+                    elem.style.color = '#64748b';
+                }
             }
         };
 

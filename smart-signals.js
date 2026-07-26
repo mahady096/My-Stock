@@ -2,6 +2,7 @@
 // 🧠 smart-signals.js - AI-powered Buy/Sell Recommendations
 //    (ভলিউম ট্রেন্ড বাদ, ৪টি ইন্ডিকেটর-ভিত্তিক)
 //    + Conditional ticker color based on rec + confidence
+//    ✅ null-check সহ ইরর হ্যান্ডলিং
 // ==========================================
 
 let smartSignalsData = [];
@@ -26,7 +27,16 @@ async function loadSmartSignalsPage() {
             return;
         }
 
-        const unifiedData = await unifiedEngine.calculate(user.uid, true);
+        // 🔥 পোর্টফোলিও ডেটা (গ্র্যান্ড পোর্টফোলিও)
+        const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
+        
+        // ✅ null চেক
+        if (!unifiedData || !unifiedData.stockDetails) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:var(--text-muted);">No holdings found. Add stocks to get signals.</td></tr>';
+            if (updateTime) updateTime.innerText = new Date().toLocaleString();
+            return;
+        }
+
         const portfolioTickers = unifiedData.stockDetails.map(s => s.ticker);
 
         let watchlist = [];
@@ -43,6 +53,7 @@ async function loadSmartSignalsPage() {
 
         if (targetTickers.length === 0) {
             tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:var(--text-muted);">No stocks found in selected filter.</td></tr>';
+            if (updateTime) updateTime.innerText = new Date().toLocaleString();
             return;
         }
 
@@ -85,7 +96,7 @@ async function loadSmartSignalsPage() {
                     const lastRsi = rsiData.filter(r => r.rsi !== null).pop();
                     const rsi = lastRsi ? lastRsi.rsi : 50;
 
-                    const psarData = calcPSAR(priceData);
+                    const psarData = calculateParabolicSAR(priceData);
                     const psar = psarData.length > 0 ? psarData[psarData.length - 1].sar : price;
 
                     let ath = 0, atl = Infinity;
@@ -283,7 +294,7 @@ function renderSmartSignalsTable(data) {
             tickerColor = '#ef4444'; // লাল
         }
 
-        html += `<tr onclick="openStockDetailModal('${item.ticker}')" style="cursor:pointer; transition:background 0.2s;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
+        html += `<tr onclick="if(typeof openStockDetailModal === 'function') openStockDetailModal('${item.ticker}')" style="cursor:pointer; transition:background 0.2s;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
         html += `<td style="padding: 10px; font-weight: bold; color: ${tickerColor}; text-decoration: underline;">${item.ticker}</td>`;
         html += `<td style="padding: 10px; text-align: right;">৳${item.price.toFixed(2)}</td>`;
         html += `<td style="padding: 10px; text-align: right; color: ${item.rsi < 30 ? '#10b981' : (item.rsi > 70 ? '#ef4444' : '#f59e0b')};">${item.rsi.toFixed(2)}</td>`;
@@ -320,7 +331,7 @@ async function refreshSmartSignals() {
     if (typeof clearAllScannerCache === 'function') clearAllScannerCache();
     smartSortColumn = -1;
     await loadSmartSignalsPage();
-    showToast('✅ Smart Signals refreshed!', 'success');
+    if (typeof showToast === 'function') showToast('✅ Smart Signals refreshed!', 'success');
 }
 
 // ==========================================
@@ -331,4 +342,4 @@ window.refreshSmartSignals = refreshSmartSignals;
 window.handleSmartFilter = handleSmartFilter;
 window.sortSmartTable = sortSmartTable;
 
-console.log('✅ smart-signals.js (with conditional ticker color) loaded successfully');
+console.log('✅ smart-signals.js (with null check) loaded successfully');

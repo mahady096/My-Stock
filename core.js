@@ -346,21 +346,63 @@ function getHardcodedPrice(ticker) {
     return prices[ticker] || 0.0;
 }
 
-async function getUnifiedPrice(ticker) {
+// ==========================================
+// 📈 getUnifiedPrice - ক্যাশিং সহ (sessionStorage + মেমোরি)
+// ==========================================
+
+/**
+ * যেকোনো টিকারের বর্তমান দাম ফেরত দেয় – ক্যাশ, Supabase, Firebase, হার্ডকোডেড
+ * @param {string} ticker - শেয়ারের কোড (যেমন "GP")
+ * @param {boolean} forceRefresh - true দিলে ক্যাশ উপেক্ষা করে নতুন ডেটা ফেচ করবে
+ * @returns {Promise<number>} - দাম (০ হলে পাওয়া যায়নি)
+ */
+async function getUnifiedPrice(ticker, forceRefresh = false) {
     if (!ticker) return 0;
     const now = Date.now();
-    if (unifiedPriceCache.has(ticker)) {
-        const cached = unifiedPriceCache.get(ticker);
-        if (now - cached.timestamp < UNIFIED_PRICE_CACHE_TTL) return cached.price;
+    const TTL = CONFIG?.CACHE?.TTL?.UNIFIED_PRICE || 300000; // ৫ মিনিট
+    const CACHE_KEY = `price_${ticker}`;
+
+    // -----------------------------------------------------
+    // ১. sessionStorage ক্যাশ চেক (forceRefresh false হলে)
+    // -----------------------------------------------------
+    if (!forceRefresh) {
+        const cached = CacheManager.get(CACHE_KEY, TTL);
+        if (cached !== null && typeof cached === 'object' && cached.price > 0) {
+            // মেমোরি ক্যাশও আপডেট করে রাখি (যাতে বারবার sessionStorage না পড়তে হয়)
+            unifiedPriceCache.set(ticker, { 
+                price: cached.price, 
+                timestamp: now 
+            });
+            return cached.price;
+        }
     }
 
+    // -----------------------------------------------------
+    // ২. মেমোরি ক্যাশ চেক (দ্রুত অ্যাক্সেসের জন্য)
+    // -----------------------------------------------------
+    if (unifiedPriceCache.has(ticker)) {
+        const memCached = unifiedPriceCache.get(ticker);
+        if (now - memCached.timestamp < TTL) {
+            // sessionStorage-এও সেভ করে রাখি (যাতে পেজ রিলোডে কাজ করে)
+            CacheManager.set(CACHE_KEY, { price: memCached.price }, TTL);
+            return memCached.price;
+        } else {
+            // মেয়াদ শেষ, মুছে ফেলি
+            unifiedPriceCache.delete(ticker);
+        }
+    }
+
+    // -----------------------------------------------------
+    // ৩. ডেটাবেস থেকে ফেচ (Supabase → Firebase → Hardcoded)
+    // -----------------------------------------------------
     let price = 0;
     const sources = [];
 
-    // ১. Supabase dse_live_data
+    // ৩.১ Supabase dse_live_data
     if (currentDataMode !== 'firebase' && typeof supabase !== 'undefined' && supabase) {
         sources.push(
-            supabase.from('dse_live_data')
+            supabase
+                .from('dse_live_data')
                 .select('ltp')
                 .eq('ticker', ticker)
                 .order('date', { ascending: false })
@@ -376,10 +418,11 @@ async function getUnifiedPrice(ticker) {
         );
     }
 
-    // ২. Supabase cse_market_data
+    // ৩.২ Supabase cse_market_data
     if (typeof supabase !== 'undefined' && supabase) {
         sources.push(
-            supabase.from('cse_market_data')
+            supabase
+                .from('cse_market_data')
                 .select('ltp')
                 .eq('code', ticker)
                 .order('date', { ascending: false })
@@ -395,15 +438,16 @@ async function getUnifiedPrice(ticker) {
         );
     }
 
-    // ৩. Firebase daily_prices
+    // ৩.৩ Firebase daily_prices
     if (typeof db !== 'undefined' && db) {
         sources.push(
-            db.collection('daily_prices')
+            db
+                .collection('daily_prices')
                 .where('ticker', '==', ticker)
                 .orderBy('date', 'desc')
                 .limit(1)
                 .get()
-                .then(snap => {
+                .then((snap) => {
                     if (!snap.empty) {
                         const data = snap.docs[0].data();
                         const val = parseFloat(data.price) || parseFloat(data.close) || 0;
@@ -415,6 +459,7 @@ async function getUnifiedPrice(ticker) {
         );
     }
 
+    // ৩.৪ সমস্ত সোর্স থেকে রেজাল্ট সংগ্রহ
     if (sources.length > 0) {
         const results = await Promise.all(sources);
         for (const result of results) {
@@ -425,10 +470,24 @@ async function getUnifiedPrice(ticker) {
         }
     }
 
-    // ৪. ফ্যালব্যাক
-    if (price === 0) price = getHardcodedPrice(ticker);
+    // ৩.৫ হার্ডকোডেড ফ্যালব্যাক (যদি কোনো সোর্সে না পাওয়া যায়)
+    if (price === 0) {
+        price = getHardcodedPrice(ticker);
+    }
 
-    unifiedPriceCache.set(ticker, { price, timestamp: now });
+    // -----------------------------------------------------
+    // ৪. ক্যাশে সেভ করা (শুধু যদি দাম > ০ হয়)
+    // -----------------------------------------------------
+    if (price > 0) {
+        // মেমোরি ক্যাশ
+        unifiedPriceCache.set(ticker, { 
+            price: price, 
+            timestamp: now 
+        });
+        // sessionStorage ক্যাশ
+        CacheManager.set(CACHE_KEY, { price }, TTL);
+    }
+
     return price;
 }
 
@@ -500,27 +559,67 @@ async function getPreviousDayPrice(ticker) {
 }
 
 // ==========================================
-// 📦 প্রতিটি টিকারের সর্বশেষ ও আগের দিনের প্রাইস (ব্যাচ ভার্সন)
+// 📊 getLatestAndPreviousPrices - ক্যাশিং সহ (ব্যাচ + ইনক্রিমেন্টাল)
 // ==========================================
-async function getLatestAndPreviousPrices(tickers) {
+
+/**
+ * একাধিক টিকারের বর্তমান ও আগের দিনের দাম ফেরত দেয় (ক্যাশিং সহ)
+ * @param {string[]} tickers - শেয়ারের কোডের অ্যারে (যেমন ["GP", "ROBI"])
+ * @param {boolean} forceRefresh - true দিলে ক্যাশ উপেক্ষা করে নতুন ডেটা ফেচ করবে
+ * @returns {Promise<Map<string, {currentPrice, currentDate, previousPrice, previousDate}>>}
+ */
+async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
     if (!tickers || !tickers.length) return new Map();
+    
+    const TTL = CONFIG?.CACHE?.TTL?.UNIFIED_PRICE || 300000; // ৫ মিনিট
     const resultMap = new Map();
+    const missingTickers = [];
+
+    // -----------------------------------------------------
+    // ১. ক্যাশ থেকে ডেটা পড়া (forceRefresh false হলে)
+    // -----------------------------------------------------
+    if (!forceRefresh) {
+        for (const ticker of tickers) {
+            const cacheKey = `price_detail_${ticker}`;
+            const cached = CacheManager.get(cacheKey, TTL);
+            if (cached && typeof cached === 'object' && cached.currentPrice > 0) {
+                resultMap.set(ticker, {
+                    currentPrice: cached.currentPrice,
+                    currentDate: cached.currentDate || null,
+                    previousPrice: cached.previousPrice || 0,
+                    previousDate: cached.previousDate || null
+                });
+            } else {
+                missingTickers.push(ticker);
+            }
+        }
+
+        // যদি সব টিকার ক্যাশ থাকে, তাহলে সরাসরি রিটার্ন
+        if (missingTickers.length === 0) {
+            return resultMap;
+        }
+    } else {
+        // forceRefresh = true হলে সব টিকার জন্য নতুন ফেচ করতে হবে
+        missingTickers.push(...tickers);
+    }
+
+    // -----------------------------------------------------
+    // ২. শুধু যাদের ক্যাশ নেই, তাদের জন্য ডেটাবেস থেকে ফেচ
+    // -----------------------------------------------------
     const today = new Date();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(today.getDate() - 7);
     const startDateStr = sevenDaysAgo.toISOString().split('T')[0];
     const todayStr = today.toISOString().split('T')[0];
 
-    // প্রাথমিক ডেটা স্ট্রাকচার তৈরি (সব টিকারের জন্য ডিফল্ট)
-    tickers.forEach(ticker => {
-        resultMap.set(ticker, { currentPrice: 0, currentDate: null, previousPrice: 0, previousDate: null });
-    });
+    // ডেটা সংরক্ষণের জন্য অস্থায়ী ম্যাপ
+    const fetchedData = new Map();
 
-    // ---------- Supabase থেকে ব্যাচে ডেটা আনা ----------
+    // ---------- ২.১ Supabase থেকে ব্যাচে ডেটা ----------
     if (typeof supabase !== 'undefined' && supabase) {
-        const supabaseChunks = chunkArray(tickers, 10);
+        const supabaseChunks = chunkArray(missingTickers, 10);
         
-        // ১. cse_market_data (CSE প্রাইস)
+        // ২.১.১ cse_market_data (CSE)
         for (const chunk of supabaseChunks) {
             try {
                 const { data, error } = await supabase
@@ -535,26 +634,25 @@ async function getLatestAndPreviousPrices(tickers) {
                             seen.add(row.code);
                             const val = parseFloat(row.ltp);
                             if (val > 0) {
-                                const current = resultMap.get(row.code) || {};
-                                if (!current.currentPrice || current.currentPrice === 0) {
-                                    current.currentPrice = val;
-                                    current.currentDate = row.date;
-                                    resultMap.set(row.code, current);
+                                if (!fetchedData.has(row.code)) {
+                                    fetchedData.set(row.code, { currentPrice: 0, currentDate: null });
+                                }
+                                const cur = fetchedData.get(row.code);
+                                if (!cur.currentPrice || cur.currentPrice === 0) {
+                                    cur.currentPrice = val;
+                                    cur.currentDate = row.date;
                                 }
                             }
                         }
                     });
                 }
-            } catch (e) { console.warn('Supabase cse_market_data batch error:', e); }
+            } catch (e) { console.warn('Supabase cse_market batch error:', e); }
         }
 
-        // ২. dse_live_data (DSE প্রাইস) – শুধু যাদের CSE প্রাইস নেই তাদের জন্য
-        const missingTickers = [];
-        for (const [ticker, data] of resultMap) {
-            if (data.currentPrice === 0) missingTickers.push(ticker);
-        }
-        if (missingTickers.length > 0) {
-            const dseChunks = chunkArray(missingTickers, 10);
+        // ২.১.২ dse_live_data (DSE) – শুধু যাদের CSE প্রাইস নেই
+        const stillMissing = missingTickers.filter(t => !fetchedData.has(t) || fetchedData.get(t).currentPrice === 0);
+        if (stillMissing.length > 0) {
+            const dseChunks = chunkArray(stillMissing, 10);
             for (const chunk of dseChunks) {
                 try {
                     const { data, error } = await supabase
@@ -569,30 +667,28 @@ async function getLatestAndPreviousPrices(tickers) {
                                 seen.add(row.ticker);
                                 const val = parseFloat(row.ltp);
                                 if (val > 0) {
-                                    const current = resultMap.get(row.ticker) || {};
-                                    if (!current.currentPrice || current.currentPrice === 0) {
-                                        current.currentPrice = val;
-                                        current.currentDate = row.date;
-                                        resultMap.set(row.ticker, current);
+                                    if (!fetchedData.has(row.ticker)) {
+                                        fetchedData.set(row.ticker, { currentPrice: 0, currentDate: null });
+                                    }
+                                    const cur = fetchedData.get(row.ticker);
+                                    if (!cur.currentPrice || cur.currentPrice === 0) {
+                                        cur.currentPrice = val;
+                                        cur.currentDate = row.date;
                                     }
                                 }
                             }
                         });
                     }
-                } catch (e) { console.warn('Supabase dse_live_data batch error:', e); }
+                } catch (e) { console.warn('Supabase dse_live batch error:', e); }
             }
         }
     }
 
-    // ---------- Firebase থেকে ব্যাচে ডেটা আনা (যদি Supabase না পাওয়া যায়) ----------
+    // ---------- ২.২ Firebase থেকে ব্যাচে ডেটা (Supabase না পেলে) ----------
     if (typeof db !== 'undefined' && db) {
-        // ৩. daily_prices – যাদের এখনও প্রাইস নেই তাদের জন্য
-        const missingFirebase = [];
-        for (const [ticker, data] of resultMap) {
-            if (data.currentPrice === 0) missingFirebase.push(ticker);
-        }
-        if (missingFirebase.length > 0) {
-            const fbChunks = chunkArray(missingFirebase, 10);
+        const stillMissingFB = missingTickers.filter(t => !fetchedData.has(t) || fetchedData.get(t).currentPrice === 0);
+        if (stillMissingFB.length > 0) {
+            const fbChunks = chunkArray(stillMissingFB, 10);
             for (const chunk of fbChunks) {
                 try {
                     const snap = await db.collection('daily_prices')
@@ -607,11 +703,13 @@ async function getLatestAndPreviousPrices(tickers) {
                                 seen.add(data.ticker);
                                 const val = parseFloat(data.price) || parseFloat(data.close) || 0;
                                 if (val > 0) {
-                                    const current = resultMap.get(data.ticker) || {};
-                                    if (!current.currentPrice || current.currentPrice === 0) {
-                                        current.currentPrice = val;
-                                        current.currentDate = data.date;
-                                        resultMap.set(data.ticker, current);
+                                    if (!fetchedData.has(data.ticker)) {
+                                        fetchedData.set(data.ticker, { currentPrice: 0, currentDate: null });
+                                    }
+                                    const cur = fetchedData.get(data.ticker);
+                                    if (!cur.currentPrice || cur.currentPrice === 0) {
+                                        cur.currentPrice = val;
+                                        cur.currentDate = data.date;
                                     }
                                 }
                             }
@@ -622,22 +720,21 @@ async function getLatestAndPreviousPrices(tickers) {
         }
     }
 
-    // ---------- আগের দিনের প্রাইস (Previous Price) ব্যাচে ----------
-    // প্রতিটি টিকারের জন্য আগের দিনের প্রাইস বের করা
-    const previousTickers = [];
-    for (const [ticker, data] of resultMap) {
+    // ---------- ২.৩ আগের দিনের প্রাইস (Previous Price) ফেচ ----------
+    // যাদের currentPrice আছে, তাদের জন্য previousPrice বের করি
+    const tickersWithCurrent = [];
+    for (const [ticker, data] of fetchedData) {
         if (data.currentPrice > 0 && data.currentDate) {
-            previousTickers.push(ticker);
+            tickersWithCurrent.push(ticker);
         }
     }
 
-    if (previousTickers.length > 0) {
+    if (tickersWithCurrent.length > 0) {
         // Supabase cse_market_data থেকে আগের দিনের ডেটা
         if (typeof supabase !== 'undefined' && supabase) {
-            const prevChunks = chunkArray(previousTickers, 10);
+            const prevChunks = chunkArray(tickersWithCurrent, 10);
             for (const chunk of prevChunks) {
                 try {
-                    // ৭ দিনের ডেটা একসাথে আনি
                     const { data, error } = await supabase
                         .from('cse_market_data')
                         .select('code, ltp, date')
@@ -645,17 +742,15 @@ async function getLatestAndPreviousPrices(tickers) {
                         .gte('date', startDateStr)
                         .order('date', { ascending: false });
                     if (!error && data) {
-                        // প্রতিটি টিকারের জন্য সবচেয়ে পুরনো ডেটা খুঁজি (যা currentDate থেকে আগের)
                         const tickerDataMap = {};
                         data.forEach(row => {
                             if (!tickerDataMap[row.code]) tickerDataMap[row.code] = [];
                             tickerDataMap[row.code].push(row);
                         });
                         for (const [ticker, rows] of Object.entries(tickerDataMap)) {
-                            const currentInfo = resultMap.get(ticker);
+                            const currentInfo = fetchedData.get(ticker);
                             if (!currentInfo || !currentInfo.currentDate) continue;
                             const currentDateObj = new Date(currentInfo.currentDate);
-                            // যেসব ডেটা currentDate থেকে আগের, সেগুলোর মধ্যে সর্বশেষটি নেব
                             let bestPrev = null;
                             for (const row of rows) {
                                 const rowDate = new Date(row.date);
@@ -670,7 +765,6 @@ async function getLatestAndPreviousPrices(tickers) {
                                 if (val > 0) {
                                     currentInfo.previousPrice = val;
                                     currentInfo.previousDate = bestPrev.date;
-                                    resultMap.set(ticker, currentInfo);
                                 }
                             }
                         }
@@ -680,14 +774,12 @@ async function getLatestAndPreviousPrices(tickers) {
         }
 
         // Firebase daily_prices থেকে (Supabase না পেলে)
-        const stillMissing = [];
-        for (const [ticker, data] of resultMap) {
-            if (data.currentPrice > 0 && data.previousPrice === 0 && data.currentDate) {
-                stillMissing.push(ticker);
-            }
-        }
-        if (stillMissing.length > 0 && typeof db !== 'undefined' && db) {
-            const fbChunks = chunkArray(stillMissing, 10);
+        const stillMissingPrev = tickersWithCurrent.filter(t => {
+            const info = fetchedData.get(t);
+            return !info.previousPrice || info.previousPrice === 0;
+        });
+        if (stillMissingPrev.length > 0 && typeof db !== 'undefined' && db) {
+            const fbChunks = chunkArray(stillMissingPrev, 10);
             for (const chunk of fbChunks) {
                 try {
                     const snap = await db.collection('daily_prices')
@@ -703,7 +795,7 @@ async function getLatestAndPreviousPrices(tickers) {
                             tickerDataMap[data.ticker].push(data);
                         });
                         for (const [ticker, rows] of Object.entries(tickerDataMap)) {
-                            const currentInfo = resultMap.get(ticker);
+                            const currentInfo = fetchedData.get(ticker);
                             if (!currentInfo || !currentInfo.currentDate) continue;
                             const currentDateObj = new Date(currentInfo.currentDate);
                             let bestPrev = null;
@@ -720,13 +812,57 @@ async function getLatestAndPreviousPrices(tickers) {
                                 if (val > 0) {
                                     currentInfo.previousPrice = val;
                                     currentInfo.previousDate = bestPrev.date;
-                                    resultMap.set(ticker, currentInfo);
                                 }
                             }
                         }
                     }
                 } catch (e) { console.warn('Firebase previous price batch error:', e); }
             }
+        }
+    }
+
+    // ---------- ২.৪ যাদের কোনো ডেটা পাওয়া যায়নি, তাদের জন্য হার্ডকোডেড ফ্যালব্যাক ----------
+    for (const ticker of missingTickers) {
+        if (!fetchedData.has(ticker) || fetchedData.get(ticker).currentPrice === 0) {
+            const hardcoded = getHardcodedPrice(ticker);
+            if (hardcoded > 0) {
+                fetchedData.set(ticker, {
+                    currentPrice: hardcoded,
+                    currentDate: todayStr,
+                    previousPrice: 0,
+                    previousDate: null
+                });
+            }
+        }
+    }
+
+    // -----------------------------------------------------
+    // ৩. resultMap তৈরি ও ক্যাশে সেভ করা
+    // -----------------------------------------------------
+    for (const [ticker, data] of fetchedData) {
+        if (data.currentPrice > 0) {
+            const finalData = {
+                currentPrice: data.currentPrice,
+                currentDate: data.currentDate || null,
+                previousPrice: data.previousPrice || 0,
+                previousDate: data.previousDate || null
+            };
+            resultMap.set(ticker, finalData);
+            
+            // sessionStorage ক্যাশ
+            CacheManager.set(`price_detail_${ticker}`, finalData, TTL);
+        }
+    }
+
+    // যাদের এখনও কোনো ডেটা নেই, তাদের ডিফল্ট ০ সেট করি
+    for (const ticker of tickers) {
+        if (!resultMap.has(ticker)) {
+            resultMap.set(ticker, {
+                currentPrice: 0,
+                currentDate: null,
+                previousPrice: 0,
+                previousDate: null
+            });
         }
     }
 
@@ -771,7 +907,30 @@ const dseStocks = [
     "UNILEVERCL", "UNIONBANK", "UNIONCAP", "UNIONINS", "UNIQUEHRL", "UNITEDFIN", "UNITEDINS", "UPGDCL", "USMANIAGL", "UTTARABANK",
     "UTTARAFIN", "VAMLBDMF1", "VAMLRBBF", "VFSTDL", "WALTONHIL", "WATACHEM", "WMSHIPYARD", "YPL", "ZAHEENSPIN", "ZAHINTEX"
 ];
-
+function calculateRSI(data, period = 14) {
+    if (!data || data.length < period + 1) return [];
+    let gains = 0, losses = 0;
+    for (let i = 1; i <= period; i++) {
+        const diff = data[i] - data[i-1];
+        if (diff >= 0) gains += diff;
+        else losses += Math.abs(diff);
+    }
+    let avgGain = gains / period;
+    let avgLoss = losses / period;
+    const result = [];
+    let rsi = 100 - (100 / (1 + (avgGain / (avgLoss || 1))));
+    result.push(rsi);
+    for (let i = period + 1; i < data.length; i++) {
+        const diff = data[i] - data[i-1];
+        const gain = diff >= 0 ? diff : 0;
+        const loss = diff < 0 ? Math.abs(diff) : 0;
+        avgGain = ((avgGain * (period - 1)) + gain) / period;
+        avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+        rsi = 100 - (100 / (1 + (avgGain / (avgLoss || 1))));
+        result.push(rsi);
+    }
+    return result;
+}
 // ==========================================
 // 📈 Parabolic SAR (PSAR) ক্যালকুলেটর
 // ==========================================
@@ -854,201 +1013,210 @@ class UnifiedCalculationEngine {
         this.cacheTTL = 300000;
     }
 
-    async calculate(userId, forceRefresh = false) {
-        if (!userId) return null;
-        const now = Date.now();
-        if (!forceRefresh && this.cachedResult && (now - this.cacheTime) < this.cacheTTL) {
+    // UnifiedCalculationEngine.calculate() - সম্পূর্ণ মেথড
+async calculate(userId, portfolioId = null, forceRefresh = false) {
+    if (!userId) return null;
+    const now = Date.now();
+    // ক্যাশ কী (পোর্টফোলিও আইডি অনুযায়ী আলাদা)
+    const cacheKey = `calc_${userId}_${portfolioId || 'all'}`;
+    if (!forceRefresh && this.cachedResult && (now - this.cacheTime) < this.cacheTTL) {
+        // চেক করুন ক্যাশ করা ডেটা একই পোর্টফোলিওর জন্য কিনা
+        if (this.cachedResult._portfolioId === (portfolioId || 'all')) {
             console.log('📦 Using cached unified calculation');
             return this.cachedResult;
         }
-        console.log('🔄 Calculating portfolio...');
+    }
+    console.log('🔄 Calculating portfolio... (portfolioId:', portfolioId || 'all', ')');
 
-        try {
-            let portfolioData = [];
-            let salesData = [];
+    try {
+        let portfolioData = [];
+        let salesData = [];
 
-            // Supabase
-            if (typeof supabase !== 'undefined' && supabase) {
-                try {
-                    const { data: pData } = await supabase
-                        .from('portfolios')
-                        .select('*')
-                        .eq('user_id', userId);
-                    if (pData) portfolioData = pData;
+        // Supabase
+        if (typeof supabase !== 'undefined' && supabase) {
+            try {
+                let pQuery = supabase.from('portfolios').select('*').eq('user_id', userId);
+                if (portfolioId) pQuery = pQuery.eq('portfolio_id', portfolioId);
+                const { data: pData, error: pError } = await pQuery;
+                if (!pError && pData) portfolioData = pData;
 
-                    const { data: sData } = await supabase
-                        .from('sales_history')
-                        .select('*')
-                        .eq('user_id', userId);
-                    if (sData) salesData = sData;
-                } catch (e) { console.warn('Supabase calc fetch failed', e); }
-            }
+                let sQuery = supabase.from('sales_history').select('*').eq('user_id', userId);
+                if (portfolioId) sQuery = sQuery.eq('portfolio_id', portfolioId);
+                const { data: sData, error: sError } = await sQuery;
+                if (!sError && sData) salesData = sData;
+            } catch (e) { console.warn('Supabase calc fetch failed', e); }
+        }
 
-            // Firebase ফ্যালব্যাক
-            if (portfolioData.length === 0 && typeof db !== 'undefined' && db) {
-                try {
-                    const snap = await db.collection('portfolios').where('userId', '==', userId).get();
-                    snap.forEach(doc => {
-                        const data = doc.data();
-                        portfolioData.push({
-                            id: doc.id,
-                            user_id: data.userId,
-                            share_name: data.shareName,
-                            quantity: data.quantity,
-                            buy_price: data.buyPrice,
-                            commission: data.commission || 0,
-                            commission_percent: data.commissionPercent || 0,
-                            date: data.date?.toDate?.()?.toISOString?.().split('T')[0] || new Date().toISOString().split('T')[0],
-                            created_at: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()
-                        });
+        // Firebase ফ্যালব্যাক
+        if (portfolioData.length === 0 && typeof db !== 'undefined' && db) {
+            try {
+                let pQuery = db.collection('portfolios').where('userId', '==', userId);
+                if (portfolioId) pQuery = pQuery.where('portfolioId', '==', portfolioId);
+                const snap = await pQuery.get();
+                snap.forEach(doc => {
+                    const data = doc.data();
+                    portfolioData.push({
+                        id: doc.id,
+                        user_id: data.userId,
+                        share_name: data.shareName,
+                        quantity: data.quantity,
+                        buy_price: data.buyPrice,
+                        commission: data.commission || 0,
+                        commission_percent: data.commissionPercent || 0,
+                        date: data.date?.toDate?.()?.toISOString?.().split('T')[0] || new Date().toISOString().split('T')[0],
+                        created_at: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()
                     });
-                } catch (e) { console.warn('Firebase calc fetch failed', e); }
-            }
-            if (salesData.length === 0 && typeof db !== 'undefined' && db) {
-                try {
-                    const snap = await db.collection('sales_history').where('userId', '==', userId).get();
-                    snap.forEach(doc => {
-                        const data = doc.data();
-                        salesData.push({
-                            id: doc.id,
-                            user_id: data.userId,
-                            share_name: data.shareName,
-                            quantity_sold: data.quantitySold || 0,
-                            buy_price: data.buyPrice || 0,
-                            sell_price: data.sellPrice || 0,
-                            profit_or_loss: data.profitOrLoss || 0,
-                            commission: data.commission || 0,
-                            commission_percent: data.commissionPercent || 0,
-                            net_received: data.netReceived || 0,
-                            date: data.date?.toDate?.()?.toISOString?.().split('T')[0] || new Date().toISOString().split('T')[0],
-                            created_at: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()
-                        });
-                    });
-                } catch (e) { console.warn('Firebase sales calc fetch failed', e); }
-            }
-
-            if (portfolioData.length === 0) {
-                console.log('No portfolio found for user');
-                return null;
-            }
-
-            // মোট বিক্রি হিসাব
-            const totalSoldMap = new Map();
-            salesData.forEach(item => {
-                const ticker = item.share_name;
-                totalSoldMap.set(ticker, (totalSoldMap.get(ticker) || 0) + (item.quantity_sold || 0));
-            });
-
-            // Buy লট তৈরি
-            const allBuyLots = [];
-            const buyLots = [];
-            portfolioData.forEach(item => {
-                const qty = item.quantity || 0;
-                const buyPrice = item.buy_price || 0;
-                const commission = item.commission || 0;
-                const commissionPercent = item.commission_percent || 0;
-                const totalCostWithCommission = (qty * buyPrice) + commission;
-                const perUnitCostWithCommission = qty > 0 ? totalCostWithCommission / qty : 0;
-                const date = item.date ? new Date(item.date) : new Date();
-                allBuyLots.push({
-                    ticker: item.share_name,
-                    qty: qty,
-                    buyPrice: buyPrice,
-                    totalCostWithCommission: totalCostWithCommission,
-                    perUnitCostWithCommission: perUnitCostWithCommission,
-                    date: date,
-                    commission: commission,
-                    commissionPercent: commissionPercent
                 });
-                buyLots.push({ ...allBuyLots[allBuyLots.length - 1] });
-            });
-
-            buyLots.sort((a, b) => a.date - b.date);
-            allBuyLots.sort((a, b) => a.date - b.date);
-
-            const totalBuyMap = new Map();
-            allBuyLots.forEach(lot => {
-                if (!totalBuyMap.has(lot.ticker)) {
-                    totalBuyMap.set(lot.ticker, { totalBuyQty: 0, totalBuyCost: 0 });
-                }
-                const cur = totalBuyMap.get(lot.ticker);
-                cur.totalBuyQty += lot.qty;
-                cur.totalBuyCost += lot.qty * lot.buyPrice;
-                totalBuyMap.set(lot.ticker, cur);
-            });
-
-            // FIFO রিমেইনিং ট্র্যাক
-            const remainingTracker = new Map();
-            const sellRemaining = new Map(totalSoldMap);
-            for (const lot of buyLots) {
-                let remainingQty = lot.qty;
-                let toSell = sellRemaining.get(lot.ticker) || 0;
-                if (toSell > 0 && remainingQty > 0) {
-                    const sellFromThisLot = Math.min(remainingQty, toSell);
-                    remainingQty -= sellFromThisLot;
-                    toSell -= sellFromThisLot;
-                    sellRemaining.set(lot.ticker, toSell);
-                }
-                if (remainingQty > 0) {
-                    if (!remainingTracker.has(lot.ticker)) {
-                        remainingTracker.set(lot.ticker, { totalQty: 0, totalCost: 0, totalBuyValue: 0, lots: [] });
-                    }
-                    const current = remainingTracker.get(lot.ticker);
-                    const lotCost = remainingQty * lot.perUnitCostWithCommission;
-                    const lotBuyValue = remainingQty * lot.buyPrice;
-                    current.totalQty += remainingQty;
-                    current.totalCost += lotCost;
-                    current.totalBuyValue += lotBuyValue;
-                    current.lots.push({
-                        qty: remainingQty,
-                        buyPrice: lot.buyPrice,
-                        perUnitCostWithCommission: lot.perUnitCostWithCommission,
-                        totalCost: lotCost,
-                        date: lot.date,
-                        commission: lot.commission,
-                        commissionPercent: lot.commissionPercent
+            } catch (e) { console.warn('Firebase calc fetch failed', e); }
+        }
+        if (salesData.length === 0 && typeof db !== 'undefined' && db) {
+            try {
+                let sQuery = db.collection('sales_history').where('userId', '==', userId);
+                if (portfolioId) sQuery = sQuery.where('portfolioId', '==', portfolioId);
+                const snap = await sQuery.get();
+                snap.forEach(doc => {
+                    const data = doc.data();
+                    salesData.push({
+                        id: doc.id,
+                        user_id: data.userId,
+                        share_name: data.shareName,
+                        quantity_sold: data.quantitySold || 0,
+                        buy_price: data.buyPrice || 0,
+                        sell_price: data.sellPrice || 0,
+                        profit_or_loss: data.profitOrLoss || 0,
+                        commission: data.commission || 0,
+                        commission_percent: data.commissionPercent || 0,
+                        net_received: data.netReceived || 0,
+                        date: data.date?.toDate?.()?.toISOString?.().split('T')[0] || new Date().toISOString().split('T')[0],
+                        created_at: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()
                     });
-                    remainingTracker.set(lot.ticker, current);
-                }
-            }
-
-            const stockDetails = [];
-            let grandTotalCost = 0, grandTotalBuyValue = 0, grandTotalQty = 0;
-            for (const [ticker, data] of remainingTracker) {
-                grandTotalCost += data.totalCost;
-                grandTotalBuyValue += data.totalBuyValue;
-                grandTotalQty += data.totalQty;
-                const totalBuyInfo = totalBuyMap.get(ticker) || { totalBuyQty: 0, totalBuyCost: 0 };
-                stockDetails.push({
-                    ticker: ticker,
-                    totalBuyQty: totalBuyInfo.totalBuyQty,
-                    totalBuyCost: totalBuyInfo.totalBuyCost,
-                    totalQty: data.totalQty,
-                    totalCost: data.totalCost,
-                    totalBuyValue: data.totalBuyValue,
-                    avgBuyPriceWithCommission: data.totalCost / data.totalQty,
-                    avgBuyPrice: data.totalBuyValue / data.totalQty,
-                    lots: data.lots
                 });
-            }
+            } catch (e) { console.warn('Firebase sales calc fetch failed', e); }
+        }
 
-            const result = {
-                totalInvestment: grandTotalCost,
-                totalBuyValue: grandTotalBuyValue,
-                totalRemainingQty: grandTotalQty,
-                stockDetails: stockDetails,
-                calculatedAt: now,
-                method: 'FIFO with Commission'
-            };
-            this.cachedResult = result;
-            this.cacheTime = now;
-            return result;
-
-        } catch (error) {
-            console.error('Calculation error:', error);
+        if (portfolioData.length === 0) {
+            console.log('No portfolio found for user');
             return null;
         }
+
+        // মোট বিক্রি হিসাব
+        const totalSoldMap = new Map();
+        salesData.forEach(item => {
+            const ticker = item.share_name;
+            totalSoldMap.set(ticker, (totalSoldMap.get(ticker) || 0) + (item.quantity_sold || 0));
+        });
+
+        // Buy লট তৈরি
+        const allBuyLots = [];
+        const buyLots = [];
+        portfolioData.forEach(item => {
+            const qty = item.quantity || 0;
+            const buyPrice = item.buy_price || 0;
+            const commission = item.commission || 0;
+            const commissionPercent = item.commission_percent || 0;
+            const totalCostWithCommission = (qty * buyPrice) + commission;
+            const perUnitCostWithCommission = qty > 0 ? totalCostWithCommission / qty : 0;
+            const date = item.date ? new Date(item.date) : new Date();
+            allBuyLots.push({
+                ticker: item.share_name,
+                qty: qty,
+                buyPrice: buyPrice,
+                totalCostWithCommission: totalCostWithCommission,
+                perUnitCostWithCommission: perUnitCostWithCommission,
+                date: date,
+                commission: commission,
+                commissionPercent: commissionPercent
+            });
+            buyLots.push({ ...allBuyLots[allBuyLots.length - 1] });
+        });
+
+        buyLots.sort((a, b) => a.date - b.date);
+        allBuyLots.sort((a, b) => a.date - b.date);
+
+        const totalBuyMap = new Map();
+        allBuyLots.forEach(lot => {
+            if (!totalBuyMap.has(lot.ticker)) {
+                totalBuyMap.set(lot.ticker, { totalBuyQty: 0, totalBuyCost: 0 });
+            }
+            const cur = totalBuyMap.get(lot.ticker);
+            cur.totalBuyQty += lot.qty;
+            cur.totalBuyCost += lot.qty * lot.buyPrice;
+            totalBuyMap.set(lot.ticker, cur);
+        });
+
+        // FIFO রিমেইনিং ট্র্যাক
+        const remainingTracker = new Map();
+        const sellRemaining = new Map(totalSoldMap);
+        for (const lot of buyLots) {
+            let remainingQty = lot.qty;
+            let toSell = sellRemaining.get(lot.ticker) || 0;
+            if (toSell > 0 && remainingQty > 0) {
+                const sellFromThisLot = Math.min(remainingQty, toSell);
+                remainingQty -= sellFromThisLot;
+                toSell -= sellFromThisLot;
+                sellRemaining.set(lot.ticker, toSell);
+            }
+            if (remainingQty > 0) {
+                if (!remainingTracker.has(lot.ticker)) {
+                    remainingTracker.set(lot.ticker, { totalQty: 0, totalCost: 0, totalBuyValue: 0, lots: [] });
+                }
+                const current = remainingTracker.get(lot.ticker);
+                const lotCost = remainingQty * lot.perUnitCostWithCommission;
+                const lotBuyValue = remainingQty * lot.buyPrice;
+                current.totalQty += remainingQty;
+                current.totalCost += lotCost;
+                current.totalBuyValue += lotBuyValue;
+                current.lots.push({
+                    qty: remainingQty,
+                    buyPrice: lot.buyPrice,
+                    perUnitCostWithCommission: lot.perUnitCostWithCommission,
+                    totalCost: lotCost,
+                    date: lot.date,
+                    commission: lot.commission,
+                    commissionPercent: lot.commissionPercent
+                });
+                remainingTracker.set(lot.ticker, current);
+            }
+        }
+
+        const stockDetails = [];
+        let grandTotalCost = 0, grandTotalBuyValue = 0, grandTotalQty = 0;
+        for (const [ticker, data] of remainingTracker) {
+            grandTotalCost += data.totalCost;
+            grandTotalBuyValue += data.totalBuyValue;
+            grandTotalQty += data.totalQty;
+            const totalBuyInfo = totalBuyMap.get(ticker) || { totalBuyQty: 0, totalBuyCost: 0 };
+            stockDetails.push({
+                ticker: ticker,
+                totalBuyQty: totalBuyInfo.totalBuyQty,
+                totalBuyCost: totalBuyInfo.totalBuyCost,
+                totalQty: data.totalQty,
+                totalCost: data.totalCost,
+                totalBuyValue: data.totalBuyValue,
+                avgBuyPriceWithCommission: data.totalCost / data.totalQty,
+                avgBuyPrice: data.totalBuyValue / data.totalQty,
+                lots: data.lots
+            });
+        }
+
+        const result = {
+            _portfolioId: portfolioId || 'all',
+            totalInvestment: grandTotalCost,
+            totalBuyValue: grandTotalBuyValue,
+            totalRemainingQty: grandTotalQty,
+            stockDetails: stockDetails,
+            calculatedAt: now,
+            method: 'FIFO with Commission'
+        };
+        this.cachedResult = result;
+        this.cacheTime = now;
+        return result;
+
+    } catch (error) {
+        console.error('Calculation error:', error);
+        return null;
     }
+}
 
     resetCache() {
         this.cachedResult = null;
@@ -1073,6 +1241,7 @@ async function savePortfolioToBoth(userId, data) {
                 buy_price: data.buyPrice,
                 commission: data.commission || 0,
                 commission_percent: data.commissionPercent || 0,
+                portfolio_id: data.portfolioId || 'main', // নতুন
                 date: data.date || new Date().toISOString().split('T')[0],
                 created_at: new Date().toISOString()
             });
@@ -1089,6 +1258,7 @@ async function savePortfolioToBoth(userId, data) {
                 buyPrice: data.buyPrice,
                 commission: data.commission || 0,
                 commissionPercent: data.commissionPercent || 0,
+                portfolioId: data.portfolioId || 'main', // নতুন
                 date: data.date ? new Date(data.date) : new Date(),
                 createdAt: new Date()
             });
@@ -1274,10 +1444,22 @@ async function getCSEPrice(ticker) {
     return 0;
 }
 
-// P/E Ratio ফেচ (Supabase cse_market_data → Firebase cse_detailed_data)
+// P/E Ratio ফেচ (stock_metadata → cse_detailed_data)
 async function getPERatio(ticker) {
     if (!ticker) return null;
-    // ১. Supabase cse_market_data
+    
+    // ১. stock_metadata থেকে আনার চেষ্টা
+    try {
+        if (typeof db !== 'undefined') {
+            const doc = await db.collection('stock_metadata').doc(ticker).get();
+            if (doc.exists && doc.data().pe) {
+                const val = parseFloat(doc.data().pe);
+                if (!isNaN(val) && val > 0) return val;
+            }
+        }
+    } catch (e) { /* ignore */ }
+
+    // ২. Supabase cse_market_data
     if (typeof supabase !== 'undefined' && supabase) {
         try {
             const { data, error } = await supabase
@@ -1290,10 +1472,11 @@ async function getPERatio(ticker) {
                 const val = parseFloat(data[0].pe);
                 if (!isNaN(val) && val > 0) return val;
             }
-        } catch (e) {}
+        } catch (e) { /* ignore */ }
     }
-    // ২. Firebase cse_detailed_data (ফলব্যাক)
-    if (typeof db !== 'undefined' && db) {
+
+    // ৩. Firebase cse_detailed_data (ফলব্যাক)
+    if (typeof db !== 'undefined') {
         try {
             const snap = await db.collection('cse_detailed_data')
                 .where('code', '==', ticker)
@@ -1305,7 +1488,7 @@ async function getPERatio(ticker) {
                 const val = parseFloat(data.pe) || 0;
                 if (val > 0) return val;
             }
-        } catch (e) {}
+        } catch (e) { /* ignore */ }
     }
     return null;
 }
@@ -1334,6 +1517,128 @@ function clearAllScannerCache() {
     console.log('🔄 All scanner cache cleared');
 }
 
+// ==========================================
+// 📂 পোর্টফোলিও মেটাডেটা ম্যানেজমেন্ট (core.js)
+// ==========================================
+
+/**
+ * ইউজারের সব পোর্টফোলিওর তালিকা পাওয়া
+ */
+async function getPortfolioMeta(userId) {
+    if (!userId) return { portfolios: [] };
+    try {
+        if (typeof db !== 'undefined') {
+            const doc = await db.collection('portfolios_meta').doc(userId).get();
+            if (doc.exists) {
+                return doc.data();
+            }
+        }
+        // ডিফল্ট: একটি মেইন পোর্টফোলিও তৈরি
+        const defaultMeta = {
+            portfolios: [
+                { id: 'main', name: '📊 Main Portfolio', type: 'main', isDefault: true, createdAt: new Date().toISOString() }
+            ]
+        };
+        if (typeof db !== 'undefined') {
+            await db.collection('portfolios_meta').doc(userId).set(defaultMeta);
+        }
+        return defaultMeta;
+    } catch (e) {
+        console.error('Error getting portfolio meta:', e);
+        return { portfolios: [{ id: 'main', name: '📊 Main Portfolio', type: 'main', isDefault: true }] };
+    }
+}
+
+/**
+ * পোর্টফোলিও মেটাডেটা আপডেট করা
+ */
+async function updatePortfolioMeta(userId, meta) {
+    if (!userId || !meta) return false;
+    try {
+        if (typeof db !== 'undefined') {
+            await db.collection('portfolios_meta').doc(userId).set(meta, { merge: true });
+            return true;
+        }
+        return false;
+    } catch (e) {
+        console.error('Error updating portfolio meta:', e);
+        return false;
+    }
+}
+
+/**
+ * নতুন পোর্টফোলিও তৈরি করা
+ */
+async function createPortfolio(userId, name) {
+    if (!userId || !name || !name.trim()) return null;
+    const meta = await getPortfolioMeta(userId);
+    const id = 'sub_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    meta.portfolios.push({
+        id,
+        name: name.trim(),
+        type: 'sub',
+        isDefault: false,
+        createdAt: new Date().toISOString()
+    });
+    const success = await updatePortfolioMeta(userId, meta);
+    return success ? id : null;
+}
+
+/**
+ * পোর্টফোলিও ডিলিট করা (শুধু যদি শেয়ার সংখ্যা ০ হয়)
+ */
+async function deletePortfolio(userId, portfolioId) {
+    if (!userId || !portfolioId || portfolioId === 'main') return false;
+    // চেক করুন এই পোর্টফোলিওতে কোনো শেয়ার আছে কিনা
+    if (typeof db !== 'undefined') {
+        const snap = await db.collection('portfolios')
+            .where('userId', '==', userId)
+            .where('portfolioId', '==', portfolioId)
+            .get();
+        if (!snap.empty) {
+            let totalQty = 0;
+            snap.forEach(doc => totalQty += doc.data().quantity || 0);
+            if (totalQty > 0) {
+                console.warn('Portfolio has shares, cannot delete');
+                return false;
+            }
+        }
+        // সেলস হিস্ট্রি চেক (ঐচ্ছিক)
+        const sellSnap = await db.collection('sales_history')
+            .where('userId', '==', userId)
+            .where('portfolioId', '==', portfolioId)
+            .get();
+        if (!sellSnap.empty) {
+            // আপনি চাইলে সেল হিস্ট্রিও ডিলিট করতে পারেন, অথবা শুধু পোর্টফোলিও মেটা থেকে রিমুভ করুন
+            // এখানে আমরা শুধু মেটা থেকে রিমুভ করছি
+        }
+    }
+    const meta = await getPortfolioMeta(userId);
+    meta.portfolios = meta.portfolios.filter(p => p.id !== portfolioId);
+    return await updatePortfolioMeta(userId, meta);
+}
+
+/**
+ * পোর্টফোলিওর নাম পরিবর্তন
+ */
+async function renamePortfolio(userId, portfolioId, newName) {
+    if (!userId || !portfolioId || !newName || !newName.trim()) return false;
+    if (portfolioId === 'main') return false;
+    const meta = await getPortfolioMeta(userId);
+    const portfolio = meta.portfolios.find(p => p.id === portfolioId);
+    if (!portfolio) return false;
+    portfolio.name = newName.trim();
+    return await updatePortfolioMeta(userId, meta);
+}
+
+/**
+ * পোর্টফোলিও আইডি থেকে নাম পাওয়া
+ */
+function getPortfolioName(portfolioId, meta) {
+    if (!meta || !meta.portfolios) return portfolioId === 'main' ? '📊 Grand Portfolio' : portfolioId;
+    const found = meta.portfolios.find(p => p.id === portfolioId);
+    return found ? found.name : (portfolioId === 'main' ? '📊 Grand Portfolio' : portfolioId);
+}
 // ==========================================
 // 🌐 গ্লোবাল এক্সপোজ
 // ==========================================
@@ -1371,5 +1676,11 @@ window.getDSEPrice = getDSEPrice;
 window.getCSEPrice = getCSEPrice;
 window.getPERatio = getPERatio;
 window.chunkArray = chunkArray;
+window.getPortfolioMeta = getPortfolioMeta;
+window.updatePortfolioMeta = updatePortfolioMeta;
+window.createPortfolio = createPortfolio;
+window.deletePortfolio = deletePortfolio;
+window.renamePortfolio = renamePortfolio;
+window.getPortfolioName = getPortfolioName;
 
 console.log('✅ core.js loaded successfully (All functions defined and exposed globally)');

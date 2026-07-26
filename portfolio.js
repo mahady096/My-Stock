@@ -2,6 +2,7 @@
 // portfolio.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন
 //    Buy, Sell, Analysis, Dividend, Stock Table, Suggestion
 //    Supabase優先 + Firebase ফ্যালব্যাক + ডুয়াল রাইট
+//    পোর্টফোলিও আইডি সাপোর্ট সহ (Grand, Main, Sub)
 // ==========================================
 
 // ==========================================
@@ -15,6 +16,7 @@
     const tradeDateInput = document.getElementById('trade-date');
     const qtyInput = document.getElementById('trade-qty');
     const btnBuy = document.querySelector('.btn-buy');
+    const buyPortfolioSelect = document.getElementById('buy-portfolio-select');
 
     if (tradeDateInput) tradeDateInput.value = getBangladeshDateString();
 
@@ -86,14 +88,15 @@
             const shareName = tickerInput ? tickerInput.value.trim().toUpperCase() : '';
             const quantity = qtyInput ? qtyInput.value : '';
             const price = priceInput ? priceInput.value : '';
+            const portfolioId = buyPortfolioSelect ? buyPortfolioSelect.value : 'main';
             const user = auth.currentUser;
             if (!user) { showToast("Please login first", "error"); return; }
-            if (!shareName || !quantity || !price) { alert("সবগুলো ঘর সঠিকভাবে পূরণ করুন!"); return; }
+            if (!shareName || !quantity || !price) { showToast("Please fill all fields correctly", "warning"); return; }
 
             let selectedDate = tradeDateInput ? tradeDateInput.value : getBangladeshDateString();
             if (!selectedDate) selectedDate = getBangladeshDateString();
             const transactionDate = getUTCFromLocalDate(selectedDate);
-            if (isNaN(transactionDate.getTime())) { alert("Invalid date!"); return; }
+            if (isNaN(transactionDate.getTime())) { showToast("Invalid date!", "error"); return; }
 
             const totalAmount = Number(quantity) * Number(price);
             const commissionPercent = commissionManager.getPercent();
@@ -115,30 +118,36 @@
                     buyPrice: Number(price),
                     commission: commissionAmount,
                     commissionPercent: commissionPercent,
-                    date: transactionDate.toISOString().split('T')[0]
+                    date: transactionDate.toISOString().split('T')[0],
+                    portfolioId: portfolioId
                 });
 
                 if (result.supabaseSuccess || result.firebaseSuccess) {
                     resetUnifiedCache();
                     resetUnifiedPriceCache();
+                    CacheManager.remove(`price_${shareName}`);
+                    CacheManager.remove(`price_detail_${shareName}`);
+                    CacheManager.remove(`chart_${shareName}_*`);
+                    if (typeof loadDashboardData === 'function') {
+                        loadDashboardData(portfolioId, true);
+                    }
+                    if (typeof loadPortfolioAnalysisTable === 'function') {
+                        loadPortfolioAnalysisTable(user.uid, portfolioId, true);
+                    }
+                    if (typeof loadUnifiedStockTable === 'function') {
+                        loadUnifiedStockTable(user.uid);
+                    }
                     showToast(`✅ ${shareName} purchased successfully!`, 'success');
                     if (tickerInput) tickerInput.value = "";
                     if (qtyInput) qtyInput.value = "";
                     if (priceInput) priceInput.value = "";
                     if (tradeDateInput) tradeDateInput.value = getTodayDate();
-                    if (auth.currentUser) {
-                        // ফাংশনগুলো গ্লোবালি এক্সপোজড থাকবে
-                        if (typeof loadUnifiedStockTable === 'function') loadUnifiedStockTable(auth.currentUser.uid);
-                        if (typeof loadPortfolioAnalysisTable === 'function') loadPortfolioAnalysisTable(auth.currentUser.uid);
-                        if (typeof loadDashboardData === 'function') loadDashboardData();
-                    }
-                    if (typeof showToast === 'function') showToast(`✅ ${shareName} purchased!`, 'success');
                 } else {
-                    alert("Failed to save purchase in both databases!");
+                    showToast("Failed to save purchase in both databases!", "error");
                 }
             } catch (error) {
                 console.error(error);
-                alert("Failed to save purchase!");
+                showToast("Failed to save purchase!", "error");
             }
         });
     }
@@ -159,6 +168,7 @@
     if (sellDateInput) sellDateInput.value = getBangladeshDateString();
 
     let currentActiveLots = [];
+    let currentSellPortfolioId = 'main';
 
     // Sell সাজেশন
     if (sellTickerInput && sellSuggestionBox) {
@@ -175,7 +185,9 @@
                     div.addEventListener('click', () => {
                         sellTickerInput.value = stock;
                         sellSuggestionBox.classList.add('hidden');
-                        fetchHoldingsForSell(stock);
+                        const select = document.getElementById('sell-portfolio-select');
+                        currentSellPortfolioId = select ? select.value : 'main';
+                        fetchHoldingsForSell(stock, currentSellPortfolioId);
                     });
                     sellSuggestionBox.appendChild(div);
                 });
@@ -196,11 +208,23 @@
         });
     }
 
-    async function fetchHoldingsForSell(ticker) {
+    // Sell পোর্টফোলিও সিলেক্টর
+    const sellPortfolioSelect = document.getElementById('sell-portfolio-select');
+    if (sellPortfolioSelect) {
+        sellPortfolioSelect.addEventListener('change', function() {
+            currentSellPortfolioId = this.value;
+            const ticker = sellTickerInput ? sellTickerInput.value.trim().toUpperCase() : '';
+            if (ticker) {
+                fetchHoldingsForSell(ticker, currentSellPortfolioId);
+            }
+        });
+    }
+
+    async function fetchHoldingsForSell(ticker, portfolioId = null) {
         const user = auth.currentUser;
         if (!user) return;
         if (selectedSellTickerText) selectedSellTickerText.innerText = ticker;
-        if (sellPortfolioTableBody) sellPortfolioTableBody.innerHTML = `<tr><td colspan='4'>লট ডাটা লোড হচ্ছে...</td></tr>`;
+        if (sellPortfolioTableBody) sellPortfolioTableBody.innerHTML = `<tr><td colspan='4'>Loading lots...</td></tr>`;
         if (sellHoldingsContainer) sellHoldingsContainer.classList.remove('hidden');
 
         try {
@@ -210,20 +234,22 @@
             // Supabase
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
-                    const { data: pData } = await supabase
-                        .from('portfolios')
+                    let pQuery = supabase.from('portfolios')
                         .select('*')
                         .eq('user_id', user.uid)
                         .eq('share_name', ticker);
+                    if (portfolioId) pQuery = pQuery.eq('portfolio_id', portfolioId);
+                    const { data: pData } = await pQuery;
                     if (pData && pData.length > 0) {
                         buyLots = pData.map(doc => ({ docId: doc.id, ...doc }));
                     }
 
-                    const { data: sData } = await supabase
-                        .from('sales_history')
+                    let sQuery = supabase.from('sales_history')
                         .select('*')
                         .eq('user_id', user.uid)
                         .eq('share_name', ticker);
+                    if (portfolioId) sQuery = sQuery.eq('portfolio_id', portfolioId);
+                    const { data: sData } = await sQuery;
                     if (sData) {
                         totalSoldBefore = sData.reduce((sum, item) => sum + (item.quantity_sold || 0), 0);
                     }
@@ -235,10 +261,11 @@
             // Firebase ফ্যালব্যাক
             if (buyLots.length === 0 && typeof db !== 'undefined') {
                 try {
-                    const buySnapshot = await db.collection("portfolios")
-                        .where("userId", "==", user.uid)
-                        .where("shareName", "==", ticker)
-                        .get();
+                    let pQuery = db.collection('portfolios')
+                        .where('userId', '==', user.uid)
+                        .where('shareName', '==', ticker);
+                    if (portfolioId) pQuery = pQuery.where('portfolioId', '==', portfolioId);
+                    const buySnapshot = await pQuery.get();
                     buySnapshot.forEach(doc => {
                         const data = doc.data();
                         buyLots.push({
@@ -253,10 +280,11 @@
                         });
                     });
 
-                    const sellSnapshot = await db.collection("sales_history")
-                        .where("userId", "==", user.uid)
-                        .where("shareName", "==", ticker)
-                        .get();
+                    let sQuery = db.collection('sales_history')
+                        .where('userId', '==', user.uid)
+                        .where('shareName', '==', ticker);
+                    if (portfolioId) sQuery = sQuery.where('portfolioId', '==', portfolioId);
+                    const sellSnapshot = await sQuery.get();
                     sellSnapshot.forEach(doc => {
                         totalSoldBefore += (doc.data().quantitySold || 0);
                     });
@@ -312,11 +340,11 @@
             });
 
             if (currentActiveLots.length === 0 && sellPortfolioTableBody) {
-                sellPortfolioTableBody.innerHTML = `<tr><td colspan='4'>বিক্রয়যোগ্য কোনো শেয়ার নেই।</td></tr>`;
+                sellPortfolioTableBody.innerHTML = `<tr><td colspan='4'>No sellable shares available.</td></tr>`;
             }
         } catch (error) {
             console.error(error);
-            if (sellPortfolioTableBody) sellPortfolioTableBody.innerHTML = `<tr><td colspan='4'>ডাটা লোড করতে সমস্যা হয়েছে!</td></tr>`;
+            if (sellPortfolioTableBody) sellPortfolioTableBody.innerHTML = `<tr><td colspan='4'>Error loading data!</td></tr>`;
         }
     }
 
@@ -327,19 +355,20 @@
         newSellBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             if (newSellBtn.hasAttribute('data-processing')) {
-                if (typeof showToast === 'function') showToast('Previous transaction still processing...', 'warning');
+                showToast('Previous transaction still processing...', 'warning');
                 return;
             }
             const user = auth.currentUser;
             const ticker = sellTickerInput ? sellTickerInput.value.trim().toUpperCase() : '';
-            if (!user) { alert("লগইন করুন!"); return; }
-            if (!ticker) { alert("শেয়ার সিলেক্ট করুন!"); return; }
-            if (currentActiveLots.length === 0) { alert("বিক্রয়যোগ্য লট নেই!"); return; }
+            const portfolioId = sellPortfolioSelect ? sellPortfolioSelect.value : 'main';
+            if (!user) { showToast("Please login first", "error"); return; }
+            if (!ticker) { showToast("Please select a share", "warning"); return; }
+            if (currentActiveLots.length === 0) { showToast("No sellable lots available!", "warning"); return; }
 
             let selectedDate = sellDateInput ? sellDateInput.value : getBangladeshDateString();
             if (!selectedDate) selectedDate = getBangladeshDateString();
             const transactionDate = getUTCFromLocalDate(selectedDate);
-            if (isNaN(transactionDate.getTime())) { alert("Invalid date!"); return; }
+            if (isNaN(transactionDate.getTime())) { showToast("Invalid date!", "error"); return; }
 
             newSellBtn.setAttribute('data-processing', 'true');
             newSellBtn.disabled = true;
@@ -356,11 +385,11 @@
                         const sellPrice = Number(priceField.value) || 0;
                         if (sellQty > 0) {
                             if (sellQty > lot.availableQty) {
-                                alert(`সর্বোচ্চ ${lot.availableQty} টি শেয়ার বিক্রি করতে পারবেন।`);
+                                showToast(`Maximum ${lot.availableQty} shares available for this lot.`, "warning");
                                 return;
                             }
                             if (sellPrice <= 0) {
-                                alert("সঠিক মূল্য দিন।");
+                                showToast("Please enter valid price.", "warning");
                                 return;
                             }
                             const saleValue = sellQty * sellPrice;
@@ -377,7 +406,8 @@
                                 commission: commission,
                                 commissionPercent: commissionManager.getPercent(),
                                 netReceived: saleValue - commission,
-                                date: transactionDate.toISOString().split('T')[0]
+                                date: transactionDate.toISOString().split('T')[0],
+                                portfolioId: portfolioId
                             });
 
                             totalSoldSuccessfully += sellQty;
@@ -386,7 +416,7 @@
                 }
 
                 if (totalSoldSuccessfully === 0) {
-                    alert("বিক্রয়ের পরিমাণ লিখুন।");
+                    showToast("Please enter quantity to sell.", "warning");
                     return;
                 }
 
@@ -398,7 +428,12 @@
                 if (!confirm(confirmMsg)) return;
 
                 resetUnifiedCache();
-                alert(`✅ সফলভাবে ${totalSoldSuccessfully} টি ${ticker} শেয়ার বিক্রয় রেকর্ড করা হয়েছে।`);
+                resetUnifiedPriceCache();
+                CacheManager.remove(`price_${ticker}`);
+                CacheManager.remove(`price_detail_${ticker}`);
+                CacheManager.remove(`chart_${ticker}_*`);
+                
+                showToast(`✅ ${totalSoldSuccessfully} shares of ${ticker} sold successfully!`, "success");
                 if (sellTickerInput) sellTickerInput.value = "";
                 if (sellHoldingsContainer) sellHoldingsContainer.classList.add('hidden');
                 if (sellDateInput) sellDateInput.value = getTodayDate();
@@ -406,16 +441,19 @@
                 if (sellSuggestionBox) sellSuggestionBox.classList.add('hidden');
 
                 if (auth.currentUser) {
-                    resetUnifiedCache();
-                    resetUnifiedPriceCache();
-                    if (typeof loadUnifiedStockTable === 'function') await loadUnifiedStockTable(auth.currentUser.uid);
-                    if (typeof loadPortfolioAnalysisTable === 'function') await loadPortfolioAnalysisTable(auth.currentUser.uid, true);
-                    if (typeof loadDashboardData === 'function') await loadDashboardData();
+                    if (typeof loadDashboardData === 'function') {
+                        loadDashboardData(portfolioId, true);
+                    }
+                    if (typeof loadPortfolioAnalysisTable === 'function') {
+                        loadPortfolioAnalysisTable(user.uid, portfolioId, true);
+                    }
+                    if (typeof loadUnifiedStockTable === 'function') {
+                        loadUnifiedStockTable(user.uid);
+                    }
                 }
-                if (typeof showToast === 'function') showToast('✅ Portfolio updated!', 'success');
             } catch (error) {
                 console.error(error);
-                alert("বিক্রি সম্পন্ন করা যায়নি।");
+                showToast("Sell failed!", "error");
             } finally {
                 newSellBtn.removeAttribute('data-processing');
                 newSellBtn.disabled = false;
@@ -434,11 +472,11 @@
         const sellPrice = Number(priceInput.value) || 0;
 
         if (sellQty <= 0 || sellPrice <= 0) {
-            if (typeof showToast === 'function') showToast('Please enter valid quantity and price.', 'warning');
+            showToast('Please enter valid quantity and price.', 'warning');
             return;
         }
         if (sellQty > availableQty) {
-            if (typeof showToast === 'function') showToast(`Maximum ${availableQty} shares available.`, 'warning');
+            showToast(`Maximum ${availableQty} shares available.`, 'warning');
             return;
         }
 
@@ -455,13 +493,13 @@
 
         qtyInput.value = '';
         priceInput.value = '';
-        if (typeof showToast === 'function') showToast(`✅ ${ticker} added to batch (${sellQty} shares)`, 'success');
+        showToast(`✅ ${ticker} added to batch (${sellQty} shares)`, 'success');
     };
 
     window.removeFromBatch = function(index) {
         sellBatch.splice(index, 1);
         renderBatchTable();
-        if (typeof showToast === 'function') showToast('🗑️ Removed from batch', 'info');
+        showToast('🗑️ Removed from batch', 'info');
     };
 
     // ব্যাচ সেল ভেরিয়েবল
@@ -503,15 +541,17 @@
     // ব্যাচ সেল এক্সিকিউট
     window.executeBatchSell = async function() {
         if (sellBatch.length === 0) {
-            if (typeof showToast === 'function') showToast('No items in batch. Add some first.', 'warning');
+            showToast('No items in batch. Add some first.', 'warning');
             return;
         }
 
         const user = auth.currentUser;
         if (!user) {
-            if (typeof showToast === 'function') showToast('Please login first.', 'error');
+            showToast('Please login first.', 'error');
             return;
         }
+
+        const portfolioId = sellPortfolioSelect ? sellPortfolioSelect.value : 'main';
 
         let totalQty = sellBatch.reduce((sum, item) => sum + item.sellQty, 0);
         let totalValue = sellBatch.reduce((sum, item) => sum + item.totalValue, 0);
@@ -539,7 +579,7 @@
             if (!selectedDate) selectedDate = getBangladeshDateString();
             const transactionDate = getUTCFromLocalDate(selectedDate);
             if (isNaN(transactionDate.getTime())) {
-                if (typeof showToast === 'function') showToast('Invalid date!', 'error');
+                showToast('Invalid date!', 'error');
                 return;
             }
 
@@ -557,21 +597,34 @@
                     commission: commission,
                     commissionPercent: commissionManager.getPercent(),
                     netReceived: saleValue - commission,
-                    date: transactionDate.toISOString().split('T')[0]
+                    date: transactionDate.toISOString().split('T')[0],
+                    portfolioId: portfolioId
                 });
                 processedCount++;
             }
 
-            if (typeof showToast === 'function') showToast(`✅ ${processedCount} sale(s) processed successfully!`, 'success');
+            showToast(`✅ ${processedCount} sale(s) processed successfully!`, 'success');
 
             sellBatch = [];
             renderBatchTable();
 
             resetUnifiedCache();
             resetUnifiedPriceCache();
-            if (typeof loadUnifiedStockTable === 'function') await loadUnifiedStockTable(user.uid);
-            if (typeof loadPortfolioAnalysisTable === 'function') await loadPortfolioAnalysisTable(user.uid, true);
-            if (typeof loadDashboardData === 'function') await loadDashboardData();
+            const tickers = sellBatch.map(item => item.ticker);
+            tickers.forEach(t => {
+                CacheManager.remove(`price_${t}`);
+                CacheManager.remove(`price_detail_${t}`);
+            });
+            
+            if (typeof loadDashboardData === 'function') {
+                loadDashboardData(portfolioId, true);
+            }
+            if (typeof loadPortfolioAnalysisTable === 'function') {
+                loadPortfolioAnalysisTable(user.uid, portfolioId, true);
+            }
+            if (typeof loadUnifiedStockTable === 'function') {
+                loadUnifiedStockTable(user.uid);
+            }
 
             const sellTicker = document.getElementById('sell-ticker');
             if (sellTicker) sellTicker.value = '';
@@ -582,7 +635,7 @@
             }
         } catch (error) {
             console.error('Batch sell error:', error);
-            if (typeof showToast === 'function') showToast('❌ Failed to execute batch sales.', 'error');
+            showToast('❌ Failed to execute batch sales.', 'error');
         } finally {
             if (btn) {
                 btn.disabled = false;
@@ -597,7 +650,7 @@
         if (!confirm('Clear all items from batch?')) return;
         sellBatch = [];
         renderBatchTable();
-        if (typeof showToast === 'function') showToast('Batch cleared', 'info');
+        showToast('Batch cleared', 'info');
     };
 
     // Sell ট্যাব ইভেন্ট
@@ -645,10 +698,10 @@
     }
 
     // Sell History
-    async function loadSellHistory(ticker) {
+    async function loadSellHistory(ticker, portfolioId = null) {
         const user = auth.currentUser;
         if (!user) {
-            if (typeof showToast === 'function') showToast('Please login first', 'error');
+            showToast('Please login first', 'error');
             return;
         }
 
@@ -677,12 +730,13 @@
             let sellData = [];
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
-                    const { data } = await supabase
-                        .from('sales_history')
+                    let sQuery = supabase.from('sales_history')
                         .select('*')
                         .eq('user_id', user.uid)
                         .eq('share_name', ticker)
                         .order('date', { ascending: false });
+                    if (portfolioId) sQuery = sQuery.eq('portfolio_id', portfolioId);
+                    const { data } = await sQuery;
                     if (data) sellData = data;
                 } catch (e) {
                     console.warn('Supabase sell history fetch failed, trying Firebase...', e);
@@ -691,11 +745,12 @@
 
             if (sellData.length === 0 && typeof db !== 'undefined') {
                 try {
-                    const sellSnapshot = await db.collection('sales_history')
+                    let sQuery = db.collection('sales_history')
                         .where('userId', '==', user.uid)
                         .where('shareName', '==', ticker)
-                        .orderBy('date', 'desc')
-                        .get();
+                        .orderBy('date', 'desc');
+                    if (portfolioId) sQuery = sQuery.where('portfolioId', '==', portfolioId);
+                    const sellSnapshot = await sQuery.get();
                     sellSnapshot.forEach(doc => {
                         const data = doc.data();
                         const parsedDate = safeParseDate(data.date);
@@ -798,7 +853,8 @@
                     div.addEventListener('click', function() {
                         searchInput.value = stock;
                         suggestionBox.classList.add('hidden');
-                        loadSellHistory(stock);
+                        const portfolioId = document.getElementById('sell-portfolio-select')?.value || 'main';
+                        loadSellHistory(stock, portfolioId);
                     });
                     suggestionBox.appendChild(div);
                 });
@@ -819,7 +875,8 @@
                 const ticker = this.value.trim().toUpperCase();
                 suggestionBox.classList.add('hidden');
                 if (ticker && dseStocks.includes(ticker)) {
-                    loadSellHistory(ticker);
+                    const portfolioId = document.getElementById('sell-portfolio-select')?.value || 'main';
+                    loadSellHistory(ticker, portfolioId);
                 } else {
                     loadSellHistory('');
                 }
@@ -863,7 +920,8 @@
                     div.addEventListener('click', () => {
                         analysisTickerInput.value = stock;
                         analysisSuggestionBox.classList.add('hidden');
-                        generateAnalysisStatement(stock);
+                        const portfolioId = document.getElementById('analysis-portfolio-select')?.value || null;
+                        generateAnalysisStatement(stock, portfolioId);
                     });
                     analysisSuggestionBox.appendChild(div);
                 });
@@ -884,7 +942,7 @@
         });
     }
 
-    async function generateAnalysisStatement(ticker) {
+    async function generateAnalysisStatement(ticker, portfolioId = null) {
         const user = auth.currentUser;
         if (!user) return;
 
@@ -893,7 +951,7 @@
         if (analysisResultContainer) analysisResultContainer.classList.remove('hidden');
 
         try {
-            const unifiedData = await unifiedEngine.calculate(user.uid, true);
+            const unifiedData = await unifiedEngine.calculate(user.uid, portfolioId, true);
             const stockData = unifiedData.stockDetails.find(s => s.ticker === ticker);
 
             if (!stockData || stockData.lots.length === 0) {
@@ -1047,7 +1105,10 @@ window.saveEditedRecord = async function() {
     const qty = Number(document.getElementById('edit-input-qty').value);
     const price = Number(document.getElementById('edit-input-price').value);
     const ticker = document.getElementById('modal-ticker-title')?.innerText || '';
-    if (!qty || qty <= 0 || !price || price <= 0) return alert("সঠিক সংখ্যা দিন।");
+    if (!qty || qty <= 0 || !price || price <= 0) {
+        showToast("Please enter valid quantity and price.", "warning");
+        return;
+    }
 
     try {
         if (type === 'BUY') {
@@ -1062,6 +1123,7 @@ window.saveEditedRecord = async function() {
             }
             resetUnifiedCache();
             resetUnifiedPriceCache();
+            showToast("✅ Record updated!", "success");
         } else {
             if (typeof supabase !== 'undefined' && supabase) {
                 const { data } = await supabase
@@ -1088,21 +1150,24 @@ window.saveEditedRecord = async function() {
                     profitOrLoss: (price - originalBuyPrice) * qty
                 });
             }
+            showToast("✅ Record updated!", "success");
         }
-        alert("রেকর্ড ইডিট করা হয়েছে!");
         closeLedgerModal();
         if (auth.currentUser) {
             if (typeof loadUnifiedStockTable === 'function') loadUnifiedStockTable(auth.currentUser.uid);
             if (typeof generateAnalysisStatement === 'function') generateAnalysisStatement(ticker);
+            if (typeof loadPortfolioAnalysisTable === 'function') {
+                loadPortfolioAnalysisTable(auth.currentUser.uid, null, true);
+            }
         }
     } catch (error) {
         console.error(error);
-        alert("ইডিট আপডেট করা যায়নি।");
+        showToast("Failed to update record.", "error");
     }
 };
 
 window.deleteRecord = async function(id, type, ticker) {
-    if (!confirm(`ডিলিট করবেন?`)) return;
+    if (!confirm(`Are you sure you want to delete this ${type} record?`)) return;
     try {
         if (type === 'BUY') {
             if (typeof supabase !== 'undefined' && supabase) {
@@ -1121,15 +1186,18 @@ window.deleteRecord = async function(id, type, ticker) {
                 await db.collection("sales_history").doc(id).delete();
             }
         }
-        alert("ডিলিট করা হয়েছে!");
+        showToast("🗑️ Deleted successfully!", "info");
         closeLedgerModal();
         if (auth.currentUser) {
             if (typeof loadUnifiedStockTable === 'function') loadUnifiedStockTable(auth.currentUser.uid);
             if (typeof generateAnalysisStatement === 'function') generateAnalysisStatement(ticker);
+            if (typeof loadPortfolioAnalysisTable === 'function') {
+                loadPortfolioAnalysisTable(auth.currentUser.uid, null, true);
+            }
         }
     } catch (error) {
         console.error(error);
-        alert("ডিলিট সম্ভব হয়নি।");
+        showToast("Failed to delete.", "error");
     }
 };
 
@@ -1141,7 +1209,7 @@ window.closeLedgerModal = function() {
 // ==========================================
 // ৫. ইউনিফাইড স্টক টেবিল
 // ==========================================
-async function loadUnifiedStockTable(userId) {
+async function loadUnifiedStockTable(userId, portfolioId = null) {
     if (!userId) return;
     const tableBody = document.getElementById('portfolio-table-body');
     if (!tableBody) return;
@@ -1156,16 +1224,14 @@ async function loadUnifiedStockTable(userId) {
             // Supabase
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
-                    const { data: pData } = await supabase
-                        .from('portfolios')
-                        .select('*')
-                        .eq('user_id', userId);
+                    let pQuery = supabase.from('portfolios').select('*').eq('user_id', userId);
+                    if (portfolioId) pQuery = pQuery.eq('portfolio_id', portfolioId);
+                    const { data: pData } = await pQuery;
                     if (pData) portfolioData = pData;
 
-                    const { data: sData } = await supabase
-                        .from('sales_history')
-                        .select('*')
-                        .eq('user_id', userId);
+                    let sQuery = supabase.from('sales_history').select('*').eq('user_id', userId);
+                    if (portfolioId) sQuery = sQuery.eq('portfolio_id', portfolioId);
+                    const { data: sData } = await sQuery;
                     if (sData) salesData = sData;
                 } catch (e) {
                     console.warn('Supabase fetch failed, trying Firebase...', e);
@@ -1175,7 +1241,9 @@ async function loadUnifiedStockTable(userId) {
             // Firebase ফ্যালব্যাক
             if (portfolioData.length === 0 && typeof db !== 'undefined') {
                 try {
-                    const snap = await db.collection('portfolios').where('userId', '==', userId).get();
+                    let pQuery = db.collection('portfolios').where('userId', '==', userId);
+                    if (portfolioId) pQuery = pQuery.where('portfolioId', '==', portfolioId);
+                    const snap = await pQuery.get();
                     snap.forEach(doc => {
                         const data = doc.data();
                         portfolioData.push({
@@ -1196,7 +1264,9 @@ async function loadUnifiedStockTable(userId) {
             }
             if (salesData.length === 0 && typeof db !== 'undefined') {
                 try {
-                    const snap = await db.collection('sales_history').where('userId', '==', userId).get();
+                    let sQuery = db.collection('sales_history').where('userId', '==', userId);
+                    if (portfolioId) sQuery = sQuery.where('portfolioId', '==', portfolioId);
+                    const snap = await sQuery.get();
                     snap.forEach(doc => {
                         const data = doc.data();
                         salesData.push({
@@ -1448,11 +1518,11 @@ function updateCompanyCount() {
     if (footer && !document.getElementById('company-count-row')) {
         const newRow = document.createElement('tr');
         newRow.id = 'company-count-row';
-        newRow.innerHTML = `<td colspan="10">📊 মোট কোম্পানি: ${companyCount} টি</td>`;
+        newRow.innerHTML = `<td colspan="10">📊 Total Companies: ${companyCount}</td>`;
         footer.appendChild(newRow);
     } else {
         const countRow = document.getElementById('company-count-row');
-        if (countRow) countRow.innerHTML = `<td colspan="10">📊 মোট কোম্পানি: ${companyCount} টি</td>`;
+        if (countRow) countRow.innerHTML = `<td colspan="10">📊 Total Companies: ${companyCount}</td>`;
     }
 }
 
@@ -1467,23 +1537,23 @@ window.loadUnifiedStockTable = loadUnifiedStockTable;
 window.refreshStockTable = function() {
     const user = auth.currentUser;
     if (!user) {
-        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        showToast('Please login first', 'error');
         return;
     }
-    if (typeof showToast === 'function') showToast('🔄 Refreshing stock table...', 'info');
+    showToast('🔄 Refreshing stock table...', 'info');
     loadUnifiedStockTable(user.uid).then(() => {
-        if (typeof showToast === 'function') showToast('✅ Stock table refreshed!', 'success');
+        showToast('✅ Stock table refreshed!', 'success');
     }).catch(() => {
-        if (typeof showToast === 'function') showToast('❌ Refresh failed', 'error');
+        showToast('❌ Refresh failed', 'error');
     });
 };
 
 // ==========================================
-// ৬. ডিভিডেন্ড ম্যানেজমেন্ট
+// ৬. ডিভিডেন্ড ম্যানেজমেন্ট (পোর্টফোলিও আইডি সাপোর্ট)
 // ==========================================
 let currentEditingDividendId = null;
 
-async function loadDividendData() {
+async function loadDividendData(portfolioId = null) {
     const user = auth.currentUser;
     if (!user) {
         const tb = document.getElementById('dividend-table-body');
@@ -1497,10 +1567,9 @@ async function loadDividendData() {
         let dividendRecords = [];
         if (typeof supabase !== 'undefined' && supabase) {
             try {
-                const { data } = await supabase
-                    .from('dividend_records')
-                    .select('*')
-                    .eq('user_id', user.uid);
+                let query = supabase.from('dividend_records').select('*').eq('user_id', user.uid);
+                if (portfolioId) query = query.eq('portfolio_id', portfolioId);
+                const { data } = await query;
                 if (data) dividendRecords = data;
             } catch (e) {
                 console.warn('Supabase dividend fetch failed, trying Firebase...', e);
@@ -1509,9 +1578,9 @@ async function loadDividendData() {
 
         if (dividendRecords.length === 0 && typeof db !== 'undefined') {
             try {
-                const snapshot = await db.collection('dividend_records')
-                    .where('userId', '==', user.uid)
-                    .get();
+                let query = db.collection('dividend_records').where('userId', '==', user.uid);
+                if (portfolioId) query = query.where('portfolioId', '==', portfolioId);
+                const snapshot = await query.get();
                 snapshot.forEach(doc => {
                     const data = doc.data();
                     const parsedCreatedAt = safeParseDate(data.createdAt);
@@ -1522,6 +1591,7 @@ async function loadDividendData() {
                         share_name: data.shareName,
                         stock_percent: data.stockPercent || 0,
                         cash_amount: data.cashAmount || 0,
+                        portfolio_id: data.portfolioId || 'main',
                         created_at: parsedCreatedAt ? parsedCreatedAt.toISOString() : null,
                         updated_at: parsedUpdatedAt ? parsedUpdatedAt.toISOString() : null
                     });
@@ -1539,27 +1609,25 @@ async function loadDividendData() {
         let portfolioData = [];
         if (typeof supabase !== 'undefined' && supabase) {
             try {
-                const { data } = await supabase
-                    .from('portfolios')
-                    .select('share_name, quantity')
-                    .eq('user_id', user.uid);
+                let query = supabase.from('portfolios').select('share_name, quantity, portfolio_id').eq('user_id', user.uid);
+                if (portfolioId) query = query.eq('portfolio_id', portfolioId);
+                const { data } = await query;
                 if (data) portfolioData = data;
             } catch (e) { /* ignore */ }
         }
         if (portfolioData.length === 0 && typeof db !== 'undefined') {
             try {
-                const snap = await db.collection('portfolios')
-                    .where('userId', '==', user.uid)
-                    .get();
+                let query = db.collection('portfolios').where('userId', '==', user.uid);
+                if (portfolioId) query = query.where('portfolioId', '==', portfolioId);
+                const snap = await query.get();
                 snap.forEach(doc => {
                     const data = doc.data();
-                    portfolioData.push({ share_name: data.shareName, quantity: data.quantity });
+                    portfolioData.push({ share_name: data.shareName, quantity: data.quantity, portfolio_id: data.portfolioId || 'main' });
                 });
             } catch (e) { /* ignore */ }
         }
 
         const remainingQtyMap = new Map();
-        const avgPriceMap = new Map();
         portfolioData.forEach(item => {
             const ticker = item.share_name;
             const qty = item.quantity || 0;
@@ -1621,9 +1689,10 @@ window.deleteDividendRecord = async function(docId, event) {
             await db.collection('dividend_records').doc(docId).delete();
         }
         loadDividendData();
+        showToast('🗑️ Deleted successfully!', 'info');
     } catch (e) {
         console.error(e);
-        alert('Delete failed');
+        showToast('Delete failed', 'error');
     }
 };
 
@@ -1644,12 +1713,19 @@ window.openDividendEditModal = function(docId, ticker, stockPercent, cashAmount)
     if (suggestionBox) suggestionBox.classList.add('hidden');
 };
 
-async function saveDividendData(ticker, stockPercent, cashAmount, editId = null) {
+async function saveDividendData(ticker, stockPercent, cashAmount, editId = null, portfolioId = null) {
     const user = auth.currentUser;
-    if (!user) { alert('Login first'); return false; }
-    if (!ticker) { alert('Select share'); return false; }
+    if (!user) { showToast('Please login first', 'error'); return false; }
+    if (!ticker) { showToast('Select share', 'warning'); return false; }
 
     try {
+        const data = {
+            shareName: ticker,
+            stockPercent: Number(stockPercent),
+            cashAmount: Number(cashAmount),
+            portfolioId: portfolioId || 'main'
+        };
+
         if (editId) {
             if (typeof supabase !== 'undefined' && supabase) {
                 await supabase
@@ -1657,6 +1733,7 @@ async function saveDividendData(ticker, stockPercent, cashAmount, editId = null)
                     .update({
                         stock_percent: Number(stockPercent),
                         cash_amount: Number(cashAmount),
+                        portfolio_id: portfolioId || 'main',
                         updated_at: new Date().toISOString()
                     })
                     .eq('id', editId);
@@ -1665,21 +1742,19 @@ async function saveDividendData(ticker, stockPercent, cashAmount, editId = null)
                 await db.collection('dividend_records').doc(editId).update({
                     stockPercent: Number(stockPercent),
                     cashAmount: Number(cashAmount),
+                    portfolioId: portfolioId || 'main',
                     updatedAt: new Date()
                 });
             }
         } else {
-            await saveDividendToBoth(user.uid, {
-                shareName: ticker,
-                stockPercent: Number(stockPercent),
-                cashAmount: Number(cashAmount)
-            });
+            await saveDividendToBoth(user.uid, data);
         }
-        await loadDividendData();
+        await loadDividendData(portfolioId);
+        showToast('✅ Dividend saved successfully!', 'success');
         return true;
     } catch (error) {
         console.error(error);
-        alert('Error saving');
+        showToast('Error saving dividend', 'error');
         return false;
     }
 }
@@ -1721,8 +1796,9 @@ async function saveDividendData(ticker, stockPercent, cashAmount, editId = null)
             const ticker = document.getElementById('div-search-ticker')?.value.trim().toUpperCase() || '';
             const stockPercent = document.getElementById('div-stock-percent')?.value || 0;
             const cashAmount = document.getElementById('div-cash-amount')?.value || 0;
-            if (!ticker) { alert('Select share'); return; }
-            const success = await saveDividendData(ticker, stockPercent, cashAmount, currentEditingDividendId);
+            const portfolioId = document.getElementById('dividend-portfolio-select')?.value || 'main';
+            if (!ticker) { showToast('Select share', 'warning'); return; }
+            const success = await saveDividendData(ticker, stockPercent, cashAmount, currentEditingDividendId, portfolioId);
             if (success) {
                 const searchInput = document.getElementById('div-search-ticker');
                 const stockInput = document.getElementById('div-stock-percent');
@@ -1736,6 +1812,13 @@ async function saveDividendData(ticker, stockPercent, cashAmount, editId = null)
                     saveBtn.style.background = '#10b981';
                 }
                 currentEditingDividendId = null;
+                // রিলোড
+                if (typeof loadDividendData === 'function') {
+                    loadDividendData(portfolioId);
+                }
+                if (typeof loadDashboardData === 'function') {
+                    loadDashboardData(portfolioId, true);
+                }
             }
         });
     }
@@ -1766,7 +1849,8 @@ async function loadStatementData() {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;">⏳ Loading...</td></tr>`;
 
     try {
-        const unifiedData = await unifiedEngine.calculate(user.uid, true);
+        const portfolioId = document.getElementById('statement-portfolio-select')?.value || null;
+        const unifiedData = await unifiedEngine.calculate(user.uid, portfolioId, true);
         const stockData = unifiedData.stockDetails.find(s => s.ticker === ticker);
 
         if (!stockData || stockData.lots.length === 0) {
@@ -1883,7 +1967,7 @@ function initStatementSearch() {
             if (ticker && dseStocks.includes(ticker)) {
                 loadStatementData();
             } else {
-                if (typeof showToast === 'function') showToast('Share not found. Please select from suggestions.', 'warning');
+                showToast('Share not found. Please select from suggestions.', 'warning');
             }
         }
     });
@@ -1899,12 +1983,12 @@ window.loadStatementData = loadStatementData;
 window.initStatementSearch = initStatementSearch;
 
 // ==========================================
-// ৮. Buy History
+// ৮. Buy History (পোর্টফোলিও আইডি সাপোর্ট)
 // ==========================================
-async function loadBuyHistory(ticker) {
+async function loadBuyHistory(ticker, portfolioId = null) {
     const user = auth.currentUser;
     if (!user) {
-        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        showToast('Please login first', 'error');
         return;
     }
 
@@ -1933,12 +2017,14 @@ async function loadBuyHistory(ticker) {
         let buyData = [];
         if (typeof supabase !== 'undefined' && supabase) {
             try {
-                const { data } = await supabase
+                let query = supabase
                     .from('portfolios')
                     .select('*')
                     .eq('user_id', user.uid)
                     .eq('share_name', ticker)
                     .order('date', { ascending: false });
+                if (portfolioId) query = query.eq('portfolio_id', portfolioId);
+                const { data } = await query;
                 if (data) buyData = data;
             } catch (e) {
                 console.warn('Supabase buy history fetch failed, trying Firebase...', e);
@@ -1947,11 +2033,12 @@ async function loadBuyHistory(ticker) {
 
         if (buyData.length === 0 && typeof db !== 'undefined') {
             try {
-                const buySnapshot = await db.collection('portfolios')
+                let query = db.collection('portfolios')
                     .where('userId', '==', user.uid)
                     .where('shareName', '==', ticker)
-                    .orderBy('date', 'desc')
-                    .get();
+                    .orderBy('date', 'desc');
+                if (portfolioId) query = query.where('portfolioId', '==', portfolioId);
+                const buySnapshot = await query.get();
                 buySnapshot.forEach(doc => {
                     const data = doc.data();
                     const parsedDate = safeParseDate(data.date);
@@ -2038,13 +2125,13 @@ window.editBuyRecord = async function(docId) {
                     buyPrice: parseFloat(newPrice)
                 });
             }
-            if (typeof showToast === 'function') showToast('✅ Updated successfully!', 'success');
+            showToast('✅ Updated successfully!', 'success');
             const searchInput = document.getElementById('buy-history-search');
             if (searchInput) loadBuyHistory(searchInput.value);
             resetUnifiedCache();
             resetUnifiedPriceCache();
         } catch (err) {
-            if (typeof showToast === 'function') showToast('❌ Update failed: ' + err.message, 'error');
+            showToast('❌ Update failed: ' + err.message, 'error');
         }
     }
 };
@@ -2058,13 +2145,13 @@ window.deleteBuyRecord = async function(docId) {
         if (typeof db !== 'undefined') {
             await db.collection('portfolios').doc(docId).delete();
         }
-        if (typeof showToast === 'function') showToast('✅ Deleted successfully!', 'success');
+        showToast('✅ Deleted successfully!', 'success');
         const searchInput = document.getElementById('buy-history-search');
         if (searchInput) loadBuyHistory(searchInput.value);
         resetUnifiedCache();
         resetUnifiedPriceCache();
     } catch (err) {
-        if (typeof showToast === 'function') showToast('❌ Delete failed: ' + err.message, 'error');
+        showToast('❌ Delete failed: ' + err.message, 'error');
     }
 };
 
@@ -2091,7 +2178,8 @@ function initBuyHistorySearch() {
                 div.addEventListener('click', function() {
                     searchInput.value = stock;
                     suggestionBox.classList.add('hidden');
-                    loadBuyHistory(stock);
+                    const portfolioId = document.getElementById('buy-history-portfolio-select')?.value || null;
+                    loadBuyHistory(stock, portfolioId);
                 });
                 suggestionBox.appendChild(div);
             });
@@ -2112,113 +2200,13 @@ function initBuyHistorySearch() {
             const ticker = this.value.trim().toUpperCase();
             suggestionBox.classList.add('hidden');
             if (ticker && dseStocks.includes(ticker)) {
-                loadBuyHistory(ticker);
+                const portfolioId = document.getElementById('buy-history-portfolio-select')?.value || null;
+                loadBuyHistory(ticker, portfolioId);
             } else {
                 loadBuyHistory('');
             }
         }
     });
-}
-// ==========================================
-// 📥 CSV Export Function
-// ==========================================
-window.downloadTableAsCSV = function() {
-    const tableBody = document.getElementById('portfolio-table-body');
-    if (!tableBody) {
-        if (typeof showToast === 'function') showToast('Table not found', 'warning');
-        return;
-    }
-    const rows = tableBody.querySelectorAll('tr');
-    if (rows.length === 0 || rows[0].innerText.includes('No trade history')) {
-        if (typeof showToast === 'function') showToast('No data to export', 'warning');
-        return;
-    }
-
-    const headers = ['Share Name', 'Buy Qty', 'Avg Buy', 'Remaining', 'Current', 'Unrealized', 'Unrealized%', 'Sell Qty', 'Sell Price', 'Realized', 'Daily Change %', 'Daily G/L'];
-    let csv = headers.join(',') + '\n';
-
-    rows.forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length > 0 && !row.innerText.includes('TOTAL')) {
-            const rowData = [];
-            cells.forEach(cell => {
-                let text = cell.innerText.trim().replace(/,/g, '').replace(/[৳,]/g, '');
-                rowData.push(text);
-            });
-            csv += rowData.join(',') + '\n';
-        }
-    });
-
-    try {
-        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `portfolio_${new Date().toISOString().slice(0,10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(link.href);
-        if (typeof showToast === 'function') showToast('✅ CSV downloaded!', 'success');
-    } catch (err) {
-        console.error('CSV download error:', err);
-        if (typeof showToast === 'function') showToast('❌ Download failed', 'error');
-    }
-};
-
-function initBuyTabs() {
-    const tabsContainer = document.querySelector('.buy-tabs');
-    const buyPanel = document.getElementById('buy-tab-content');
-    const historyPanel = document.getElementById('buy-history-tab-content');
-
-    if (!tabsContainer || !buyPanel || !historyPanel) {
-        console.warn('Buy tabs elements not found');
-        return;
-    }
-
-    // ইভেন্ট ডেলিগেশন – পুরো কন্টেইনারে ক্লিক শুনি
-    tabsContainer.addEventListener('click', function(e) {
-        const tabBtn = e.target.closest('.buy-tab-btn');
-        if (!tabBtn) return;
-
-        const target = tabBtn.getAttribute('data-tab');
-        if (!target) return;
-
-        // সব বাটন থেকে active ক্লাস ও স্টাইল রিমুভ
-        const allTabs = tabsContainer.querySelectorAll('.buy-tab-btn');
-        allTabs.forEach(t => {
-            t.classList.remove('active');
-            t.style.background = 'transparent';
-            t.style.color = 'var(--text-primary)';
-            t.style.border = '1px solid var(--border-color)';
-            t.style.borderBottom = 'none';
-        });
-
-        // সক্রিয় বাটন চিহ্নিত
-        tabBtn.classList.add('active');
-        tabBtn.style.background = 'var(--primary-color)';
-        tabBtn.style.color = 'white';
-        tabBtn.style.border = 'none';
-
-        // প্যানেল লুকান
-        buyPanel.style.display = 'none';
-        historyPanel.style.display = 'none';
-
-        if (target === 'buy') {
-            buyPanel.style.display = 'block';
-        } else if (target === 'history') {
-            historyPanel.style.display = 'block';
-            // সার্চ ফিল্ড ক্লিয়ার করে Buy History লোড করুন
-            const searchInput = document.getElementById('buy-history-search');
-            if (searchInput) {
-                searchInput.value = '';
-                if (typeof loadBuyHistory === 'function') {
-                    loadBuyHistory(''); // খালি স্ট্রিং দিলে টেবিল ক্লিয়ার হবে
-                }
-            }
-        }
-    });
-
-    console.log('✅ Buy tabs initialized with event delegation');
 }
 
 window.loadBuyHistory = loadBuyHistory;
@@ -2226,12 +2214,12 @@ window.initBuyHistorySearch = initBuyHistorySearch;
 window.initBuyTabs = initBuyTabs;
 
 // ==========================================
-// ৯. Buy/Sell Suggestion
+// ৯. Buy/Sell Suggestion (পোর্টফোলিও ফিল্টার সহ)
 // ==========================================
-async function loadSuggestionData(threshold = null) {
+async function loadSuggestionData(threshold = null, portfolioId = null) {
     const user = auth.currentUser;
     if (!user) {
-        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        showToast('Please login first', 'error');
         return;
     }
 
@@ -2250,7 +2238,8 @@ async function loadSuggestionData(threshold = null) {
     sellTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;">⏳ Loading sell suggestions...</td></tr>`;
 
     try {
-        const unifiedData = await unifiedEngine.calculate(user.uid);
+        // 🔥 portfolioId পাস করুন (null = গ্র্যান্ড পোর্টফোলিও)
+        const unifiedData = await unifiedEngine.calculate(user.uid, portfolioId || null, true);
         if (!unifiedData || unifiedData.stockDetails.length === 0) {
             buyTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--text-muted);">No stocks in portfolio.</td></tr>`;
             sellTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--text-muted);">No stocks in portfolio.</td></tr>`;
@@ -2301,6 +2290,61 @@ async function loadSuggestionData(threshold = null) {
     }
 }
 
+// ==========================================
+// Buy ট্যাব ইনিশিয়ালাইজেশন
+// ==========================================
+function initBuyTabs() {
+    const tabsContainer = document.querySelector('.buy-tabs');
+    const buyPanel = document.getElementById('buy-tab-content');
+    const historyPanel = document.getElementById('buy-history-tab-content');
+
+    if (!tabsContainer || !buyPanel || !historyPanel) {
+        console.warn('Buy tabs elements not found');
+        return;
+    }
+
+    tabsContainer.addEventListener('click', function(e) {
+        const tabBtn = e.target.closest('.buy-tab-btn');
+        if (!tabBtn) return;
+        const target = tabBtn.getAttribute('data-tab');
+        if (!target) return;
+
+        const allTabs = tabsContainer.querySelectorAll('.buy-tab-btn');
+        allTabs.forEach(t => {
+            t.classList.remove('active');
+            t.style.background = 'transparent';
+            t.style.color = 'var(--text-primary)';
+            t.style.border = '1px solid var(--border-color)';
+            t.style.borderBottom = 'none';
+        });
+
+        tabBtn.classList.add('active');
+        tabBtn.style.background = 'var(--primary-color)';
+        tabBtn.style.color = 'white';
+        tabBtn.style.border = 'none';
+
+        buyPanel.style.display = 'none';
+        historyPanel.style.display = 'none';
+
+        if (target === 'buy') {
+            buyPanel.style.display = 'block';
+        } else if (target === 'history') {
+            historyPanel.style.display = 'block';
+            const searchInput = document.getElementById('buy-history-search');
+            if (searchInput) {
+                searchInput.value = '';
+                if (typeof loadBuyHistory === 'function') {
+                    loadBuyHistory('');
+                }
+            }
+        }
+    });
+
+    console.log('✅ Buy tabs initialized');
+}
+
+window.initBuyTabs = initBuyTabs;
+
 function renderSuggestionTable(tbody, data, type) {
     if (!data || data.length === 0) {
         const threshold = document.getElementById('suggestion-threshold')?.value || 50;
@@ -2342,22 +2386,23 @@ function initSuggestionEvents() {
 
     applyBtn.addEventListener('click', function() {
         const val = parseFloat(input.value) || 50;
-        loadSuggestionData(val);
+        const portfolioId = document.getElementById('suggestion-portfolio-select')?.value || null;
+        loadSuggestionData(val, portfolioId);
     });
 
     input.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
             const val = parseFloat(this.value) || 50;
-            loadSuggestionData(val);
+            const portfolioId = document.getElementById('suggestion-portfolio-select')?.value || null;
+            loadSuggestionData(val, portfolioId);
         }
     });
 
     input.addEventListener('change', function() {
         const val = parseFloat(this.value) || 50;
-        if (val >= 1 && val <= 100) {
-            loadSuggestionData(val);
-        }
+        const portfolioId = document.getElementById('suggestion-portfolio-select')?.value || null;
+        loadSuggestionData(val, portfolioId);
     });
 }
 
@@ -2387,6 +2432,45 @@ document.addEventListener('DOMContentLoaded', function() {
     if (clearBtn) {
         clearBtn.addEventListener('click', window.clearBatch);
     }
+
+    // পোর্টফোলিও সিলেক্টর ইভেন্ট – Buy, Sell, Analysis, History, Suggestion, Dividend
+    const portfolioSelectors = document.querySelectorAll('[id$="-portfolio-select"]');
+    portfolioSelectors.forEach(select => {
+        select.addEventListener('change', function() {
+            const id = this.id;
+            const portfolioId = this.value;
+            if (id === 'buy-portfolio-select') {
+                // Buy-তে কিছু করার নেই
+            } else if (id === 'sell-portfolio-select') {
+                const ticker = document.getElementById('sell-ticker')?.value.trim().toUpperCase();
+                if (ticker) {
+                    fetchHoldingsForSell(ticker, portfolioId);
+                }
+            } else if (id === 'analysis-portfolio-select') {
+                const ticker = document.getElementById('analysis-ticker')?.value.trim().toUpperCase();
+                if (ticker) {
+                    generateAnalysisStatement(ticker, portfolioId);
+                }
+            } else if (id === 'buy-history-portfolio-select') {
+                const ticker = document.getElementById('buy-history-search')?.value.trim().toUpperCase();
+                if (ticker) {
+                    loadBuyHistory(ticker, portfolioId);
+                }
+            } else if (id === 'sell-history-portfolio-select') {
+                const ticker = document.getElementById('sell-history-search')?.value.trim().toUpperCase();
+                if (ticker) {
+                    loadSellHistory(ticker, portfolioId);
+                }
+            } else if (id === 'statement-portfolio-select') {
+                loadStatementData();
+            } else if (id === 'suggestion-portfolio-select') {
+                const threshold = document.getElementById('suggestion-threshold')?.value || 50;
+                loadSuggestionData(parseFloat(threshold), portfolioId);
+            } else if (id === 'dividend-portfolio-select') {
+                loadDividendData(portfolioId);
+            }
+        });
+    });
 });
 
-console.log('✅ portfolio.js loaded successfully (Supabase優先 + Firebase ফ্যালব্যাক + ডুয়াল রাইট)');
+console.log('✅ portfolio.js loaded successfully (Supabase + Firebase ফ্যালব্যাক + ডুয়াল রাইট + পোর্টফোলিও আইডি সাপোর্ট)');

@@ -18,10 +18,16 @@ window.loadRecordDateSection = async function() {
     attachRecFilterEvents();
 };
 
-// ডাটা লোড (cse_detailed_data থেকে)
 // ডাটা লোড (cse_detailed_data থেকে) – ডুপ্লিকেট বাদ দিয়ে ও daysDiff সহ
 async function loadAllRecordData() {
     try {
+        if (typeof db === 'undefined') {
+            console.warn('Firebase not available');
+            const tbody = document.getElementById('sec-record-date-tbody');
+            if (tbody) tbody.innerHTML = `<tr><td colspan="4">Firebase not available</td></tr>`;
+            return;
+        }
+
         const snapshot = await db.collection('cse_detailed_data')
             .where('record_date', '!=', null)
             .get();
@@ -81,11 +87,14 @@ async function loadAllRecordData() {
     } catch (err) {
         console.error('Error loading record dates:', err);
         allRecordData = [];
+        const tbody = document.getElementById('sec-record-date-tbody');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4">Error loading data: ${err.message}</td></tr>`;
     }
 }
 
 // রেকর্ড ডেট পার্স হেল্পার
 function parseRecordDate(dateStr) {
+    if (!dateStr) return null;
     const cleaned = dateStr.replace(/,/g, '').trim();
     const date = new Date(cleaned);
     if (!isNaN(date.getTime())) return date;
@@ -128,7 +137,7 @@ function renderRecTable() {
     const tbody = document.getElementById('sec-record-date-tbody');
     if (!tbody) return;
     if (filteredData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4">No data found.<\/td><\/tr>`;
+        tbody.innerHTML = `<tr><td colspan="4">No data found.</td></tr>`;
         return;
     }
     
@@ -141,7 +150,7 @@ function renderRecTable() {
         
         html += `<tr>
                     <td style="padding: 8px; cursor: pointer; color: var(--primary-color); text-decoration: underline;" 
-                        onclick="openStockDetailModal('${item.code}')">${item.code}</td>
+                        onclick="if(typeof openStockDetailModal === 'function') openStockDetailModal('${item.code}')">${item.code}</td>
                     <td style="padding: 8px;">${item.recordDate}</td>
                     <td style="padding: 8px;">${item.dividend}</td>
                     <td style="padding: 8px;">${daysText}</td>
@@ -255,4 +264,7 @@ function attachRecTabEvents() {
         };
     }
 }
+
+// গ্লোবালি এক্সপোজ
 window.loadRecordDateSection = loadRecordDateSection;
+console.log('✅ record-date.js loaded successfully');
