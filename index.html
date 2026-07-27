@@ -614,9 +614,9 @@
                         <span style="font-size: 13px; color: var(--text-secondary);">🔄 Auto Refresh (30 min)</span>
                         <span id="next-refresh-timer" style="font-size: 11px; color: var(--text-muted);"></span>
                     </div>
-                    <button id="btn-manual-reload" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
-                        🔄 Manual Refresh
-                    </button>
+                  <button id="btn-manual-reload" onclick="manualReloadDashboard()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+    🔄 Manual Refresh
+</button>
                 </div>
                 
                 <div class="portfolio-summary-cards">
@@ -656,10 +656,18 @@
                 </div>
 
                 <div class="dashboard-performance" style="background: var(--bg-secondary); border-radius: 12px; margin-top: 20px; overflow: hidden; box-shadow: var(--card-shadow);">
-                    <div style="padding: 12px 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                        <span style="font-weight: bold; color: white;">📈 Portfolio Performance Summary</span>
-                        <span style="font-size: 12px; color: rgba(255,255,255,0.8); margin-left: 10px;">Last updated: <span id="dash-perf-update-time">-</span></span>
-                    </div>
+<div style="padding: 12px 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <span style="font-weight: bold; color: white;">📈 Portfolio Performance Summary</span>
+        <span style="font-size: 12px; color: rgba(255,255,255,0.8); margin-left: 10px;">Last updated: <span id="dash-perf-update-time">-</span></span>
+    </div>
+    <button onclick="refreshDashboardWidgets()" 
+            style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 6px 14px; border-radius: 20px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 5px; transition: 0.3s; white-space: nowrap;" 
+            onmouseover="this.style.background='rgba(255,255,255,0.4)'" 
+            onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+        🔄 Refresh Widgets
+    </button>
+</div>
                     <div style="overflow-x: auto;">
                         <table class="dashboard-performance-table" style="width: 100%; font-size: 13px; min-width: 600px; border-collapse: collapse;">
                             <thead>

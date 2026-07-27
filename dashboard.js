@@ -98,17 +98,18 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
         let totalRemainingQty = 0;
 
         if (unifiedData && unifiedData.stockDetails.length > 0) {
-            const tickers = unifiedData.stockDetails.map(s => s.ticker);
-            const pricePromises = tickers.map(t => getUnifiedPrice(t));
-            const currentPrices = await Promise.all(pricePromises);
+    const tickers = unifiedData.stockDetails.map(s => s.ticker);
+    // ব্যাচ ফাংশন ব্যবহার করুন
+    const priceMap = await getLatestAndPreviousPrices(tickers);
 
-            for (let i = 0; i < unifiedData.stockDetails.length; i++) {
-                const stock = unifiedData.stockDetails[i];
-                let currentPrice = currentPrices[i];
-                if (currentPrice === 0) currentPrice = stock.avgBuyPriceWithCommission;
-                totalCurrentValue += stock.totalQty * currentPrice;
-                totalRemainingQty += stock.totalQty;
-            }
+    for (let i = 0; i < unifiedData.stockDetails.length; i++) {
+        const stock = unifiedData.stockDetails[i];
+        const priceData = priceMap.get(stock.ticker);
+        let currentPrice = priceData?.currentPrice || 0;
+        if (currentPrice === 0) currentPrice = stock.avgBuyPriceWithCommission;
+        totalCurrentValue += stock.totalQty * currentPrice;
+        totalRemainingQty += stock.totalQty;
+    }
 
             totalInvestment = unifiedData.totalInvestment;
             totalProfitLoss = totalCurrentValue - totalInvestment;
@@ -1001,6 +1002,7 @@ function formatDateShort(dateStr) {
 async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
     const user = auth.currentUser;
     if (!user) return [];
+    
 
     const today = new Date();
     const thirtyDaysAgo = new Date();
@@ -1453,7 +1455,7 @@ async function updateTotalIncomeCard() {
 
     try {
         const deposit = await getUserDeposit(user.uid);
-        const unifiedData = await unifiedEngine.calculate(user.uid, true);
+        const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
         let totalCurrentValue = 0;
 
         // 🔥 null চেক
@@ -1499,7 +1501,8 @@ window.openDepositModal = async function() {
 
     try {
         const deposit = await getUserDeposit(user.uid);
-        const unifiedData = await unifiedEngine.calculate(user.uid, true);
+        // ✅ সঠিক
+const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
         let totalCurrentValue = 0;
         if (unifiedData && unifiedData.stockDetails.length > 0) {
             const tickers = unifiedData.stockDetails.map(s => s.ticker);
@@ -2213,7 +2216,7 @@ async function loadSignalData() {
 
         let targetTickers = [];
         if (currentSignalMarket === 'portfolio') {
-            const unifiedData = await unifiedEngine.calculate(user.uid, true);
+            const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
             targetTickers = unifiedData.stockDetails.map(s => s.ticker);
         } else if (currentSignalMarket === 'watchlist') {
             try {
@@ -2280,7 +2283,7 @@ async function loadSignalData() {
                     const lastRsi = rsiData.filter(r => r.rsi !== null).pop();
                     const rsi = lastRsi ? lastRsi.rsi : 50;
 
-                    const psarData = calcPSAR(priceData);
+                    const psarData = calculateParabolicSAR(priceData);
                     const psar = psarData.length > 0 ? psarData[psarData.length - 1].sar : price;
 
                     let ath = 0, atl = Infinity;
@@ -2594,5 +2597,84 @@ window.applyIncomeFilter = applyIncomeFilter;
 window.resetIncomeFilter = resetIncomeFilter;
 window.updateChartColors = updateChartColors;
 window.refreshPortfolioAnalysis = refreshPortfolioAnalysis;
+// Manual Refresh বাটনের ইভেন্ট লিসেনার
+document.addEventListener('DOMContentLoaded', function() {
+    const reloadBtn = document.getElementById('btn-manual-reload');
+    if (reloadBtn) {
+        reloadBtn.addEventListener('click', manualReloadDashboard);
+        console.log('✅ Manual Refresh button event attached');
+    } else {
+        console.warn('⚠️ Manual Refresh button not found');
+    }
+});
+// ==========================================
+// 🔄 ড্যাশবোর্ড উইজেট রিফ্রেশ (শুধু নির্দিষ্ট অংশ)
+// ==========================================
+window.refreshDashboardWidgets = async function() {
+    try {
+        const btn = document.querySelector('[onclick="refreshDashboardWidgets()"]');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '⏳ ...';
+            btn.style.opacity = '0.7';
+        }
+
+        // টোস্ট দেখান
+        if (typeof showToast === 'function') {
+            showToast('🔄 Refreshing dashboard widgets...', 'info');
+        }
+
+        // ১. পারফরম্যান্স সামারি আপডেট
+        if (typeof updatePerformanceSummary === 'function') {
+            await updatePerformanceSummary();
+        }
+
+        // ২. পোর্টফোলিও গ্রোথ চার্ট আপডেট
+        if (typeof renderDashboardHistoryChart === 'function') {
+            await renderDashboardHistoryChart();
+        }
+
+        // ৩. ডেইলি P&L চার্ট আপডেট
+        if (typeof renderDashboardDailyPLChart === 'function') {
+            await renderDashboardDailyPLChart();
+        }
+
+        // ৪. Buy/Sell সিগন্যাল আপডেট
+        if (typeof loadSignalData === 'function') {
+            await loadSignalData();
+        }
+
+        // ৫. টাইমস্ট্যাম্প আপডেট
+        const timeElem = document.getElementById('dash-perf-update-time');
+        if (timeElem) {
+            timeElem.innerText = new Date().toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' });
+        }
+
+        // ৬. সিগন্যাল আপডেট টাইম
+        const signalTime = document.getElementById('signal-update-time');
+        if (signalTime) {
+            signalTime.innerText = new Date().toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' });
+        }
+
+        if (typeof showToast === 'function') {
+            showToast('✅ Dashboard widgets refreshed!', 'success');
+        }
+
+    } catch (error) {
+        console.error('Widget refresh error:', error);
+        if (typeof showToast === 'function') {
+            showToast('❌ Refresh failed: ' + error.message, 'error');
+        }
+    } finally {
+        const btn = document.querySelector('[onclick="refreshDashboardWidgets()"]');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '🔄 Refresh Widgets';
+            btn.style.opacity = '1';
+        }
+    }
+};
+
+// গ্লোবালি এক্সপোজ (ইতিমধ্যে window. দিয়েছি, তাই আলাদা লাগবে না)
 
 console.log('✅ dashboard.js (Supabase + Firebase) loaded successfully');
