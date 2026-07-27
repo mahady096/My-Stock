@@ -3,7 +3,7 @@
 //    উন্নত ক্যাশিং, নতুন ফাইল সমর্থন, API আলাদা
 // ==========================================
 
-const CACHE_NAME = 'stock-portfolio-v10.10';
+const CACHE_NAME = 'stock-portfolio-v10.0';
 const STATIC_CACHE = 'static-v10.0';
 const API_CACHE = 'api-v10.0';
 

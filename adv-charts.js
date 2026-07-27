@@ -59,7 +59,15 @@ function calculateEMA(data, period) {
     }
     return result;
 }
-
+window.goBackToStockModal = function() {
+    const params = new URLSearchParams(window.location.search);
+    const ticker = params.get('ticker');
+    if (ticker) {
+        window.location.href = `/?ticker=${ticker}`;
+    } else {
+        window.history.back();
+    }
+};
 function calculateBollingerBands(data, period = 20, stdDev = 2) {
     if (data.length < period) return null;
     const sma = calculateSMA(data, period);
@@ -253,6 +261,9 @@ function arimaForecast(data, steps = 5) {
 // 🚀 ইনিশিয়ালাইজেশন
 // ==========================================
 document.addEventListener('DOMContentLoaded', function() {
+    // ==========================================
+    // ১. পূর্ববর্তী সব ইনিশিয়ালাইজেশন (যা আছে)
+    // ==========================================
     if (typeof dseStocks !== 'undefined') advStockList = dseStocks;
     else if (window.dseStocks) advStockList = window.dseStocks;
 
@@ -313,7 +324,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // টগল বাটন ইভেন্ট
+    // টগল বাটন ইভেন্ট (Line/Candle)
     const lineBtn = document.getElementById('toggle-chart-type');
     const candleBtn = document.getElementById('toggle-chart-type-candle');
     if (lineBtn && candleBtn) {
@@ -346,10 +357,30 @@ document.addEventListener('DOMContentLoaded', function() {
         candleBtn.classList.remove('active');
     }
 
-    loadAdvancedChart();
+    // ==========================================
+    // ২. ⭐ নতুন অংশ: URL প্যারামিটার থেকে টিকার নাম নিয়ে চার্ট লোড
+    // ==========================================
+    const params = new URLSearchParams(window.location.search);
+    const tickerFromURL = params.get('ticker');
+    
+    if (tickerFromURL) {
+        // সার্চ ইনপুটে টিকার নাম সেট করুন
+        const searchInput = document.getElementById('adv-chart-search');
+        if (searchInput) {
+            searchInput.value = tickerFromURL;
+        }
+        // গ্লোবাল টিকার নাম আপডেট করুন
+        advCurrentTicker = tickerFromURL;
+        // চার্ট লোড করুন (ক্যাশ উপেক্ষা করে নতুন ডেটা আনতে forceRefresh = true পাঠাই)
+        loadAdvancedChart(tickerFromURL);
+    } else {
+        // ডিফল্ট: যদি কোনো টিকার নাম না থাকে, তাহলে আগের মতো ডিফল্ট টিকার চার্ট লোড করুন
+        loadAdvancedChart();
+    }
+
+    // থিম লোড (যদি ফাংশন থাকে)
     if (typeof loadSavedTheme === 'function') loadSavedTheme();
 });
-
 // ==========================================
 // 📊 loadAdvancedChart - ক্যাশিং সহ
 // ==========================================

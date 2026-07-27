@@ -2421,7 +2421,38 @@ window.closeDSEXChartModal = function() {
         window.dsexChartInstance = null;
     }
 };
+window.openAdvancedChartFromModal = function() {
+    const ticker = document.getElementById('adv-modal-ticker')?.innerText;
+    if (ticker) {
+        window.location.href = `adv-charts.html?ticker=${ticker}`;
+    } else {
+        showToast('No ticker found', 'error');
+    }
+};
+// ==========================================
+// URL প্যারামিটার থেকে মডাল খোলা (index.html)
+// ==========================================
+function checkAndOpenModalFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    const ticker = params.get('ticker');
+    if (ticker) {
+        // পেজ লোড হওয়ার পর মডাল খুলি
+        setTimeout(() => {
+            if (typeof openStockDetailModal === 'function') {
+                openStockDetailModal(ticker);
+                // URL থেকে প্যারামিটার সরিয়ে ফেলি (রিফ্রেশে আবার না খোলে)
+                const newUrl = window.location.pathname + window.location.hash;
+                window.history.replaceState({}, document.title, newUrl);
+            }
+        }, 600);
+    }
+}
 
+// DOMContentLoaded-এ কল করুন (ইতিমধ্যে যদি DOMContentLoaded থাকে, তাহলে তার ভেতরে যোগ করুন)
+// অথবা নতুন একটি DOMContentLoaded লিসেনার যোগ করুন
+document.addEventListener('DOMContentLoaded', function() {
+    checkAndOpenModalFromURL();
+});
 // ==========================================
 // ১৭. ট্রেড হিস্ট্রি
 // ==========================================

@@ -351,7 +351,13 @@
     <div class="adv-page">
         <!-- হেডার -->
         <div class="adv-header">
-            <h1>📈 <span>Advanced Charts</span></h1>
+          <div style="display: flex; align-items: center; gap: 16px;">
+        <button onclick="goBackToStockModal()" style="padding: 8px 18px; background: var(--bg-secondary); border: 2px solid var(--border-color); border-radius: 30px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-primary); transition: 0.3s;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='var(--bg-secondary)'">
+            ⬅ Back
+        </button>
+        <h1>📈 <span>Advanced Charts</span></h1>
+    </div>
+          
             <div class="adv-controls">
                 <div class="adv-search-wrapper" style="position:relative;">
                     <input type="text" id="adv-chart-search" placeholder="Search share (e.g. GP)" autocomplete="off">
