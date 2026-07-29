@@ -2472,5 +2472,68 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+// ==========================================
+// 📥 CSV ডাউনলোড – শুধু দৃশ্যমান ডেটা
+// ==========================================
+window.downloadTableAsCSV = function() {
+    const table = document.querySelector('#sec-table table');
+    if (!table) {
+        showToast('📋 Table not found!', 'error');
+        return;
+    }
+
+    // শুধু দৃশ্যমান সারি (filter/sort/pagination applied)
+    const rows = table.querySelectorAll('tr:not([style*="display: none"]):not([style*="display:none"])');
+    if (rows.length === 0) {
+        showToast('No visible data to download.', 'warning');
+        return;
+    }
+
+    let csvContent = '';
+    const BOM = '\uFEFF'; // UTF-8 BOM for Excel
+
+    // ১. হেডার রো (প্রথম দৃশ্যমান সারি)
+    const headerCells = rows[0].querySelectorAll('th, td');
+    const headerRow = Array.from(headerCells).map(cell => {
+        let text = cell.innerText.trim();
+        if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+            text = `"${text.replace(/"/g, '""')}"`;
+        }
+        return text;
+    }).join(',');
+    csvContent += headerRow + '\n';
+
+    // ২. ডেটা রো (বাকি দৃশ্যমান সারি)
+    for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        // যদি সারি লুকানো থাকে, স্কিপ
+        if (row.style.display === 'none') continue;
+
+        const cells = row.querySelectorAll('th, td');
+        if (cells.length === 0) continue;
+
+        const rowData = Array.from(cells).map(cell => {
+            let text = cell.innerText.trim();
+            if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+                text = `"${text.replace(/"/g, '""')}"`;
+            }
+            return text;
+        }).join(',');
+        csvContent += rowData + '\n';
+    }
+
+    // ৩. ব্লব তৈরি ও ডাউনলোড
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = `stock_portfolio_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast('✅ CSV downloaded successfully!', 'success');
+};
 
 console.log('✅ portfolio.js loaded successfully (Supabase + Firebase ফ্যালব্যাক + ডুয়াল রাইট + পোর্টফোলিও আইডি সাপোর্ট)');

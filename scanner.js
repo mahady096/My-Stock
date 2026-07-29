@@ -726,6 +726,111 @@ function renderScreenerTable(tab, data) {
 }
 
 // ==========================================
+// 💰 Buy Sell Price – ডেটা জেনারেটর (শুধু ডেটা, UI নয়)
+// ==========================================
+window.getBuySellPriceSignalData = async function() {
+    const user = auth.currentUser;
+    if (!user) return { buy: [], sell: [] };
+
+    try {
+        const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
+        if (!unifiedData || !unifiedData.stockDetails || unifiedData.stockDetails.length === 0) {
+            return { buy: [], sell: [] };
+        }
+
+        // সেল হিস্ট্রি ফেচ
+        let salesData = [];
+        if (typeof supabase !== 'undefined' && supabase) {
+            try {
+                const { data } = await supabase
+                    .from('sales_history')
+                    .select('share_name, quantity_sold, sell_price, date')
+                    .eq('user_id', user.uid);
+                if (data) salesData = data;
+            } catch (e) { /* ignore */ }
+        }
+        if (salesData.length === 0 && typeof db !== 'undefined') {
+            try {
+                const snap = await db.collection('sales_history')
+                    .where('userId', '==', user.uid)
+                    .get();
+                snap.forEach(doc => {
+                    const data = doc.data();
+                    salesData.push({
+                        share_name: data.shareName,
+                        quantity_sold: data.quantitySold || 0,
+                        sell_price: data.sellPrice || 0,
+                        date: data.date?.toDate?.()?.toISOString?.() || new Date().toISOString()
+                    });
+                });
+            } catch (e) { /* ignore */ }
+        }
+
+        // বর্তমান প্রাইস
+        const tickers = unifiedData.stockDetails.map(s => s.ticker);
+        const currentPrices = {};
+        const pricePromises = tickers.map(async (ticker) => {
+            const price = await getUnifiedPrice(ticker);
+            currentPrices[ticker] = price || 0;
+        });
+        await Promise.all(pricePromises);
+
+        const buySignals = [];
+        const sellSignals = [];
+
+        for (const stock of unifiedData.stockDetails) {
+            const ticker = stock.ticker;
+            const currentPrice = currentPrices[ticker] || 0;
+
+            // মিন বাই প্রাইস
+            let minBuyPrice = Infinity;
+            for (const lot of stock.lots) {
+                if (lot.buyPrice < minBuyPrice) minBuyPrice = lot.buyPrice;
+            }
+            if (minBuyPrice === Infinity) minBuyPrice = 0;
+
+            // ম্যাক্স সেল প্রাইস
+            let maxSellPrice = 0;
+            const tickerSales = salesData.filter(s => s.share_name === ticker);
+            for (const sale of tickerSales) {
+                if (sale.sell_price > maxSellPrice) maxSellPrice = sale.sell_price;
+            }
+
+            if (currentPrice > 0 && minBuyPrice > 0 && currentPrice < minBuyPrice) {
+                buySignals.push({
+                    ticker: ticker,
+                    price: currentPrice,
+                    minBuyPrice: minBuyPrice,
+                    maxSellPrice: maxSellPrice,
+                    rsi: null,
+                    psar: null,
+                    ath: null,
+                    atl: null
+                });
+            } else if (currentPrice > 0 && maxSellPrice > 0 && currentPrice > maxSellPrice) {
+                sellSignals.push({
+                    ticker: ticker,
+                    price: currentPrice,
+                    minBuyPrice: minBuyPrice,
+                    maxSellPrice: maxSellPrice,
+                    rsi: null,
+                    psar: null,
+                    ath: null,
+                    atl: null
+                });
+            }
+        }
+
+        buySignals.sort((a, b) => a.price - b.price);
+        sellSignals.sort((a, b) => b.price - a.price);
+
+        return { buy: buySignals, sell: sellSignals };
+    } catch (error) {
+        console.error('Error in getBuySellPriceSignalData:', error);
+        return { buy: [], sell: [] };
+    }
+};
+// ==========================================
 // 📌 গ্লোবালি এক্সপোজ
 // ==========================================
 window.loadAllScannerPage = loadAllScannerPage;
