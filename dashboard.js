@@ -48,7 +48,7 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
         console.log('No user logged in');
         return;
     }
-
+window.currentDashboardPortfolioId = portfolioId;
     // ---------- ক্যাশ চেক ----------
     const cacheKey = `dashboard_${user.uid}_${portfolioId || 'all'}`;
     if (!forceRefresh) {
@@ -997,11 +997,10 @@ function formatDateShort(dateStr) {
 }
 
 // ==========================================
+// 🚀 fetchPortfolioTimelineData – পোর্টফোলিও ফিল্টার + সর্বশেষ প্রাইস ঠিক
 // ==========================================
-// 🚀 fetchPortfolioTimelineData – আল্টিমেট অপটিমাইজড
-// ==========================================
-async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
-    console.log('📥 fetchPortfolioTimelineData (ULTIMATE optimized) called');
+async function fetchPortfolioTimelineData(startDate = null, endDate = null, portfolioId = null) {
+    console.log('📥 fetchPortfolioTimelineData called', { portfolioId });
     const user = auth.currentUser;
     if (!user) return [];
 
@@ -1013,7 +1012,7 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
     const start = startDate || defaultStart;
     const end = endDate || defaultEnd;
 
-    const cacheKey = `timeline_${user.uid}_${start}_${end}`;
+    const cacheKey = `timeline_${user.uid}_${start}_${end}_${portfolioId || 'all'}`;
     try {
         const cached = sessionStorage.getItem(cacheKey);
         if (cached) {
@@ -1028,10 +1027,12 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
     if (typeof db === 'undefined') return [];
 
     try {
-        const [portfolioSnap, salesSnap] = await Promise.all([
-            db.collection('portfolios').where('userId', '==', user.uid).get(),
-            db.collection('sales_history').where('userId', '==', user.uid).get()
-        ]);
+        // ১. পোর্টফোলিও কোয়েরি (পোর্টফোলিও আইডি ফিল্টার)
+        let portfolioQuery = db.collection('portfolios').where('userId', '==', user.uid);
+        if (portfolioId && portfolioId !== 'grand' && portfolioId !== 'all') {
+            portfolioQuery = portfolioQuery.where('portfolioId', '==', portfolioId);
+        }
+        const portfolioSnap = await portfolioQuery.get();
 
         if (portfolioSnap.empty) return [];
 
@@ -1049,6 +1050,13 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
                 buyDateStr: buyDate.toISOString().split('T')[0]
             });
         });
+
+        // ২. সেলস কোয়েরি (পোর্টফোলিও আইডি ফিল্টার)
+        let salesQuery = db.collection('sales_history').where('userId', '==', user.uid);
+        if (portfolioId && portfolioId !== 'grand' && portfolioId !== 'all') {
+            salesQuery = salesQuery.where('portfolioId', '==', portfolioId);
+        }
+        const salesSnap = await salesQuery.get();
 
         const totalSoldMap = new Map();
         salesSnap.forEach(doc => {
@@ -1076,13 +1084,13 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
         startObj.setHours(0, 0, 0, 0);
         endObj.setHours(23, 59, 59, 999);
 
+        // ৩. সমস্ত প্রাইস ডেটা ফেচ (daily_prices)
         const uniqueTickers = [...new Set(buyLots.map(l => l.ticker))];
         const startDateStr = allDates[0].toISOString().split('T')[0];
         const endDateStr = allDates[allDates.length-1].toISOString().split('T')[0];
-        
         console.log(`📊 Fetching prices for ${uniqueTickers.length} tickers from ${startDateStr} to ${endDateStr}...`);
-        const priceMap = new Map();
 
+        const priceMap = new Map();
         const chunkSize = 10;
         for (let i = 0; i < uniqueTickers.length; i += chunkSize) {
             const chunk = uniqueTickers.slice(i, i + chunkSize);
@@ -1124,6 +1132,26 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
         }
         console.log(`✅ Prices fetched, ${priceMap.size} dates with data.`);
 
+        // ৪. সর্বশেষ দিনের জন্য ড্যাশবোর্ডের প্রাইস ব্যবহার করুন
+        const todayStr = today.toISOString().split('T')[0];
+        // সব টিকারের বর্তমান প্রাইস ড্যাশবোর্ড থেকে নিন
+        const latestPrices = await getLatestAndPreviousPrices(uniqueTickers);
+        const latestPriceMap = new Map();
+        for (const [ticker, data] of latestPrices) {
+            if (data.currentPrice > 0) {
+                latestPriceMap.set(ticker, data.currentPrice);
+            }
+        }
+        // আজকের প্রাইস ওভাররাইট করুন
+        if (latestPriceMap.size > 0) {
+            const todayMap = priceMap.get(todayStr) || new Map();
+            for (const [ticker, price] of latestPriceMap) {
+                todayMap.set(ticker, price);
+            }
+            priceMap.set(todayStr, todayMap);
+        }
+
+        // ৫. টাইমলাইন তৈরি
         console.log('⏳ Building timeline...');
         const dailyPortfolio = [];
         let cumulativeLots = [];
@@ -1169,7 +1197,7 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
             let totalCurrentValue = 0;
             const dayPriceMap = priceMap.get(dateStr) || new Map();
             for (const stock of remainingStocks) {
-                const price = dayPriceMap.get(stock.ticker) || stock.avgCost;
+                const price = dayPriceMap.get(stock.ticker) || 0; // 0 হলে পরে avgCost নেবেনা, বরং 0 রাখবেন
                 totalCurrentValue += stock.qty * price;
             }
 
@@ -1186,6 +1214,7 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null) {
 
         console.log(`✅ Timeline complete: ${dailyPortfolio.length} entries`);
 
+        // ৬. ফিল্টার ও ক্যাশ
         const filteredResult = dailyPortfolio.filter(item => {
             const itemDate = new Date(item.date);
             return itemDate >= startObj && itemDate <= endObj;
@@ -1239,7 +1268,7 @@ async function renderDashboardHistoryChart(startDate = null, endDate = null) {
     }
 
     try {
-        const historyData = await fetchPortfolioTimelineData(startDate, endDate);
+        const historyData = await fetchPortfolioTimelineData(startDate, endDate, window.currentDashboardPortfolioId);
         if (!historyData || historyData.length === 0) {
             if (loadingDiv) loadingDiv.innerHTML = '📭 No history data available';
             return;
@@ -1325,7 +1354,7 @@ async function renderDashboardDailyPLChart(startDate = null, endDate = null) {
     }
 
     try {
-        const historyData = await fetchPortfolioTimelineData(startDate, endDate);
+        const historyData = await fetchPortfolioTimelineData(startDate, endDate, window.currentDashboardPortfolioId);
         if (!historyData || historyData.length === 0) {
             if (loadingDiv) loadingDiv.innerHTML = '📭 No history data available';
             return;
@@ -2540,6 +2569,9 @@ function renderSignalList(container, data, type, countElement) {
     });
 }
 
+// ==========================================
+// 📌 মডাল খোলা / বন্ধ (শুধু কনটেন্ট আপডেট)
+// ==========================================
 window.openSignalDetailModal = function(type) {
     const modal = document.getElementById('signal-detail-modal');
     if (!modal) return;
@@ -2552,27 +2584,10 @@ window.openSignalDetailModal = function(type) {
     let data = type === 'buy' ? lastBuySignals : lastSellSignals;
     if (!data || data.length === 0) {
         if (tbody) {
-            // পুরানো কন্টেন্ট ক্লিয়ার করে নতুন মেসেজ দেখান
-            const table = tbody.closest('table');
-            if (table) {
-                table.innerHTML = `
-                    <thead style="background:var(--bg-tertiary); position:sticky; top:0; z-index:10;">
-                        <tr>
-                            <th style="padding:8px; text-align:left;">Share</th>
-                            <th style="padding:8px; text-align:right;">Price (৳)</th>
-                            <th style="padding:8px; text-align:right;">RSI</th>
-                            <th style="padding:8px; text-align:right;">PSAR (৳)</th>
-                            <th style="padding:8px; text-align:right;">ATH (৳)</th>
-                            <th style="padding:8px; text-align:right;">ATL (৳)</th>
-                            <th style="padding:8px; text-align:center;">Signal</th>
-                            <th style="padding:8px; text-align:center;">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">No signals available.</td></tr>
-                    </tbody>
-                `;
-            }
+            // শুধু tbody-র ভেতর মেসেজ দেখান, thead লুকান
+            const thead = tbody.closest('table').querySelector('thead');
+            if (thead) thead.style.display = 'none';
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">No signals available.</td></tr>`;
         }
         modal.style.display = 'flex';
         return;
@@ -2584,118 +2599,99 @@ window.openSignalDetailModal = function(type) {
 
     const isBuySellPrice = currentSignalScanner === 'buy-sell-price';
 
-    // ===== নতুন টেবিল HTML তৈরি =====
-    let tableHTML = '';
-    
+    // thead তৈরি
+    let theadHTML = '';
     if (isBuySellPrice) {
-        // Buy Sell Price স্ক্যানারের জন্য
-        let headers = '';
         if (type === 'buy') {
-            headers = `
-                <th style="padding:8px; text-align:left;">Share</th>
-                <th style="padding:8px; text-align:right;">Current Price (৳)</th>
-                <th style="padding:8px; text-align:right;">Avg Buy (৳)</th>
-                <th style="padding:8px; text-align:right;">Min Buy (৳)</th>
-                <th style="padding:8px; text-align:center;">Signal</th>
-                <th style="padding:8px; text-align:center;">Action</th>
+            theadHTML = `
+                <tr>
+                    <th style="padding:8px; text-align:left;">Share</th>
+                    <th style="padding:8px; text-align:right;">Current Price (৳)</th>
+                    <th style="padding:8px; text-align:right;">Avg Buy (৳)</th>
+                    <th style="padding:8px; text-align:right;">Min Buy (৳)</th>
+                    <th style="padding:8px; text-align:center;">Signal</th>
+                    <th style="padding:8px; text-align:center;">Action</th>
+                </tr>
             `;
         } else {
-            headers = `
-                <th style="padding:8px; text-align:left;">Share</th>
-                <th style="padding:8px; text-align:right;">Current Price (৳)</th>
-                <th style="padding:8px; text-align:right;">Avg Sell (৳)</th>
-                <th style="padding:8px; text-align:right;">Max Sell (৳)</th>
-                <th style="padding:8px; text-align:center;">Signal</th>
-                <th style="padding:8px; text-align:center;">Action</th>
+            theadHTML = `
+                <tr>
+                    <th style="padding:8px; text-align:left;">Share</th>
+                    <th style="padding:8px; text-align:right;">Current Price (৳)</th>
+                    <th style="padding:8px; text-align:right;">Avg Sell (৳)</th>
+                    <th style="padding:8px; text-align:right;">Max Sell (৳)</th>
+                    <th style="padding:8px; text-align:center;">Signal</th>
+                    <th style="padding:8px; text-align:center;">Action</th>
+                </tr>
             `;
         }
+    } else {
+        theadHTML = `
+            <tr>
+                <th style="padding:8px; text-align:left;">Share</th>
+                <th style="padding:8px; text-align:right;">Price (৳)</th>
+                <th style="padding:8px; text-align:right;">RSI</th>
+                <th style="padding:8px; text-align:right;">PSAR (৳)</th>
+                <th style="padding:8px; text-align:right;">ATH (৳)</th>
+                <th style="padding:8px; text-align:right;">ATL (৳)</th>
+                <th style="padding:8px; text-align:center;">Signal</th>
+                <th style="padding:8px; text-align:center;">Action</th>
+            </tr>
+        `;
+    }
 
-        let rows = '';
-        for (const item of data) {
-            const price = item.price ?? 0;
-            const signalText = type === 'buy' ? '🟢 BUY' : '🔴 SELL';
-            const signalColor = type === 'buy' ? '#10b981' : '#ef4444';
-            
+    // thead আপডেট
+    const thead = tbody.closest('table').querySelector('thead');
+    if (thead) {
+        thead.style.display = '';
+        thead.innerHTML = theadHTML;
+    }
+
+    // tbody রো তৈরি
+    let rowsHTML = '';
+    for (const item of data) {
+        const price = item.price ?? 0;
+        const signalText = type === 'buy' ? '🟢 BUY' : '🔴 SELL';
+        const signalColor = type === 'buy' ? '#10b981' : '#ef4444';
+
+        if (isBuySellPrice) {
             const avgValue = type === 'buy' ? (item.minBuyPrice || 0) : (item.maxSellPrice || 0);
             const minBuy = (item.minBuyPrice !== null && item.minBuyPrice !== undefined && item.minBuyPrice !== Infinity) ? item.minBuyPrice : 0;
             const maxSell = (item.maxSellPrice !== null && item.maxSellPrice !== undefined) ? item.maxSellPrice : 0;
 
-            rows += `<tr onclick="openStockDetailModal('${item.ticker}')" style="cursor:pointer; transition:background 0.2s;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
-            rows += `<td style="padding: 8px 10px; font-weight:600; color:var(--primary-color); text-decoration:underline;">${item.ticker}</td>`;
-            rows += `<td style="padding: 8px 10px; text-align:right;">৳${price.toFixed(2)}</td>`;
+            rowsHTML += `<tr onclick="openStockDetailModal('${item.ticker}')" style="cursor:pointer;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
+            rowsHTML += `<td style="padding:8px 10px; font-weight:600; color:var(--primary-color); text-decoration:underline;">${item.ticker}</td>`;
+            rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${price.toFixed(2)}</td>`;
             if (type === 'buy') {
-                rows += `<td style="padding: 8px 10px; text-align:right;">৳${avgValue.toFixed(2)}</td>`;
-                rows += `<td style="padding: 8px 10px; text-align:right; color:#10b981;">৳${minBuy.toFixed(2)}</td>`;
+                rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${avgValue.toFixed(2)}</td>`;
+                rowsHTML += `<td style="padding:8px 10px; text-align:right; color:#10b981;">৳${minBuy.toFixed(2)}</td>`;
             } else {
-                rows += `<td style="padding: 8px 10px; text-align:right;">৳${avgValue.toFixed(2)}</td>`;
-                rows += `<td style="padding: 8px 10px; text-align:right; color:#ef4444;">৳${maxSell.toFixed(2)}</td>`;
+                rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${avgValue.toFixed(2)}</td>`;
+                rowsHTML += `<td style="padding:8px 10px; text-align:right; color:#ef4444;">৳${maxSell.toFixed(2)}</td>`;
             }
-            rows += `<td style="padding: 8px 10px; text-align:center; color:${signalColor}; font-weight:bold;">${signalText}</td>`;
-            rows += `<td style="padding: 8px 10px; text-align:center;"><button onclick="event.stopPropagation(); openStockDetailModal('${item.ticker}')" style="background:var(--primary-color); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:11px;">📊 View</button></td>`;
-            rows += `</tr>`;
-        }
-
-        tableHTML = `
-            <thead style="background:var(--bg-tertiary); position:sticky; top:0; z-index:10;">
-                <tr>${headers}</tr>
-            </thead>
-            <tbody>${rows}</tbody>
-        `;
-
-    } else {
-        // অন্যান্য স্ক্যানারের জন্য
-        let rows = '';
-        for (const item of data) {
-            const price = item.price ?? 0;
-            const signalText = type === 'buy' ? '🟢 BUY' : '🔴 SELL';
-            const signalColor = type === 'buy' ? '#10b981' : '#ef4444';
-            
+            rowsHTML += `<td style="padding:8px 10px; text-align:center; color:${signalColor}; font-weight:bold;">${signalText}</td>`;
+            rowsHTML += `<td style="padding:8px 10px; text-align:center;"><button onclick="event.stopPropagation(); openStockDetailModal('${item.ticker}')" style="background:var(--primary-color); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:11px;">📊 View</button></td>`;
+            rowsHTML += `</tr>`;
+        } else {
             const rsi = (item.rsi !== null && item.rsi !== undefined) ? item.rsi.toFixed(2) : '-';
             const psar = (item.psar !== null && item.psar !== undefined && item.psar > 0) ? item.psar.toFixed(2) : '-';
             const ath = (item.ath !== null && item.ath !== undefined && item.ath > 0) ? item.ath.toFixed(2) : '-';
             const atl = (item.atl !== null && item.atl !== undefined && item.atl !== Infinity && item.atl > 0) ? item.atl.toFixed(2) : '-';
 
-            rows += `<tr onclick="openStockDetailModal('${item.ticker}')" style="cursor:pointer; transition:background 0.2s;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
-            rows += `<td style="padding: 8px 10px; font-weight:600; color:var(--primary-color); text-decoration:underline;">${item.ticker}</td>`;
-            rows += `<td style="padding: 8px 10px; text-align:right;">৳${price.toFixed(2)}</td>`;
-            rows += `<td style="padding: 8px 10px; text-align:right; color: ${item.rsi !== null ? (item.rsi < 30 ? '#10b981' : (item.rsi > 70 ? '#ef4444' : '#f59e0b')) : '#64748b'};">${rsi}</td>`;
-            rows += `<td style="padding: 8px 10px; text-align:right;">${psar !== '-' ? '৳'+psar : '-'}</td>`;
-            rows += `<td style="padding: 8px 10px; text-align:right;">${ath !== '-' ? '৳'+ath : '-'}</td>`;
-            rows += `<td style="padding: 8px 10px; text-align:right;">${atl !== '-' ? '৳'+atl : '-'}</td>`;
-            rows += `<td style="padding: 8px 10px; text-align:center; color:${signalColor}; font-weight:bold;">${signalText}</td>`;
-            rows += `<td style="padding: 8px 10px; text-align:center;"><button onclick="event.stopPropagation(); openStockDetailModal('${item.ticker}')" style="background:var(--primary-color); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:11px;">📊 View</button></td>`;
-            rows += `</tr>`;
+            rowsHTML += `<tr onclick="openStockDetailModal('${item.ticker}')" style="cursor:pointer;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
+            rowsHTML += `<td style="padding:8px 10px; font-weight:600; color:var(--primary-color); text-decoration:underline;">${item.ticker}</td>`;
+            rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${price.toFixed(2)}</td>`;
+            rowsHTML += `<td style="padding:8px 10px; text-align:right; color: ${item.rsi !== null ? (item.rsi < 30 ? '#10b981' : (item.rsi > 70 ? '#ef4444' : '#f59e0b')) : '#64748b'};">${rsi}</td>`;
+            rowsHTML += `<td style="padding:8px 10px; text-align:right;">${psar !== '-' ? '৳'+psar : '-'}</td>`;
+            rowsHTML += `<td style="padding:8px 10px; text-align:right;">${ath !== '-' ? '৳'+ath : '-'}</td>`;
+            rowsHTML += `<td style="padding:8px 10px; text-align:right;">${atl !== '-' ? '৳'+atl : '-'}</td>`;
+            rowsHTML += `<td style="padding:8px 10px; text-align:center; color:${signalColor}; font-weight:bold;">${signalText}</td>`;
+            rowsHTML += `<td style="padding:8px 10px; text-align:center;"><button onclick="event.stopPropagation(); openStockDetailModal('${item.ticker}')" style="background:var(--primary-color); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:11px;">📊 View</button></td>`;
+            rowsHTML += `</tr>`;
         }
-
-        tableHTML = `
-            <thead style="background:var(--bg-tertiary); position:sticky; top:0; z-index:10;">
-                <tr>
-                    <th style="padding:8px; text-align:left;">Share</th>
-                    <th style="padding:8px; text-align:right;">Price (৳)</th>
-                    <th style="padding:8px; text-align:right;">RSI</th>
-                    <th style="padding:8px; text-align:right;">PSAR (৳)</th>
-                    <th style="padding:8px; text-align:right;">ATH (৳)</th>
-                    <th style="padding:8px; text-align:right;">ATL (৳)</th>
-                    <th style="padding:8px; text-align:center;">Signal</th>
-                    <th style="padding:8px; text-align:center;">Action</th>
-                </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-        `;
     }
 
-    // ===== পুরানো টেবিল রিপ্লেস =====
-    const table = tbody.closest('table');
-    if (table) {
-        // নতুন টেবিল তৈরি
-        const newTable = document.createElement('table');
-        newTable.style.cssText = 'width:100%; font-size:13px; border-collapse:collapse;';
-        newTable.innerHTML = tableHTML;
-        
-        // পুরানো টেবিল রিপ্লেস
-        table.parentNode.replaceChild(newTable, table);
-    }
-
+    tbody.innerHTML = rowsHTML;
     modal.style.display = 'flex';
 };
 window.closeSignalDetailModal = function() {
