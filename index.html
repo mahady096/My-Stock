@@ -617,6 +617,14 @@
                   <button id="btn-manual-reload" onclick="manualReloadDashboard()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
     🔄 Manual Refresh
 </button>
+<div style="margin: 20px 0;">
+    <button id="btn-trigger-scraper" onclick="triggerScraperDirect()" 
+            style="background: #6366f1; color: white; border: none; 
+                   padding: 12px 24px; border-radius: 30px; font-weight: bold; cursor: pointer;">
+        🔄 Run Scraper Now
+    </button>
+    <span id="scraper-status" style="margin-left: 12px; font-size: 14px;">Ready</span>
+</div>
                 </div>
                 
                 <div class="portfolio-summary-cards">

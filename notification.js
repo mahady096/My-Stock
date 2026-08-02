@@ -294,3 +294,49 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 console.log('✅ notification.js loaded successfully');
+// আপনার GitHub টোকেন (এটি কখনো পাবলিক রিপোতে 
+// 👇 আপনার Pipedream Webhook URL (এটি বসান)
+const PIPEDREAM_URL = 'https://eotnqiqj6b1oy78.m.pipedream.net';
+
+async function triggerScraperDirect() {
+    const btn = document.getElementById('btn-trigger-scraper');
+    const status = document.getElementById('scraper-status');
+    
+    // ইউজার লগইন চেক
+    const user = auth.currentUser;
+    if (!user) {
+        showToast('Please login first', 'error');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerText = '⏳ Running...';
+    status.innerText = '⏳ Sending request...';
+
+    try {
+        // Pipedream-এ POST রিকোয়েস্ট
+        const response = await fetch(PIPEDREAM_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+                // 👆 Pipedream-এ Authorization লাগে না, কারণ URL-টি পাবলিক
+            }
+            // body পাঠানোর দরকার নেই, কারণ Pipedream কোড GitHub API-তে নিজেই কল করে
+        });
+
+        if (response.ok) {
+            status.innerText = '✅ Scraper started!';
+            showToast('✅ Scraper triggered successfully!', 'success');
+        } else {
+            const errorText = await response.text();
+            throw new Error(errorText || `HTTP ${response.status}`);
+        }
+    } catch (error) {
+        status.innerText = '❌ Failed: ' + error.message;
+        showToast('❌ Trigger failed: ' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = '🔄 Run Scraper Now';
+        setTimeout(() => { status.innerText = 'Ready'; }, 5000);
+    }
+}
