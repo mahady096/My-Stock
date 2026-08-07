@@ -2,9 +2,15 @@
 // 🔬 deep-analysis.js - 21-column Deep Analysis 
 //    Portfolio Filter Support, Expand/Collapse, 
 //    Total Sum, Quick Filter, Column Visibility
-//    ✅ null-check সহ ইরর হ্যান্ডলিং
+//    ✅ indicators.js থেকে RSI ও PSAR ব্যবহার করা হয়েছে
+//    ✅ ATH/ATL/RSI/PSAR → history_dse (Supabase)
+//    ✅ Category/Record Date/EPS → cse_market_data (Supabase) → Firebase fallback
+//    ⚡ পারফরম্যান্স বুস্ট: পেজিনেশন যোগ করা হয়েছে
 // ==========================================
 
+// ==========================================
+// 📌 গ্লোবাল ভেরিয়েবল
+// ==========================================
 let deepAnalysisData = [];
 let deepSortColumn = -1;
 let deepSortAsc = true;
@@ -12,97 +18,15 @@ let expandedRows = {};
 let deepFilterText = '';
 let hiddenColumns = new Set();
 let lotPage = {};
+let currentPage = 1;
+const PAGE_SIZE = 20;
+let totalPages = 1;
 
 const LOTS_PER_PAGE = 5;
 
 // ==========================================
-// 📐 হেলপার ফাংশন (RSI ও PSAR - নিরাপদ)
+// 🔍 রেকর্ড ডেট পার্স (অপরিবর্তিত)
 // ==========================================
-
-// RSI ক্যালকুলেটর (scanner.js-এর calcRSI-এর ফ্যালব্যাক)
-function safeCalcRSI(priceData, period = 14) {
-    if (!priceData || priceData.length < period + 1) return [];
-    const prices = priceData.map(p => p.ltp || p.close || 0);
-    if (prices.some(p => p <= 0)) return [];
-    
-    let gains = 0, losses = 0;
-    for (let i = 1; i <= period; i++) {
-        const diff = prices[i] - prices[i-1];
-        if (diff >= 0) gains += diff;
-        else losses += Math.abs(diff);
-    }
-    let avgGain = gains / period;
-    let avgLoss = losses / period;
-    const result = [];
-    let rsi = 100 - (100 / (1 + (avgGain / (avgLoss || 1))));
-    result.push({ rsi: rsi });
-    
-    for (let i = period + 1; i < prices.length; i++) {
-        const diff = prices[i] - prices[i-1];
-        const gain = diff >= 0 ? diff : 0;
-        const loss = diff < 0 ? Math.abs(diff) : 0;
-        avgGain = ((avgGain * (period - 1)) + gain) / period;
-        avgLoss = ((avgLoss * (period - 1)) + loss) / period;
-        rsi = 100 - (100 / (1 + (avgGain / (avgLoss || 1))));
-        result.push({ rsi: rsi });
-    }
-    return result;
-}
-
-// PSAR ক্যালকুলেটর (core.js-এর calculateParabolicSAR-এর ফ্যালব্যাক)
-function safeCalcPSAR(priceData) {
-    if (!priceData || priceData.length < 2) return [];
-    // core.js-এর ফাংশন ব্যবহার করুন, যদি না থাকে তাহলে নিজের ইমপ্লিমেন্টেশন
-    if (typeof calculateParabolicSAR === 'function') {
-        return calculateParabolicSAR(priceData);
-    }
-    // ফ্যালব্যাক: সরল PSAR
-    const result = [];
-    let sar = priceData[0].low || priceData[0].ltp || priceData[0].close || 0;
-    let trend = 'up';
-    let af = 0.02;
-    let ep = priceData[0].high || priceData[0].ltp || priceData[0].close || 0;
-    result.push({ date: priceData[0].date, sar, trend, af, ep });
-    
-    for (let i = 1; i < priceData.length; i++) {
-        const current = priceData[i];
-        const price = current.ltp || current.close || 0;
-        const high = current.high || price;
-        const low = current.low || price;
-        
-        let newSAR;
-        if (trend === 'up') {
-            newSAR = sar + af * (ep - sar);
-        } else {
-            newSAR = sar - af * (sar - ep);
-        }
-        
-        if (trend === 'up' && price < newSAR) {
-            trend = 'down';
-            newSAR = ep;
-            af = 0.02;
-            ep = low;
-        } else if (trend === 'down' && price > newSAR) {
-            trend = 'up';
-            newSAR = ep;
-            af = 0.02;
-            ep = high;
-        } else {
-            if (trend === 'up' && high > ep) {
-                ep = high;
-                af = Math.min(af + 0.02, 0.20);
-            } else if (trend === 'down' && low < ep) {
-                ep = low;
-                af = Math.min(af + 0.02, 0.20);
-            }
-        }
-        result.push({ date: current.date, sar: newSAR, trend, af, ep });
-        sar = newSAR;
-    }
-    return result;
-}
-
-// রেকর্ড ডেট পার্স
 function parseRecordDate(dateStr) {
     if (!dateStr) return null;
     const cleaned = dateStr.replace(/,/g, '').trim();
@@ -137,7 +61,7 @@ async function loadDeepAnalysisPage() {
     if (updateTime) updateTime.innerText = new Date().toLocaleString();
 
     try {
-        const user = auth.currentUser;
+        const user = auth && auth.currentUser ? auth.currentUser : null;
         if (!user) {
             tbody.innerHTML = '<tr><td colspan="21" style="text-align:center; padding:40px; color:red;">Please login first.</td></tr>';
             if (updateTime) updateTime.innerText = new Date().toLocaleString();
@@ -178,86 +102,111 @@ async function loadDeepAnalysisPage() {
         const pricePromises = tickers.map(t => getUnifiedPrice(t));
         const prices = await Promise.all(pricePromises);
 
-        // ৪. মেটাডেটা (Category, Record Date, ATH, ATL, RSI, PSAR) – ব্যাচে
+        // ==========================================
+        // ৪. মেটাডেটা ফেচ
+        // ==========================================
         const metaPromises = tickers.map(async (ticker) => {
             try {
-                const snap = await db.collection('cse_detailed_data')
-                    .where('code', '==', ticker)
-                    .orderBy('date', 'desc')
-                    .limit(1)
-                    .get();
-                let category = 'N/A', recordDate = null, ath = 0, atl = Infinity;
-                if (!snap.empty) {
-                    const data = snap.docs[0].data();
-                    category = data.category || 'N/A';
-                    recordDate = data.record_date || null;
-                }
-                // ATH/ATL হিস্টোরিক্যাল ডেটা থেকে
-                const histSnap = await db.collection('cse_detailed_data')
-                    .where('code', '==', ticker)
-                    .get();
-                histSnap.forEach(doc => {
-                    const d = doc.data();
-                    const ltp = parseFloat(d.ltp);
-                    if (ltp > ath) ath = ltp;
-                    if (ltp > 0 && ltp < atl) atl = ltp;
-                    if (d.high) {
-                        const h = parseFloat(d.high);
-                        if (h > ath) ath = h;
-                    }
-                    if (d.low) {
-                        const l = parseFloat(d.low);
-                        if (l > 0 && l < atl) atl = l;
-                    }
-                });
-                if (atl === Infinity) atl = 0;
-
+                let category = 'N/A', recordDate = null;
+                let ath = 0, atl = Infinity;
                 let rsi = null, psar = 0;
-                const startDate = new Date();
-                startDate.setDate(startDate.getDate() - 30);
-                const startDateStr = startDate.toISOString().split('T')[0];
-                const priceSnap = await db.collection('cse_detailed_data')
-                    .where('code', '==', ticker)
-                    .where('date', '>=', startDateStr)
-                    .orderBy('date', 'asc')
-                    .limit(30)
-                    .get();
-                if (priceSnap.size >= 15) {
-                    const priceData = [];
-                    priceSnap.forEach(doc => {
-                        const d = doc.data();
-                        const ltp = parseFloat(d.ltp);
-                        if (ltp > 0) {
-                            priceData.push({
-                                date: d.date,
-                                ltp: ltp,
-                                high: parseFloat(d.high) || ltp,
-                                low: parseFloat(d.low) || ltp
+                let eps = null;
+
+                // ---------- ৪.ক ATH/ATL/RSI/PSAR → history_dse (Supabase) ----------
+                if (typeof supabase !== 'undefined' && supabase) {
+                    try {
+                        const { data, error } = await supabase
+                            .from('history_dse')
+                            .select('date, ltp, high, low')
+                            .eq('ticker', ticker)
+                            .order('date', { ascending: true });
+
+                        if (!error && data && data.length > 0) {
+                            // ATH/ATL ক্যালকুলেট
+                            data.forEach(d => {
+                                const ltp = parseFloat(d.ltp);
+                                const high = parseFloat(d.high) || ltp;
+                                const low = parseFloat(d.low) || ltp;
+                                if (ltp > ath) ath = ltp;
+                                if (ltp > 0 && ltp < atl) atl = ltp;
+                                if (high > ath) ath = high;
+                                if (low > 0 && low < atl) atl = low;
                             });
+                            if (atl === Infinity) atl = 0;
+
+                            // RSI ও PSAR (শেষ ৩০ দিন) - indicators.js থেকে কল
+                            if (data.length >= 15) {
+                                const priceData = data.slice(-30).map(d => ({
+                                    date: d.date,
+                                    ltp: parseFloat(d.ltp),
+                                    high: parseFloat(d.high) || parseFloat(d.ltp),
+                                    low: parseFloat(d.low) || parseFloat(d.ltp)
+                                }));
+                                // RSI (cached version)
+                                const rsiData = cachedRSI(priceData.map(p => p.ltp), 14);
+                                const lastRsi = rsiData.filter(r => r.rsi !== null).pop();
+                                rsi = lastRsi ? lastRsi.rsi : null;
+                                // PSAR (cached version)
+                                const psarData = cachedParabolicSAR(priceData);
+                                psar = psarData.length > 0 ? psarData[psarData.length - 1].sar : 0;
+                            }
                         }
-                    });
-                    if (priceData.length >= 15) {
-                        const rsiData = safeCalcRSI(priceData, 14);
-                        const lastRsi = rsiData.filter(r => r.rsi !== null).pop();
-                        rsi = lastRsi ? lastRsi.rsi : null;
-                        const psarData = safeCalcPSAR(priceData);
-                        if (psarData.length > 0) {
-                            psar = psarData[psarData.length - 1].sar;
-                        }
+                    } catch (e) {
+                        console.warn(`Supabase history_dse fetch failed for ${ticker}:`, e);
                     }
                 }
 
-                return { ticker, category, recordDate, ath, atl, rsi, psar };
+                // ---------- ৪.খ Category/Record Date/EPS → cse_market_data (Supabase first) ----------
+                if (typeof supabase !== 'undefined' && supabase) {
+                    try {
+                        const { data, error } = await supabase
+                            .from('cse_market_data')
+                            .select('category, record_date, eps')
+                            .eq('code', ticker)
+                            .order('date', { ascending: false })
+                            .limit(1);
+                        if (!error && data && data.length > 0) {
+                            category = data[0].category || 'N/A';
+                            recordDate = data[0].record_date || null;
+                            eps = data[0].eps !== undefined && data[0].eps !== null ? parseFloat(data[0].eps) : null;
+                        }
+                    } catch (e) {
+                        console.warn(`cse_market_data fetch failed for ${ticker}:`, e);
+                    }
+                }
+
+                // ---------- ৪.গ Firebase cse_detailed_data ফ্যালব্যাক ----------
+                if (category === 'N/A' && typeof db !== 'undefined') {
+                    try {
+                        const snap = await db.collection('cse_detailed_data')
+                            .where('code', '==', ticker)
+                            .orderBy('date', 'desc')
+                            .limit(1)
+                            .get();
+                        if (!snap.empty) {
+                            const data = snap.docs[0].data();
+                            category = data.category || 'N/A';
+                            recordDate = data.record_date || null;
+                            eps = data.eps !== undefined && data.eps !== null ? parseFloat(data.eps) : null;
+                        }
+                    } catch (e) {
+                        console.warn(`Firebase cse_detailed_data fallback failed for ${ticker}:`, e);
+                    }
+                }
+
+                return { ticker, category, recordDate, ath, atl, rsi, psar, eps };
             } catch (e) {
                 console.warn(`Meta fetch failed for ${ticker}:`, e);
-                return { ticker, category: 'N/A', recordDate: null, ath: 0, atl: 0, rsi: null, psar: 0 };
+                return { ticker, category: 'N/A', recordDate: null, ath: 0, atl: 0, rsi: null, psar: 0, eps: null };
             }
         });
         const metaResults = await Promise.all(metaPromises);
         const metaMap = new Map();
         metaResults.forEach(m => metaMap.set(m.ticker, m));
 
+        // ==========================================
         // ৫. রো ডেটা তৈরি + সিগন্যাল + লট
+        // ==========================================
         const rows = [];
         for (let i = 0; i < unifiedData.stockDetails.length; i++) {
             const stock = unifiedData.stockDetails[i];
@@ -294,6 +243,7 @@ async function loadDeepAnalysisPage() {
             const atl = meta.atl || 0;
             const rsi = meta.rsi !== undefined ? meta.rsi : null;
             const psar = meta.psar || 0;
+            const eps = meta.eps !== undefined && meta.eps !== null ? meta.eps : null;
 
             // সিগন্যাল
             let signal = 'NEUTRAL';
@@ -367,6 +317,7 @@ async function loadDeepAnalysisPage() {
                 atl,
                 rsi: rsi !== null ? rsi : '-',
                 psar,
+                eps: eps !== null ? eps : '-',
                 signal,
                 signalClass,
                 lots: lots
@@ -374,6 +325,7 @@ async function loadDeepAnalysisPage() {
         }
 
         deepAnalysisData = rows;
+        currentPage = 1; // পেজ রিসেট
         deepSortColumn = 0;
         deepSortAsc = true;
         sortDeepTable(0);
@@ -434,6 +386,7 @@ function sortDeepTable(colIndex) {
     });
 
     deepAnalysisData = sorted;
+    currentPage = 1; // সর্ট করলে পেজ ১ এ চলে যাবে
     applyDeepFiltersAndRender();
     updateSortIndicators(colIndex);
 }
@@ -453,11 +406,25 @@ function handleDeepFilter() {
     const filterInput = document.getElementById('deep-quick-filter');
     if (filterInput) {
         deepFilterText = filterInput.value.trim().toLowerCase();
+        currentPage = 1; // ফিল্টার করলে পেজ ১
         applyDeepFiltersAndRender();
     }
 }
 
-function applyDeepFiltersAndRender() {
+// ==========================================
+// 📄 পেজিনেশন
+// ==========================================
+function changeDeepPage(delta) {
+    const totalRows = getFilteredData().length;
+    const totalPages = Math.ceil(totalRows / PAGE_SIZE);
+    const newPage = currentPage + delta;
+    if (newPage < 1 || newPage > totalPages) return;
+    currentPage = newPage;
+    applyDeepFiltersAndRender();
+}
+
+// ফিল্টার করা ডেটা পাওয়া (পুনঃব্যবহারের জন্য)
+function getFilteredData() {
     let filtered = deepAnalysisData;
     if (deepFilterText) {
         filtered = filtered.filter(row => 
@@ -465,13 +432,18 @@ function applyDeepFiltersAndRender() {
             row.category.toLowerCase().includes(deepFilterText)
         );
     }
+    return filtered;
+}
+
+function applyDeepFiltersAndRender() {
+    const filtered = getFilteredData();
     renderDeepAnalysisTable(filtered);
     const countEl = document.getElementById('deep-filter-count');
     if (countEl) countEl.innerText = filtered.length + ' stocks';
 }
 
 // ==========================================
-// 🖥️ রেন্ডার
+// 🖥️ রেন্ডার (পেজিনেশন সহ)
 // ==========================================
 function renderDeepAnalysisTable(data) {
     const tbody = document.getElementById('deep-analysis-tbody');
@@ -483,11 +455,17 @@ function renderDeepAnalysisTable(data) {
         return;
     }
 
+    // পেজিনেশন ক্যালকুলেট
+    totalPages = Math.ceil(data.length / PAGE_SIZE);
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = Math.min(start + PAGE_SIZE, data.length);
+    const pageData = data.slice(start, end);
+
     let html = '';
     let sumBuyQty = 0, sumBuyCost = 0, sumRemaining = 0, sumCurrentValue = 0, sumUnrealizedPL = 0;
     let sumSellQty = 0, sumRealizedValue = 0;
 
-    for (const row of data) {
+    for (const row of pageData) {
         const signalColor = row.signal === 'BUY' ? '#fbbf24' : (row.signal === 'SELL' ? '#34d399' : '');
         const isExpanded = expandedRows[row.ticker] || false;
         const toggleIcon = isExpanded ? '▼' : '▶';
@@ -535,12 +513,12 @@ function renderDeepAnalysisTable(data) {
         // লট সাব-রো
         if (isExpanded && row.lots && row.lots.length > 0) {
             const totalLots = row.lots.length;
-            const totalPages = Math.ceil(totalLots / LOTS_PER_PAGE);
+            const totalPagesLot = Math.ceil(totalLots / LOTS_PER_PAGE);
             if (!lotPage[row.ticker]) lotPage[row.ticker] = { page: 0 };
-            const currentPage = lotPage[row.ticker].page || 0;
-            const startIdx = currentPage * LOTS_PER_PAGE;
-            const endIdx = Math.min(startIdx + LOTS_PER_PAGE, totalLots);
-            const pageLots = row.lots.slice(startIdx, endIdx);
+            const currentLotPage = lotPage[row.ticker].page || 0;
+            const startLotIdx = currentLotPage * LOTS_PER_PAGE;
+            const endLotIdx = Math.min(startLotIdx + LOTS_PER_PAGE, totalLots);
+            const pageLots = row.lots.slice(startLotIdx, endLotIdx);
 
             html += `<tr class="deep-lot-row" data-ticker="${row.ticker}" style="background: var(--bg-tertiary);">`;
             html += `<td colspan="21" style="padding: 0;">`;
@@ -575,11 +553,11 @@ function renderDeepAnalysisTable(data) {
                 html += `</tr>`;
             }
             html += `</tbody>`;
-            if (totalPages > 1) {
+            if (totalPagesLot > 1) {
                 html += `<tfoot><tr><td colspan="9" style="padding: 4px 6px; text-align: center; background: var(--bg-secondary);">
-                            <button onclick="event.stopPropagation(); changeLotPage('${row.ticker}', -1)" ${currentPage === 0 ? 'disabled' : ''} style="padding: 2px 8px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; opacity: ${currentPage === 0 ? 0.5 : 1};">◀</button>
-                            <span style="margin: 0 8px; font-size: 11px;">Page ${currentPage+1} of ${totalPages}</span>
-                            <button onclick="event.stopPropagation(); changeLotPage('${row.ticker}', 1)" ${currentPage === totalPages-1 ? 'disabled' : ''} style="padding: 2px 8px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; opacity: ${currentPage === totalPages-1 ? 0.5 : 1};">▶</button>
+                            <button onclick="event.stopPropagation(); changeLotPage('${row.ticker}', -1)" ${currentLotPage === 0 ? 'disabled' : ''} style="padding: 2px 8px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; opacity: ${currentLotPage === 0 ? 0.5 : 1};">◀</button>
+                            <span style="margin: 0 8px; font-size: 11px;">Page ${currentLotPage+1} of ${totalPagesLot}</span>
+                            <button onclick="event.stopPropagation(); changeLotPage('${row.ticker}', 1)" ${currentLotPage === totalPagesLot-1 ? 'disabled' : ''} style="padding: 2px 8px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; opacity: ${currentLotPage === totalPagesLot-1 ? 0.5 : 1};">▶</button>
                         </td></tr></tfoot>`;
             }
             html += `</table>`;
@@ -609,6 +587,16 @@ function renderDeepAnalysisTable(data) {
         html += `<td style="padding: 6px 8px; text-align: center;">-</td>`;
     }
     html += `</tr>`;
+
+    // পেজিনেশন নেভিগেশন (যদি একাধিক পেজ থাকে)
+    if (totalPages > 1) {
+        html += `<tr><td colspan="21" style="text-align:center; padding:8px; background: var(--bg-tertiary);">
+            <button onclick="changeDeepPage(-1)" ${currentPage === 1 ? 'disabled' : ''} style="padding:4px 12px; background: var(--bg-secondary); border:1px solid var(--border-color); border-radius:4px; cursor:pointer; opacity:${currentPage === 1 ? 0.5 : 1};">◀ Prev</button>
+            <span style="margin:0 12px; font-weight:600;">Page ${currentPage} of ${totalPages}</span>
+            <button onclick="changeDeepPage(1)" ${currentPage === totalPages ? 'disabled' : ''} style="padding:4px 12px; background: var(--bg-secondary); border:1px solid var(--border-color); border-radius:4px; cursor:pointer; opacity:${currentPage === totalPages ? 0.5 : 1};">Next ▶</button>
+            <span style="margin-left:12px; font-size:11px; color:var(--text-muted);">(Showing ${start+1}-${Math.min(end, data.length)} of ${data.length})</span>
+        </td></tr>`;
+    }
 
     tbody.innerHTML = html;
     applyColumnVisibility();
@@ -753,6 +741,7 @@ async function refreshDeepAnalysis() {
     lotPage = {};
     hiddenColumns = new Set();
     deepFilterText = '';
+    currentPage = 1;
     const filterInput = document.getElementById('deep-quick-filter');
     if (filterInput) filterInput.value = '';
     await loadDeepAnalysisPage();
@@ -770,5 +759,6 @@ window.changeLotPage = changeLotPage;
 window.toggleDeepColumnMenu = toggleDeepColumnMenu;
 window.toggleColumnVisibility = toggleColumnVisibility;
 window.toggleAllColumns = toggleAllColumns;
+window.changeDeepPage = changeDeepPage;
 
-console.log('✅ deep-analysis.js (with null check & portfolio filter) loaded successfully');
+console.log('✅ deep-analysis.js (indicators.js + পেজিনেশন) loaded successfully');

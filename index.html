@@ -599,10 +599,10 @@
                         <span>📅 Data: </span>
                         <span id="data-date-value">Loading...</span>
                     </div>
-                    <div class="mode-buttons">
-                        <button id="btn-firebase-mode" class="mode-btn active">💾 Firebase</button>
-                        <button id="btn-live-mode" class="mode-btn">📡 Live API</button>
-                    </div>
+<div class="mode-buttons">
+  <button id="btn-database-mode" class="mode-btn active" onclick="window.setDatabaseMode()">📊 Database</button>
+<button id="btn-live-mode" class="mode-btn" onclick="window.setLiveDataMode()">📡 Live Data</button>
+</div>
                 </div>
 
                 <div class="manual-reload-container" style="display: flex; justify-content: space-between; align-items: center; margin: 15px 0;">
@@ -2260,24 +2260,44 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="indicators.js" defer></script>
+<script src="firebase-config.js" defer></script>
+<script src="supabase-config.js" defer></script>
+<script src="config.js" defer></script>
+<script src="data-service.js" defer></script>
+<script src="cache-helper.js" defer></script>
+<script src="core.js" defer></script>
 
-    <script src="firebase-config.js" defer></script>
-    <script src="supabase-config.js" defer></script>
-    <script src="config.js" defer></script>
-    <script src="data-service.js" defer></script>
-    <script src="cache-helper.js" defer></script>
-    <script src="core.js" defer></script>
-    <script src="portfolio.js" defer></script>
-    <script src="dashboard.js" defer></script>
-    <script src="scanner.js" defer></script>
-    <script src="marketwatch.js" defer></script>
-    <script src="deep-analysis.js" defer></script>
-    <script src="smart-signals.js" defer></script>
-    <script src="record-date.js" defer></script>
-    <script src="portfolio-manager.js" defer></script>
-    <script src="notification.js" defer></script>
-    <script src="ui.js" defer></script>
-    <script src="sync-metadata.js" defer></script>
+<!-- portfolio ফাইল -->
+<script src="trade-buy.js" defer></script>
+<script src="trade-sell.js" defer></script>
+<script src="trade-history.js" defer></script>
+<script src="trade-analysis.js" defer></script>
+<script src="trade-suggestion.js" defer></script>
+<script src="dividend.js" defer></script>
+<script src="trade-stock-table.js" defer></script>
+
+<!-- dashboard ফাইল -->
+<script src="dash-cards.js" defer></script>
+<script src="dash-performance.js" defer></script>
+<script src="dash-charts.js" defer></script>
+<script src="dash-signals.js" defer></script>
+<script src="dash-utils.js" defer></script>   <!-- নাম ঠিক আছে -->
+
+<!-- বাকি ফাইল -->
+<script src="scanner.js" defer></script>
+<script src="marketwatch.js" defer></script>
+<script src="deep-analysis.js" defer></script>
+<script src="smart-signals.js" defer></script>
+<script src="record-date.js" defer></script>
+<script src="portfolio-manager.js" defer></script>
+<script src="notification.js" defer></script>
+
+<!-- ui ফাইল -->
+<script src="ui-helpers.js" defer></script>
+<script src="ui-modals.js" defer></script>
+<script src="ui-charts.js" defer></script>
+<script src="sync-metadata.js" defer></script>
 
     <script>
         // Screener Dropdown

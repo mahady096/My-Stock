@@ -1,5 +1,7 @@
 // ==========================================
-// 📅 Record Date Section (Tab-based, no modal)
+// 📅 record-date.js - Record Date Section (Tab-based, no modal)
+//    record_date → cse_market_data (Supabase first) → Firebase fallback
+//    ✅ Supabase-first + Firebase-fallback for record date data
 // ==========================================
 
 let allRecordData = [];
@@ -18,62 +20,114 @@ window.loadRecordDateSection = async function() {
     attachRecFilterEvents();
 };
 
-// ডাটা লোড (cse_detailed_data থেকে) – ডুপ্লিকেট বাদ দিয়ে ও daysDiff সহ
+// ডাটা লোড (Supabase-first + Firebase-fallback)
 async function loadAllRecordData() {
     try {
-        if (typeof db === 'undefined') {
-            console.warn('Firebase not available');
-            const tbody = document.getElementById('sec-record-date-tbody');
-            if (tbody) tbody.innerHTML = `<tr><td colspan="4">Firebase not available</td></tr>`;
-            return;
-        }
-
-        const snapshot = await db.collection('cse_detailed_data')
-            .where('record_date', '!=', null)
-            .get();
-        
         const companyMap = new Map(); // ইউনিক কোম্পানি ট্র্যাক করার জন্য
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        
-        for (const doc of snapshot.docs) {
-            const data = doc.data();
-            const code = data.code;
-            if (!code) continue; // code ফিল্ড না থাকলে এড়িয়ে যান
-            
-            const recordDateStr = data.record_date;
-            const dividend = data.dividend || '-';
-            const snapshotDate = data.date || doc.id.split('_')[0]; // ব্যাকআপ হিসেবে docId থেকে তারিখ নেওয়া
-            const recordDateObj = parseRecordDate(recordDateStr);
-            if (!recordDateObj) continue;
-            
-            // daysDiff গণনা
-            const diffTime = recordDateObj - today;
-            const daysDiff = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
-            // যদি এই কোম্পানির আগে কোনো এন্ট্রি না থাকে, অথবা বর্তমান স্ন্যাপশটের তারিখ নতুন হয়, তাহলে আপডেট করুন
-            if (!companyMap.has(code)) {
-                companyMap.set(code, {
-                    code: code,
-                    recordDate: recordDateStr,
-                    recordDateObj: recordDateObj,
-                    dividend: dividend,
-                    snapshotDate: snapshotDate,
-                    daysDiff: daysDiff
-                });
-            } else {
-                const existing = companyMap.get(code);
-                // যদি বর্তমান স্ন্যাপশটের তারিখ আগের চেয়ে নতুন হয়, তাহলে আপডেট করুন
-                if (snapshotDate > existing.snapshotDate) {
-                    companyMap.set(code, {
-                        code: code,
-                        recordDate: recordDateStr,
-                        recordDateObj: recordDateObj,
-                        dividend: dividend,
-                        snapshotDate: snapshotDate,
-                        daysDiff: daysDiff
+
+        // ==========================================
+        // ১. Supabase cse_market_data থেকে রেকর্ড ডেট ফেচ (প্রথম অগ্রাধিকার)
+        // ==========================================
+        if (typeof supabase !== 'undefined' && supabase) {
+            try {
+                const { data, error } = await supabase
+                    .from('cse_market_data')
+                    .select('code, record_date, dividend')
+                    .not('record_date', 'is', null);
+
+                if (!error && data && data.length > 0) {
+                    data.forEach(item => {
+                        const code = item.code;
+                        if (!code) return;
+                        
+                        const recordDateStr = item.record_date;
+                        const dividend = item.dividend || '-';
+                        const recordDateObj = parseRecordDate(recordDateStr);
+                        if (!recordDateObj) return;
+                        
+                        // daysDiff গণনা
+                        const diffTime = recordDateObj - today;
+                        const daysDiff = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        
+                        // যদি এই কোম্পানির আগে কোনো এন্ট্রি না থাকে, অথবা বর্তমান রেকর্ড ডেট নতুন হয়, তাহলে আপডেট করুন
+                        if (!companyMap.has(code)) {
+                            companyMap.set(code, {
+                                code: code,
+                                recordDate: recordDateStr,
+                                recordDateObj: recordDateObj,
+                                dividend: dividend,
+                                daysDiff: daysDiff
+                            });
+                        } else {
+                            const existing = companyMap.get(code);
+                            // যদি বর্তমান রেকর্ড ডেট আগের চেয়ে নতুন হয়, তাহলে আপডেট করুন
+                            if (recordDateObj > existing.recordDateObj) {
+                                companyMap.set(code, {
+                                    code: code,
+                                    recordDate: recordDateStr,
+                                    recordDateObj: recordDateObj,
+                                    dividend: dividend,
+                                    daysDiff: daysDiff
+                                });
+                            }
+                        }
                     });
                 }
+            } catch (e) {
+                console.warn('Supabase cse_market_data record date fetch failed:', e);
+            }
+        }
+
+        // ==========================================
+        // ২. যদি Supabase-এ না থাকে, Firebase cse_detailed_data ফ্যালব্যাক
+        // ==========================================
+        if (companyMap.size === 0 && typeof db !== 'undefined') {
+            try {
+                const snapshot = await db.collection('cse_detailed_data')
+                    .where('record_date', '!=', null)
+                    .get();
+                
+                for (const doc of snapshot.docs) {
+                    const data = doc.data();
+                    const code = data.code;
+                    if (!code) continue;
+                    
+                    const recordDateStr = data.record_date;
+                    const dividend = data.dividend || '-';
+                    const snapshotDate = data.date || doc.id.split('_')[0];
+                    const recordDateObj = parseRecordDate(recordDateStr);
+                    if (!recordDateObj) continue;
+                    
+                    const diffTime = recordDateObj - today;
+                    const daysDiff = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    if (!companyMap.has(code)) {
+                        companyMap.set(code, {
+                            code: code,
+                            recordDate: recordDateStr,
+                            recordDateObj: recordDateObj,
+                            dividend: dividend,
+                            snapshotDate: snapshotDate,
+                            daysDiff: daysDiff
+                        });
+                    } else {
+                        const existing = companyMap.get(code);
+                        if (snapshotDate > existing.snapshotDate) {
+                            companyMap.set(code, {
+                                code: code,
+                                recordDate: recordDateStr,
+                                recordDateObj: recordDateObj,
+                                dividend: dividend,
+                                snapshotDate: snapshotDate,
+                                daysDiff: daysDiff
+                            });
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('Firebase cse_detailed_data fallback failed:', err);
             }
         }
         
@@ -83,7 +137,7 @@ async function loadAllRecordData() {
         // রেকর্ড ডেট অনুযায়ী সাজানো (পুরনো থেকে নতুন)
         allRecordData.sort((a, b) => a.recordDateObj - b.recordDateObj);
         
-        console.log(`✅ ${allRecordData.length} ইউনিক কোম্পানির রেকর্ড ডেট লোড হয়েছে (ডুপ্লিকেট বাদ দিয়ে)`);
+        console.log(`✅ ${allRecordData.length} ইউনিক কোম্পানির রেকর্ড ডেট লোড হয়েছে (Supabase cse_market_data-first)`);
     } catch (err) {
         console.error('Error loading record dates:', err);
         allRecordData = [];
@@ -267,4 +321,4 @@ function attachRecTabEvents() {
 
 // গ্লোবালি এক্সপোজ
 window.loadRecordDateSection = loadRecordDateSection;
-console.log('✅ record-date.js loaded successfully');
+console.log('✅ record-date.js (Supabase cse_market_data-first + Firebase-fallback) loaded successfully');

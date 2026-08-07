@@ -3,6 +3,7 @@
 //    (ভলিউম ট্রেন্ড বাদ, ৪টি ইন্ডিকেটর-ভিত্তিক)
 //    + Conditional ticker color based on rec + confidence
 //    ✅ null-check সহ ইরর হ্যান্ডলিং
+//    ✅ indicators.js থেকে ইন্ডিকেটর ফাংশন কল
 // ==========================================
 
 let smartSignalsData = [];
@@ -69,54 +70,77 @@ async function loadSmartSignalsPage() {
                     const startDate = new Date();
                     startDate.setDate(startDate.getDate() - 30);
                     const startDateStr = startDate.toISOString().split('T')[0];
-                    const snap = await db.collection('cse_detailed_data')
-                        .where('code', '==', ticker)
-                        .where('date', '>=', startDateStr)
-                        .orderBy('date', 'asc')
-                        .limit(30)
-                        .get();
-                    if (snap.size < 15) return null;
+                    
+                    let priceData = [];
 
-                    const priceData = [];
-                    snap.forEach(doc => {
-                        const d = doc.data();
-                        const ltp = parseFloat(d.ltp);
-                        if (ltp > 0) {
-                            priceData.push({
-                                date: d.date,
-                                ltp: ltp,
-                                high: parseFloat(d.high) || ltp,
-                                low: parseFloat(d.low) || ltp
-                            });
+                    // ১. Supabase history_dse (প্রথম)
+                    if (typeof supabase !== 'undefined' && supabase) {
+                        try {
+                            const { data, error } = await supabase
+                                .from('history_dse')
+                                .select('date, ltp, high, low')
+                                .eq('ticker', ticker)
+                                .gte('date', startDateStr)
+                                .order('date', { ascending: true })
+                                .limit(30);
+                            if (!error && data && data.length > 0) {
+                                priceData = data.map(d => ({
+                                    date: d.date,
+                                    ltp: parseFloat(d.ltp),
+                                    high: parseFloat(d.high) || parseFloat(d.ltp),
+                                    low: parseFloat(d.low) || parseFloat(d.ltp)
+                                }));
+                            }
+                        } catch (e) {
+                            console.warn(`Supabase history_dse fetch failed for ${ticker}:`, e);
                         }
-                    });
+                    }
+
+                    // ২. Firebase cse_detailed_data (ফ্যালব্যাক)
+                    if (priceData.length === 0 && typeof db !== 'undefined') {
+                        try {
+                            const snap = await db.collection('cse_detailed_data')
+                                .where('code', '==', ticker)
+                                .where('date', '>=', startDateStr)
+                                .orderBy('date', 'asc')
+                                .limit(30)
+                                .get();
+                            if (!snap.empty) {
+                                snap.forEach(doc => {
+                                    const d = doc.data();
+                                    const ltp = parseFloat(d.ltp);
+                                    if (ltp > 0) {
+                                        priceData.push({
+                                            date: d.date,
+                                            ltp: ltp,
+                                            high: parseFloat(d.high) || ltp,
+                                            low: parseFloat(d.low) || ltp
+                                        });
+                                    }
+                                });
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
                     if (priceData.length < 15) return null;
 
-                    const rsiData = calcRSI(priceData, 14);
+                    // 🔥 RSI (indicators.js থেকে)
+                    const rsiData = calculateRSI(priceData.map(p => p.ltp), 14);
                     const lastRsi = rsiData.filter(r => r.rsi !== null).pop();
                     const rsi = lastRsi ? lastRsi.rsi : 50;
 
+                    // 🔥 PSAR (indicators.js থেকে)
                     const psarData = calculateParabolicSAR(priceData);
                     const psar = psarData.length > 0 ? psarData[psarData.length - 1].sar : price;
 
                     let ath = 0, atl = Infinity;
-                    const histSnap = await db.collection('cse_detailed_data')
-                        .where('code', '==', ticker)
-                        .get();
-                    histSnap.forEach(doc => {
-                        const d = doc.data();
-                        const ltp = parseFloat(d.ltp);
+                    for (const item of priceData) {
+                        const ltp = item.ltp;
                         if (ltp > ath) ath = ltp;
                         if (ltp > 0 && ltp < atl) atl = ltp;
-                        if (d.high) {
-                            const h = parseFloat(d.high);
-                            if (h > ath) ath = h;
-                        }
-                        if (d.low) {
-                            const l = parseFloat(d.low);
-                            if (l > 0 && l < atl) atl = l;
-                        }
-                    });
+                        if (item.high > ath) ath = item.high;
+                        if (item.low > 0 && item.low < atl) atl = item.low;
+                    }
                     if (atl === Infinity) atl = price;
 
                     let unrealizedPct = 0;
@@ -342,4 +366,4 @@ window.refreshSmartSignals = refreshSmartSignals;
 window.handleSmartFilter = handleSmartFilter;
 window.sortSmartTable = sortSmartTable;
 
-console.log('✅ smart-signals.js (with null check) loaded successfully');
+console.log('✅ smart-signals.js (with indicators.js) loaded successfully');

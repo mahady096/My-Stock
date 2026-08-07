@@ -1,12 +1,16 @@
 // ==========================================
-// 🔍 scanner.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন v4.0
-//    All Scanner (PSAR + RSI) - Supabase for live, Firebase for historical
+// 🔍 scanner.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন v6.0
+//    All Scanner (PSAR + RSI) - Supabase-first + Firebase-fallback
 //    RSI Indicator Section সহ
 //    ⚡ ব্যাচ কোয়েরি দিয়ে পারফরম্যান্স অপটিমাইজড
 //    🕐 ডায়নামিক ক্যাশ TTL (মার্কেট সময় অনুযায়ী)
 //    ✅ পোর্টফোলিও ফিল্টার সাপোর্ট
 //    ✅ null-check সহ ইরর হ্যান্ডলিং
 //    ✅ সব ট্যাবের জন্য আলাদা ডেটা লোড
+//    ✅ Category → cse_market_data (Supabase first)
+//    ✅ ATH/ATL/RSI/PSAR → history_dse (Supabase first)
+//    ✅ ইন্ডিকেটর ফাংশন indicators.js থেকে নেওয়া
+//    ⚡ requestIdleCallback দিয়ে UI ফ্রিজ কমানো
 // ==========================================
 
 // ==========================================
@@ -64,40 +68,12 @@ function clearAllScannerCache() {
 }
 
 // ==========================================
-// 📊 RSI ক্যালকুলেটর
+// 📊 RSI ক্যালকুলেটর (ইন্ডিকেটর ফাংশন ব্যবহার)
 // ==========================================
-function calcRSI(priceData, period = 14) {
-    if (!priceData || !Array.isArray(priceData) || priceData.length < period + 1) return [];
-    const sorted = [...priceData].sort((a, b) => new Date(a.date) - new Date(b.date));
-    let rsiData = [], gains = 0, losses = 0;
-    for (let i = 1; i <= period; i++) {
-        const change = (sorted[i]?.ltp || sorted[i]?.close || 0) - (sorted[i-1]?.ltp || sorted[i-1]?.close || 0);
-        if (change >= 0) gains += change;
-        else losses += Math.abs(change);
-    }
-    let avgGain = gains / period, avgLoss = losses / period;
-    let firstRSI = 100 - (100 / (1 + (avgGain / (avgLoss || 1))));
-    for (let i = 0; i < period; i++) rsiData.push({ date: sorted[i]?.date || null, rsi: null });
-    rsiData.push({ date: sorted[period]?.date || null, rsi: firstRSI });
-    for (let i = period + 1; i < sorted.length; i++) {
-        const change = (sorted[i]?.ltp || sorted[i]?.close || 0) - (sorted[i-1]?.ltp || sorted[i-1]?.close || 0);
-        const gain = change >= 0 ? change : 0, loss = change < 0 ? Math.abs(change) : 0;
-        avgGain = ((avgGain * (period - 1)) + gain) / period;
-        avgLoss = ((avgLoss * (period - 1)) + loss) / period;
-        const rs = avgGain / (avgLoss || 1);
-        rsiData.push({ date: sorted[i]?.date || null, rsi: 100 - (100 / (1 + rs)) });
-    }
-    return rsiData;
-}
-
-function chunkArray(array, chunkSize = 10) {
-    const chunks = [];
-    for (let i = 0; i < array.length; i += chunkSize) chunks.push(array.slice(i, i + chunkSize));
-    return chunks;
-}
+// আগের calcRSI ফাংশন সরানো হয়েছে, এখন indicators.js থেকে calculateRSI ব্যবহার করা হবে
 
 // ==========================================
-// 🔍 All Scanner ডেটা লোডার
+// 🔍 All Scanner ডেটা লোডার (Supabase-first + requestIdleCallback)
 // ==========================================
 async function loadAllScannerData(forceRefresh = false, onProgress = null) {
     if (!forceRefresh) {
@@ -108,7 +84,7 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
             return cached;
         }
     }
-    const user = auth.currentUser;
+    const user = auth && auth.currentUser ? auth.currentUser : null;
     if (!user) {
         if (typeof showToast === 'function') showToast('Please login first', 'error');
         return null;
@@ -133,7 +109,8 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
         const BATCH_SIZE = 10;
         let supabasePriceMap = new Map();
 
-        if (currentDataMode !== 'firebase' && typeof supabase !== 'undefined' && supabase) {
+        // ---------- ১. লাইভ প্রাইস ও ক্যাটাগরি (Supabase cse_market_data first) ----------
+        if (typeof supabase !== 'undefined' && supabase) {
             const supabaseChunks = chunkArray(tickers, BATCH_SIZE);
             for (const chunk of supabaseChunks) {
                 try {
@@ -156,7 +133,37 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
                             }
                         });
                     }
-                } catch (e) { console.warn('Supabase batch fetch failed:', e); }
+                } catch (e) { console.warn('Supabase cse_market_data batch fetch failed:', e); }
+            }
+        }
+
+        // ---------- ২. Firebase cse_detailed_data থেকে ক্যাটাগরি ফ্যালব্যাক ----------
+        if (supabasePriceMap.size === 0 && typeof db !== 'undefined') {
+            try {
+                const fbChunks = chunkArray(tickers, BATCH_SIZE);
+                for (const chunk of fbChunks) {
+                    const snap = await db.collection('cse_detailed_data')
+                        .where('code', 'in', chunk)
+                        .orderBy('date', 'desc')
+                        .limit(1)
+                        .get();
+                    if (!snap.empty) {
+                        snap.forEach(doc => {
+                            const data = doc.data();
+                            const code = data.code;
+                            if (code && !supabasePriceMap.has(code)) {
+                                supabasePriceMap.set(code, {
+                                    ltp: parseFloat(data.ltp) || 0,
+                                    high: parseFloat(data.high) || 0,
+                                    low: parseFloat(data.low) || 0,
+                                    category: data.category || 'N/A'
+                                });
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('Firebase cse_detailed_data category fallback failed:', e);
             }
         }
 
@@ -164,90 +171,192 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
         startDate.setDate(startDate.getDate() - 30);
         const startDateStr = startDate.toISOString().split('T')[0];
 
-        const firebaseChunks = chunkArray(tickers, BATCH_SIZE);
-        let allFirebaseData = [];
-        for (const chunk of firebaseChunks) {
+        let allHistoricData = [];
+
+        // ---------- ৩. ঐতিহাসিক ডেটা (ATH/ATL/RSI/PSAR) → Supabase history_dse ----------
+        if (typeof supabase !== 'undefined' && supabase) {
             try {
-                const snap = await db.collection('cse_detailed_data')
-                    .where('code', 'in', chunk)
-                    .where('date', '>=', startDateStr)
-                    .orderBy('date', 'asc')
-                    .get();
-                if (!snap.empty) {
-                    snap.forEach(doc => {
-                        const data = doc.data();
-                        const ltp = parseFloat(data.ltp);
-                        if (ltp > 0) {
-                            allFirebaseData.push({
-                                code: data.code,
-                                date: data.date,
-                                ltp: ltp,
-                                high: parseFloat(data.high) || ltp,
-                                low: parseFloat(data.low) || ltp
-                            });
-                        }
-                    });
+                const supabaseHistChunks = chunkArray(tickers, BATCH_SIZE);
+                for (const chunk of supabaseHistChunks) {
+                    const { data, error } = await supabase
+                        .from('history_dse')
+                        .select('code, date, ltp, high, low')
+                        .in('ticker', chunk)
+                        .gte('date', startDateStr)
+                        .order('date', { ascending: true });
+                    if (!error && data && data.length > 0) {
+                        data.forEach(item => {
+                            const ltp = parseFloat(item.ltp);
+                            if (ltp > 0) {
+                                allHistoricData.push({
+                                    code: item.code,
+                                    date: item.date,
+                                    ltp: ltp,
+                                    high: parseFloat(item.high) || ltp,
+                                    low: parseFloat(item.low) || ltp
+                                });
+                            }
+                        });
+                    }
                 }
-            } catch (e) { console.warn('Firebase batch fetch failed:', e); }
+            } catch (e) {
+                console.warn('Supabase history_dse fetch failed in scanner:', e);
+            }
         }
 
+        // ---------- ৪. যদি history_dse-এ না থাকে, Firebase cse_detailed_data ফ্যালব্যাক ----------
+        if (allHistoricData.length === 0 && typeof db !== 'undefined') {
+            try {
+                const firebaseChunks = chunkArray(tickers, BATCH_SIZE);
+                for (const chunk of firebaseChunks) {
+                    const snap = await db.collection('cse_detailed_data')
+                        .where('code', 'in', chunk)
+                        .where('date', '>=', startDateStr)
+                        .orderBy('date', 'asc')
+                        .get();
+                    if (!snap.empty) {
+                        snap.forEach(doc => {
+                            const data = doc.data();
+                            const ltp = parseFloat(data.ltp);
+                            if (ltp > 0) {
+                                allHistoricData.push({
+                                    code: data.code,
+                                    date: data.date,
+                                    ltp: ltp,
+                                    high: parseFloat(data.high) || ltp,
+                                    low: parseFloat(data.low) || ltp
+                                });
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('Firebase cse_detailed_data fallback failed:', e);
+            }
+        }
+
+        // গ্রুপিং
         const groupedData = {};
-        allFirebaseData.forEach(item => {
+        allHistoricData.forEach(item => {
             if (!groupedData[item.code]) groupedData[item.code] = [];
             groupedData[item.code].push(item);
         });
 
-        let processed = 0;
-        for (const ticker of tickers) {
-            try {
-                const priceData = groupedData[ticker] || [];
-                if (priceData.length < 15) { processed++; continue; }
+        // ==========================================
+        // 🔥 requestIdleCallback দিয়ে ব্যাচ প্রসেস
+        // ==========================================
+        let currentBatchIndex = 0;
 
-                const sarData = calculateParabolicSAR(priceData);
-                const lastSAR = sarData.length > 0 ? sarData[sarData.length - 1] : null;
-                const rsiData = calcRSI(priceData, 14);
-                const lastRSI = rsiData.filter(r => r.rsi !== null).pop();
-
-                let currentPrice = priceData[priceData.length - 1]?.ltp || 0;
-                let category = 'N/A';
-                if (supabasePriceMap.has(ticker)) {
-                    const live = supabasePriceMap.get(ticker);
-                    if (live.ltp > 0) currentPrice = live.ltp;
-                    category = live.category || 'N/A';
+        function processNextBatch() {
+            // সব ব্যাচ শেষ?
+            if (currentBatchIndex >= tickers.length) {
+                // ✅ সব ডেটা প্রসেস শেষ – ক্যাশ সেভ ও রিটার্ন
+                const ttl = getScannerCacheTTL();
+                setAllScannerCache(allResults, ttl);
+                console.log(`✅ All Scanner loaded: ${allResults.length} stocks`);
+                if (typeof onProgress === 'function') {
+                    onProgress(allResults.length, allResults.length);
                 }
-
-                let ath = 0, atl = Infinity;
-                for (const item of priceData) {
-                    const ltp = item.ltp;
-                    if (ltp > ath) ath = ltp;
-                    if (ltp > 0 && ltp < atl) atl = ltp;
-                    if (item.high > ath) ath = item.high;
-                    if (item.low > 0 && item.low < atl) atl = item.low;
+                // কলব্যাক ফাংশন কল (যদি থাকে)
+                if (typeof window._scannerComplete === 'function') {
+                    window._scannerComplete(allResults);
                 }
-                if (atl === Infinity) atl = 0;
-
-                allResults.push({
-                    ticker: ticker,
-                    currentPrice: currentPrice,
-                    sar: lastSAR ? lastSAR.sar : currentPrice,
-                    trend: lastSAR ? lastSAR.trend : 'up',
-                    rsi: lastRSI ? lastRSI.rsi : null,
-                    category: category,
-                    ath: ath,
-                    atl: atl
-                });
-            } catch (err) {
-                console.warn(`Error processing ${ticker}:`, err);
+                return;
             }
-            processed++;
-            if (typeof onProgress === 'function') onProgress(processed, tickers.length);
+
+            // বর্তমান ব্যাচ নিন
+            const batch = tickers.slice(currentBatchIndex, currentBatchIndex + BATCH_SIZE);
+            currentBatchIndex += BATCH_SIZE;
+
+            const batchPromises = batch.map(async (ticker) => {
+                try {
+                    const priceData = groupedData[ticker] || [];
+                    if (priceData.length < 15) return null;
+
+                    // PSAR ক্যালকুলেট (indicators.js থেকে)
+                    const sarData = calculateParabolicSAR(priceData);
+                    const lastSAR = sarData.length > 0 ? sarData[sarData.length - 1] : null;
+                    
+                    // RSI ক্যালকুলেট (indicators.js থেকে)
+                    const rsiData = calculateRSI(priceData.map(p => p.ltp), 14);
+                    const lastRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1].rsi : null;
+
+                    // বর্তমান প্রাইস (Supabase থেকে, না থাকলে history_dse থেকে)
+                    let currentPrice = priceData[priceData.length - 1]?.ltp || 0;
+                    let category = 'N/A';
+                    if (supabasePriceMap.has(ticker)) {
+                        const live = supabasePriceMap.get(ticker);
+                        if (live.ltp > 0) currentPrice = live.ltp;
+                        category = live.category || 'N/A';
+                    }
+
+                    // ATH/ATL ক্যালকুলেট
+                    let ath = 0, atl = Infinity;
+                    for (const item of priceData) {
+                        const ltp = item.ltp;
+                        if (ltp > ath) ath = ltp;
+                        if (ltp > 0 && ltp < atl) atl = ltp;
+                        if (item.high > ath) ath = item.high;
+                        if (item.low > 0 && item.low < atl) atl = item.low;
+                    }
+                    if (atl === Infinity) atl = 0;
+
+                    return {
+                        ticker: ticker,
+                        currentPrice: currentPrice,
+                        sar: lastSAR ? lastSAR.sar : currentPrice,
+                        trend: lastSAR ? lastSAR.trend : 'up',
+                        rsi: lastRSI !== null ? lastRSI : null,
+                        category: category,
+                        ath: ath,
+                        atl: atl
+                    };
+                } catch (err) {
+                    console.warn(`Error processing ${ticker}:`, err);
+                    return null;
+                }
+            });
+
+            // ব্যাচ প্রসেস করুন
+            Promise.all(batchPromises).then((results) => {
+                const valid = results.filter(r => r !== null);
+                allResults.push(...valid);
+
+                // প্রগ্রেস আপডেট
+                if (typeof onProgress === 'function') {
+                    onProgress(currentBatchIndex, tickers.length);
+                }
+
+                // পরবর্তী ব্যাচ শিডিউল করুন (ইউজার ফ্রি থাকলে)
+                if (typeof requestIdleCallback === 'function') {
+                    requestIdleCallback(() => processNextBatch(), { timeout: 2000 });
+                } else {
+                    // ফ্যালব্যাক (পুরনো ব্রাউজার বা Safari)
+                    setTimeout(() => processNextBatch(), 50);
+                }
+            }).catch((err) => {
+                console.error('Batch processing error:', err);
+                // এরর হলেও পরবর্তী ব্যাচ চালান
+                if (typeof requestIdleCallback === 'function') {
+                    requestIdleCallback(() => processNextBatch(), { timeout: 2000 });
+                } else {
+                    setTimeout(() => processNextBatch(), 50);
+                }
+            });
         }
 
-        const ttl = getScannerCacheTTL();
-        setAllScannerCache(allResults, ttl);
-        console.log(`✅ All Scanner loaded: ${allResults.length} stocks`);
-        if (typeof onProgress === 'function') onProgress(allResults.length, allResults.length);
-        return allResults;
+        // ==========================================
+        // 🔥 প্রসেস শুরু করুন (Promise রিটার্ন)
+        // ==========================================
+        return new Promise((resolve) => {
+            // কলব্যাক সেভ করুন
+            window._scannerComplete = function(data) {
+                resolve(data);
+                delete window._scannerComplete;
+            };
+            processNextBatch();
+        });
+
     } catch (error) {
         console.error('All Scanner load error:', error);
         if (typeof showToast === 'function') showToast('Error loading scanner data', 'error');
@@ -467,7 +576,7 @@ async function refreshAllScannerPage() {
 }
 
 // ==========================================
-// 📊 RSI Indicator Section
+// 📊 RSI Indicator Section (Supabase-first)
 // ==========================================
 let currentRSITab = 'buy';
 let cachedRSIData = null;
@@ -584,7 +693,7 @@ async function refreshRSIIndicator() {
 }
 
 // ==========================================
-// 📌 Screener - Parabolic SAR (পোর্টফোলিও ফিল্টার সহ)
+// 📌 Screener - Parabolic SAR (Supabase-first)
 // ==========================================
 let currentScreenerTab = 'buy';
 let screenerDataCache = null;
@@ -617,7 +726,7 @@ async function loadScreenerData(tab = 'buy', portfolioId = null) {
     tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px;">⏳ Loading screener data...</td></tr>`;
 
     try {
-        const user = auth.currentUser;
+        const user = auth && auth.currentUser ? auth.currentUser : null;
         if (!user) {
             tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:red;">Please login first.</td></tr>`;
             return;
@@ -648,7 +757,31 @@ async function loadScreenerData(tab = 'buy', portfolioId = null) {
                 try {
                     let currentPrice = await getUnifiedPrice(ticker);
                     let priceData = [];
-                    if (typeof db !== 'undefined') {
+
+                    // ১. Supabase history_dse থেকে ফেচ (প্রথম)
+                    if (typeof supabase !== 'undefined' && supabase) {
+                        try {
+                            const { data, error } = await supabase
+                                .from('history_dse')
+                                .select('date, ltp, high, low')
+                                .eq('code', ticker)
+                                .gte('date', startDateStr)
+                                .order('date', { ascending: true });
+                            if (!error && data && data.length > 0) {
+                                priceData = data.map(d => ({
+                                    date: d.date,
+                                    ltp: parseFloat(d.ltp),
+                                    high: parseFloat(d.high) || parseFloat(d.ltp),
+                                    low: parseFloat(d.low) || parseFloat(d.ltp)
+                                }));
+                            }
+                        } catch (e) {
+                            console.warn(`Supabase history_dse fetch failed for ${ticker} in screener:`, e);
+                        }
+                    }
+
+                    // ২. যদি history_dse-এ না থাকে, Firebase daily_prices ফ্যালব্যাক
+                    if (priceData.length === 0 && typeof db !== 'undefined') {
                         try {
                             const snap = await db.collection('daily_prices')
                                 .where('ticker', '==', ticker)
@@ -668,13 +801,14 @@ async function loadScreenerData(tab = 'buy', portfolioId = null) {
                             }
                         } catch (e) { /* ignore */ }
                     }
+
                     if (priceData.length < 2) return null;
                     const sarData = calculateParabolicSAR(priceData);
                     const lastSAR = sarData[sarData.length - 1];
                     if (currentPrice === 0) currentPrice = priceData[priceData.length - 1]?.ltp || 0;
                     return { ticker: ticker, currentPrice: currentPrice, sar: lastSAR?.sar || currentPrice, trend: lastSAR?.trend || 'up' };
                 } catch (err) {
-                    console.warn(`Error processing ${ticker}:`, err);
+                    console.warn(`Error processing ${ticker} in screener:`, err);
                     return null;
                 }
             });
@@ -729,7 +863,7 @@ function renderScreenerTable(tab, data) {
 // 💰 Buy Sell Price – ডেটা জেনারেটর (শুধু ডেটা, UI নয়)
 // ==========================================
 window.getBuySellPriceSignalData = async function() {
-    const user = auth.currentUser;
+    const user = auth && auth.currentUser ? auth.currentUser : null;
     if (!user) return { buy: [], sell: [] };
 
     try {
@@ -830,6 +964,7 @@ window.getBuySellPriceSignalData = async function() {
         return { buy: [], sell: [] };
     }
 };
+
 // ==========================================
 // 📌 গ্লোবালি এক্সপোজ
 // ==========================================
@@ -840,21 +975,8 @@ window.loadRSIIndicatorPage = loadRSIIndicatorPage;
 window.switchRSITab = switchRSITab;
 window.applyRSIFilter = applyRSIFilter;
 window.refreshRSIIndicator = refreshRSIIndicator;
-window.calcRSI = calcRSI;
 window.loadScreenerData = loadScreenerData;
 window.clearAllScannerCache = clearAllScannerCache;
-window.chunkArray = chunkArray;
-// গ্লোবালি এক্সপোজ
-window.loadAllScannerPage = loadAllScannerPage;
-window.switchAllScannerTab = switchAllScannerTab;
-window.refreshAllScannerPage = refreshAllScannerPage;
-window.loadRSIIndicatorPage = loadRSIIndicatorPage;
-window.switchRSITab = switchRSITab;
-window.applyRSIFilter = applyRSIFilter;
-window.refreshRSIIndicator = refreshRSIIndicator;
-window.calcRSI = calcRSI;
-window.loadScreenerData = loadScreenerData;  // 👈 এই লাইনটি যোগ করুন
-window.clearAllScannerCache = clearAllScannerCache;
-window.chunkArray = chunkArray;
+window.getBuySellPriceSignalData = window.getBuySellPriceSignalData;
 
-console.log('✅ scanner.js v4.0 loaded successfully');
+console.log('✅ scanner.js v6.0 (Supabase-first + Firebase-fallback + requestIdleCallback) loaded successfully');

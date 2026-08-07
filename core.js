@@ -1,6 +1,7 @@
 // ==========================================
 // 🔥 CORE.JS – সম্পূর্ণ ইরর-ফ্রি ভার্সন
 //    (সব ফাংশন ডিফাইন করা, কনফিগ-সাপোর্ট, গ্লোবাল এক্সপোজ)
+//    ✅ ডুপ্লিকেট ইন্ডিকেটর ফাংশন সরানো (indicators.js থেকে নেওয়া)
 // ==========================================
 
 // ==========================================
@@ -61,16 +62,6 @@ const SCRAPER_BASE_URL = CONFIG.API.SCRAPER_BASE_URL || 'https://dse-scraper.ver
 // ==========================================
 // 🕐 TIMEZONE UTILITY FUNCTIONS
 // ==========================================
-// ==========================================
-// 📦 অ্যারে ভাগ করার হেলপার (ব্যাচ কোয়েরির জন্য)
-// ==========================================
-function chunkArray(array, chunkSize = 10) {
-    const chunks = [];
-    for (let i = 0; i < array.length; i += chunkSize) {
-        chunks.push(array.slice(i, i + chunkSize));
-    }
-    return chunks;
-}
 function toBangladeshTime(date) {
     if (!date) return null;
     let jsDate;
@@ -97,6 +88,7 @@ function formatBangladeshTime(date, showTime = true) {
 
 function getBangladeshDateString(date = new Date()) {
     const bdDate = toBangladeshTime(date);
+    if (!bdDate) return new Date().toISOString().split('T')[0];
     const year = bdDate.getUTCFullYear();
     const month = String(bdDate.getUTCMonth() + 1).padStart(2, '0');
     const day = String(bdDate.getUTCDate()).padStart(2, '0');
@@ -145,6 +137,17 @@ function calculatePercentage(value, base) {
 function safeDivision(dividend, divisor, defaultValue = 0) {
     if (!divisor || divisor === 0 || isNaN(divisor) || isNaN(dividend)) return defaultValue;
     return dividend / divisor;
+}
+
+// ==========================================
+// 📦 অ্যারে ভাগ করার হেলপার (ব্যাচ কোয়েরির জন্য)
+// ==========================================
+function chunkArray(array, chunkSize = 10) {
+    const chunks = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+        chunks.push(array.slice(i, i + chunkSize));
+    }
+    return chunks;
 }
 
 // ==========================================
@@ -398,27 +401,7 @@ async function getUnifiedPrice(ticker, forceRefresh = false) {
     let price = 0;
     const sources = [];
 
-    // ৩.১ Supabase dse_live_data
-    if (currentDataMode !== 'firebase' && typeof supabase !== 'undefined' && supabase) {
-        sources.push(
-            supabase
-                .from('dse_live_data')
-                .select('ltp')
-                .eq('ticker', ticker)
-                .order('date', { ascending: false })
-                .limit(1)
-                .then(({ data, error }) => {
-                    if (!error && data && data.length > 0) {
-                        const val = parseFloat(data[0].ltp);
-                        if (!isNaN(val) && val > 0) return val;
-                    }
-                    return null;
-                })
-                .catch(() => null)
-        );
-    }
-
-    // ৩.২ Supabase cse_market_data
+    // ৩.১ Supabase cse_market_data (প্রথম)
     if (typeof supabase !== 'undefined' && supabase) {
         sources.push(
             supabase
@@ -438,7 +421,27 @@ async function getUnifiedPrice(ticker, forceRefresh = false) {
         );
     }
 
-    // ৩.৩ Firebase daily_prices
+    // ৩.২ Supabase dse_live_data (দ্বিতীয়)
+    if (typeof supabase !== 'undefined' && supabase) {
+        sources.push(
+            supabase
+                .from('dse_live_data')
+                .select('ltp')
+                .eq('ticker', ticker)
+                .order('date', { ascending: false })
+                .limit(1)
+                .then(({ data, error }) => {
+                    if (!error && data && data.length > 0) {
+                        const val = parseFloat(data[0].ltp);
+                        if (!isNaN(val) && val > 0) return val;
+                    }
+                    return null;
+                })
+                .catch(() => null)
+        );
+    }
+
+    // ৩.৩ Firebase daily_prices (ফ্যালব্যাক)
     if (typeof db !== 'undefined' && db) {
         sources.push(
             db
@@ -907,100 +910,87 @@ const dseStocks = [
     "UNILEVERCL", "UNIONBANK", "UNIONCAP", "UNIONINS", "UNIQUEHRL", "UNITEDFIN", "UNITEDINS", "UPGDCL", "USMANIAGL", "UTTARABANK",
     "UTTARAFIN", "VAMLBDMF1", "VAMLRBBF", "VFSTDL", "WALTONHIL", "WATACHEM", "WMSHIPYARD", "YPL", "ZAHEENSPIN", "ZAHINTEX"
 ];
-function calculateRSI(data, period = 14) {
-    if (!data || data.length < period + 1) return [];
-    let gains = 0, losses = 0;
-    for (let i = 1; i <= period; i++) {
-        const diff = data[i] - data[i-1];
-        if (diff >= 0) gains += diff;
-        else losses += Math.abs(diff);
-    }
-    let avgGain = gains / period;
-    let avgLoss = losses / period;
-    const result = [];
-    let rsi = 100 - (100 / (1 + (avgGain / (avgLoss || 1))));
-    result.push(rsi);
-    for (let i = period + 1; i < data.length; i++) {
-        const diff = data[i] - data[i-1];
-        const gain = diff >= 0 ? diff : 0;
-        const loss = diff < 0 ? Math.abs(diff) : 0;
-        avgGain = ((avgGain * (period - 1)) + gain) / period;
-        avgLoss = ((avgLoss * (period - 1)) + loss) / period;
-        rsi = 100 - (100 / (1 + (avgGain / (avgLoss || 1))));
-        result.push(rsi);
-    }
-    return result;
-}
+
 // ==========================================
-// 📈 Parabolic SAR (PSAR) ক্যালকুলেটর
+// 📈 Supabase history_dse থেকে ঐতিহাসিক ডেটা ফেচ (হেলপার)
 // ==========================================
-function calculateParabolicSAR(priceData, step = CONFIG.CALC.PARABOLIC_SAR_STEP || 0.02, maxStep = CONFIG.CALC.PARABOLIC_SAR_MAX_STEP || 0.20) {
-    if (!priceData || priceData.length < 2) return [];
-
-    let sar = [];
-    let trend = 'up';
-    let af = step;
-    let ep = priceData[0].high || priceData[0].ltp || priceData[0].close || 0;
-    let currentSAR = priceData[0].low || priceData[0].ltp || priceData[0].close || 0;
-    sar.push({ date: priceData[0].date, sar: currentSAR, trend: trend, af: af, ep: ep });
-
-    for (let i = 1; i < priceData.length; i++) {
-        const current = priceData[i];
-        const price = current.ltp || current.close || 0;
-        const high = current.high || price;
-        const low = current.low || price;
-
-        let newSAR;
-        if (trend === 'up') {
-            newSAR = currentSAR + af * (ep - currentSAR);
-        } else {
-            newSAR = currentSAR - af * (currentSAR - ep);
+async function getHistoricalPricesFromSupabase(ticker, startDate, endDate = null) {
+    if (!ticker || !startDate) return [];
+    try {
+        if (typeof supabase === 'undefined' || !supabase) return [];
+        let query = supabase
+            .from('history_dse')
+            .select('date, ltp, high, low')
+            .eq('ticker', ticker)
+            .gte('date', startDate)
+            .order('date', { ascending: true });
+        if (endDate) {
+            query = query.lte('date', endDate);
         }
-
-        if (trend === 'up' && price < newSAR) {
-            trend = 'down';
-            newSAR = ep;
-            af = step;
-            ep = low;
-        } else if (trend === 'down' && price > newSAR) {
-            trend = 'up';
-            newSAR = ep;
-            af = step;
-            ep = high;
-        } else {
-            if (trend === 'up') {
-                if (high > ep) {
-                    ep = high;
-                    af = Math.min(af + step, maxStep);
-                }
-            } else {
-                if (low < ep) {
-                    ep = low;
-                    af = Math.min(af + step, maxStep);
-                }
-            }
+        const { data, error } = await query;
+        if (error) {
+            console.warn(`Supabase history_dse fetch error for ${ticker}:`, error);
+            return [];
         }
-
-        sar.push({ date: current.date, sar: newSAR, trend: trend, af: af, ep: ep });
-        currentSAR = newSAR;
+        return data || [];
+    } catch (err) {
+        console.warn(`Exception in getHistoricalPricesFromSupabase for ${ticker}:`, err);
+        return [];
     }
-
-    return sar;
 }
 
 // ==========================================
-// 📌 ডিবাউন্স ইউটিলিটি
+// 📈 Supabase dsex_index থেকে সর্বশেষ DSEX মান ও আগের দিনের মান
 // ==========================================
-function debounce(func, wait = 300) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
+async function getLatestDSEXFromSupabase() {
+    try {
+        if (typeof supabase === 'undefined' || !supabase) return null;
+        
+        // ১. সর্বশেষ ২টি রেকর্ড (আজ ও গতকাল) নিন
+        const { data, error } = await supabase
+            .from('dsex_index')
+            .select('value, updated_at, date')
+            .eq('index_name', 'DSEX')
+            .order('updated_at', { ascending: false })
+            .limit(2);
+        
+        if (error || !data || data.length === 0) return null;
+        
+        // ২. আজকের ডেটা (সর্বশেষ)
+        const latest = data[0];
+        const todayValue = parseFloat(latest.value) || 0;
+        const todayDate = new Date(latest.updated_at);
+        const todayDateStr = latest.date; // raw date
+        
+        // ৩. গতকালের ডেটা (যদি থাকে)
+        let prevValue = null;
+        let prevDate = null;
+        if (data.length > 1) {
+            prevValue = parseFloat(data[1].value) || 0;
+            prevDate = new Date(data[1].updated_at);
+        }
+        
+        // ৪. পরিবর্তন ক্যালকুলেট (যদি গতকালের মান থাকে)
+        let change = 0;
+        let changePercent = 0;
+        if (prevValue !== null && prevValue > 0) {
+            change = todayValue - prevValue;
+            changePercent = (change / prevValue) * 100;
+        }
+        
+        return {
+            value: todayValue,
+            date: todayDate,
+            rawDate: todayDateStr,
+            change: change,
+            changePercent: changePercent,
+            previousValue: prevValue,
+            previousDate: prevDate
         };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
+    } catch (e) {
+        console.warn('Error fetching DSEX from Supabase:', e);
+        return null;
+    }
 }
 
 // ==========================================
@@ -1492,6 +1482,7 @@ async function getPERatio(ticker) {
     }
     return null;
 }
+
 // ==========================================
 // 🧹 গ্লোবাল ক্যাশ ক্লিনার
 // ==========================================
@@ -1499,6 +1490,7 @@ function resetUnifiedCache() {
     if (window.unifiedEngine) window.unifiedEngine.resetCache();
     else console.warn('unifiedEngine not found');
 }
+
 function debounce(func, wait = 300) {
     let timeout;
     return function executedFunction(...args) {
@@ -1510,6 +1502,7 @@ function debounce(func, wait = 300) {
         timeout = setTimeout(later, wait);
     };
 }
+
 function clearAllScannerCache() {
     if (typeof sessionStorage !== 'undefined') {
         sessionStorage.removeItem('all_scanner_data');
@@ -1518,7 +1511,7 @@ function clearAllScannerCache() {
 }
 
 // ==========================================
-// 📂 পোর্টফোলিও মেটাডেটা ম্যানেজমেন্ট (core.js)
+// 📂 পোর্টফোলিও মেটাডেটা ম্যানেজমেন্ট
 // ==========================================
 
 /**
@@ -1640,6 +1633,64 @@ function getPortfolioName(portfolioId, meta) {
     return found ? found.name : (portfolioId === 'main' ? '📊 Grand Portfolio' : portfolioId);
 }
 // ==========================================
+// 📡 NEW API SERVICE (bd-stock-api)
+// ==========================================
+
+const STOCK_API_BASE = 'https://bd-stock-api-an3n.vercel.app/v1/dse';
+
+/**
+ * সব কোম্পানির লেটেস্ট ডেটা ফেচ করুন
+ */
+async function fetchAllLatestStocks() {
+    try {
+        const response = await fetch(`${STOCK_API_BASE}/latest`);
+        const data = await response.json();
+        if (data.success) return data.data;
+        return [];
+    } catch (error) {
+        console.error('Error fetching latest stocks:', error);
+        return [];
+    }
+}
+
+/**
+ * টিকার নাম দিয়ে ডেটা ফেচ করুন (dsexdata)
+ */
+async function fetchStockByTicker(ticker) {
+    try {
+        const response = await fetch(`${STOCK_API_BASE}/dsexdata`);
+        const data = await response.json();
+        if (data.success) {
+            return data.data.filter(item => item['TRADING CODE'] === ticker);
+        }
+        return [];
+    } catch (error) {
+        console.error(`Error fetching stock ${ticker}:`, error);
+        return [];
+    }
+}
+
+/**
+ * ঐতিহাসিক ডেটা ফেচ করুন
+ */
+async function fetchHistoricalData(ticker, startDate, endDate) {
+    try {
+        const url = `${STOCK_API_BASE}/historical?start=${startDate}&end=${endDate}&code=${ticker}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.success) return data.data;
+        return [];
+    } catch (error) {
+        console.error(`Error fetching historical data for ${ticker}:`, error);
+        return [];
+    }
+}
+
+// গ্লোবালি এক্সপোজ
+window.fetchAllLatestStocks = fetchAllLatestStocks;
+window.fetchStockByTicker = fetchStockByTicker;
+window.fetchHistoricalData = fetchHistoricalData;
+// ==========================================
 // 🌐 গ্লোবাল এক্সপোজ
 // ==========================================
 const unifiedEngine = new UnifiedCalculationEngine();
@@ -1653,7 +1704,6 @@ window.getHardcodedPrice = getHardcodedPrice;
 window.resetUnifiedPriceCache = resetUnifiedPriceCache;
 window.resetUnifiedCache = resetUnifiedCache;
 window.clearAllScannerCache = clearAllScannerCache;
-window.calculateParabolicSAR = calculateParabolicSAR;
 window.debounce = debounce;
 window.dseStocks = dseStocks;
 window.firebaseDataManager = firebaseDataManager;
@@ -1682,5 +1732,7 @@ window.createPortfolio = createPortfolio;
 window.deletePortfolio = deletePortfolio;
 window.renamePortfolio = renamePortfolio;
 window.getPortfolioName = getPortfolioName;
+window.getHistoricalPricesFromSupabase = getHistoricalPricesFromSupabase;
+window.getLatestDSEXFromSupabase = getLatestDSEXFromSupabase;
 
 console.log('✅ core.js loaded successfully (All functions defined and exposed globally)');

@@ -363,12 +363,10 @@
                     <input type="text" id="adv-chart-search" placeholder="Search share (e.g. GP)" autocomplete="off">
                     <div id="adv-chart-suggestions" class="adv-suggestions"></div>
                 </div>
-                <select id="adv-data-source">
-                    <option value="cse_detailed">📁 cse_detailed_data (Firebase)</option>
-                    <option value="daily_prices">📁 daily_prices (Firebase)</option>
-                    <option value="cse_market">📡 cse_market_data (Supabase)</option>
-                    <option value="dse_live">📡 dse_live_data (Supabase)</option>
-                </select>
+<select id="adv-data-source">
+    <option value="database">💾 Database (Supabase)</option>
+    <option value="live">📡 Live API</option>
+</select>
                 <select id="adv-chart-period">
                     <option value="30">1 Month</option>
                     <option value="90">3 Months</option>
@@ -471,7 +469,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
+<script src="indicators.js"></script>
     <script src="firebase-config.js"></script>
     <script src="supabase-config.js"></script>
     <script src="config.js"></script>

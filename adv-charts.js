@@ -1,24 +1,34 @@
 // ==========================================
-// 📈 adv-charts.js - সম্পূর্ণ আপডেটেড ভার্সন
-//    Zoom, PSAR, Comments, Candlestick with Indicators & Forecast
-//    UI: বুলিশ/বেয়ারিশ কমেন্ট ক্লাস
+// 📈 adv-charts.js - অ্যাডভান্সড চার্ট (ইন্ডিকেটর আলাদা)
+//    সব ইন্ডিকেটর ফাংশন indicators.js থেকে নেওয়া
+//    Database (Supabase history_dse) + Live API
+//    ⚡ ডিফল্ট ইন্ডিকেটর কম (SMA5 + RSI) + অ্যানিমেশন বন্ধ
 // ==========================================
 
+// গ্লোবাল ভেরিয়েবল
 let advMainChart = null;
 let advRSIChart = null;
 let advStochChart = null;
 let advChartData = null;
 let advActiveIndicators = {
-    sma5: true, sma10: true, sma20: true, sma50: false,
-    ema5: true, ema10: true, ema20: true, ema50: false,
-    rsi: true, bollinger: true,
-    stochastic: false, atr: false,
+    sma5: true,
+    sma10: false,
+    sma20: false,
+    sma50: false,
+    ema5: false,
+    ema10: false,
+    ema20: false,
+    ema50: false,
+    rsi: true,
+    bollinger: false,
+    stochastic: false,
+    atr: false,
     forecast: false,
     psar: false
 };
 let advCurrentTicker = 'GP';
 let advCurrentPeriod = 30;
-let advDataSource = 'cse_detailed';
+let advDataSource = 'database'; // 'database' or 'live'
 let advStockList = (typeof dseStocks !== 'undefined') ? dseStocks : (window.dseStocks || []);
 let currentChartType = 'line'; // 'line' or 'candle'
 
@@ -32,33 +42,8 @@ if (typeof Chart !== 'undefined' && typeof ChartZoom !== 'undefined') {
 }
 
 // ==========================================
-// 📐 ইন্ডিকেটর ক্যালকুলেশন ফাংশন
+// 🔙 গো ব্যাক ফাংশন
 // ==========================================
-function calculateSMA(data, period) {
-    if (data.length < period) return [];
-    const result = [];
-    for (let i = period - 1; i < data.length; i++) {
-        let sum = 0;
-        for (let j = i - period + 1; j <= i; j++) sum += data[j];
-        result.push(sum / period);
-    }
-    return result;
-}
-
-function calculateEMA(data, period) {
-    if (data.length < period) return [];
-    const multiplier = 2 / (period + 1);
-    const result = [];
-    let sma = 0;
-    for (let i = 0; i < period; i++) sma += data[i];
-    sma /= period;
-    result.push(sma);
-    for (let i = period; i < data.length; i++) {
-        const ema = (data[i] - result[result.length - 1]) * multiplier + result[result.length - 1];
-        result.push(ema);
-    }
-    return result;
-}
 window.goBackToStockModal = function() {
     const params = new URLSearchParams(window.location.search);
     const ticker = params.get('ticker');
@@ -68,208 +53,20 @@ window.goBackToStockModal = function() {
         window.history.back();
     }
 };
-function calculateBollingerBands(data, period = 20, stdDev = 2) {
-    if (data.length < period) return null;
-    const sma = calculateSMA(data, period);
-    const upper = [], lower = [], middle = [];
-    for (let i = period - 1; i < data.length; i++) {
-        const start = i - period + 1;
-        let sum = 0;
-        for (let j = start; j <= i; j++) sum += Math.pow(data[j] - sma[i - period + 1], 2);
-        const std = Math.sqrt(sum / period);
-        upper.push(sma[i - period + 1] + stdDev * std);
-        middle.push(sma[i - period + 1]);
-        lower.push(sma[i - period + 1] - stdDev * std);
-    }
-    return { upper, middle, lower };
-}
-
-function calculateRSI(data, period = 14) {
-    if (data.length < period + 1) return [];
-    const result = [];
-    let gains = 0, losses = 0;
-    for (let i = 1; i <= period; i++) {
-        const diff = data[i] - data[i-1];
-        if (diff >= 0) gains += diff;
-        else losses += Math.abs(diff);
-    }
-    let avgGain = gains / period;
-    let avgLoss = losses / period;
-    let rsi = 100 - (100 / (1 + (avgGain / (avgLoss || 1))));
-    result.push({ rsi });
-    for (let i = period + 1; i < data.length; i++) {
-        const diff = data[i] - data[i-1];
-        const gain = diff >= 0 ? diff : 0;
-        const loss = diff < 0 ? Math.abs(diff) : 0;
-        avgGain = ((avgGain * (period - 1)) + gain) / period;
-        avgLoss = ((avgLoss * (period - 1)) + loss) / period;
-        rsi = 100 - (100 / (1 + (avgGain / (avgLoss || 1))));
-        result.push({ rsi });
-    }
-    return result;
-}
-
-function calculateMACD(data, fast = 12, slow = 26, signal = 9) {
-    if (data.length < slow + signal) return null;
-    const emaFast = calculateEMA(data, fast);
-    const emaSlow = calculateEMA(data, slow);
-    const macdLine = [];
-    const startIdx = data.length - emaSlow.length;
-    for (let i = 0; i < emaSlow.length; i++) {
-        macdLine.push(emaFast[i + startIdx] - emaSlow[i]);
-    }
-    const signalLine = calculateEMA(macdLine, signal);
-    const histogram = [];
-    const sigStart = macdLine.length - signalLine.length;
-    for (let i = 0; i < signalLine.length; i++) {
-        histogram.push(macdLine[i + sigStart] - signalLine[i]);
-    }
-    return {
-        macd: macdLine.slice(-signalLine.length),
-        signal: signalLine,
-        histogram
-    };
-}
-
-function calculateStochastic(high, low, close, period = 14, smoothK = 3, smoothD = 3) {
-    if (high.length < period || low.length < period || close.length < period) return { k: [], d: [] };
-    const kValues = [];
-    for (let i = period - 1; i < close.length; i++) {
-        const start = i - period + 1;
-        let maxHigh = -Infinity, minLow = Infinity;
-        for (let j = start; j <= i; j++) {
-            if (high[j] > maxHigh) maxHigh = high[j];
-            if (low[j] < minLow) minLow = low[j];
-        }
-        const k = ((close[i] - minLow) / (maxHigh - minLow)) * 100;
-        kValues.push(k);
-    }
-    const smoothKValues = [];
-    for (let i = smoothK - 1; i < kValues.length; i++) {
-        let sum = 0;
-        for (let j = i - smoothK + 1; j <= i; j++) sum += kValues[j];
-        smoothKValues.push(sum / smoothK);
-    }
-    const dValues = [];
-    for (let i = smoothD - 1; i < smoothKValues.length; i++) {
-        let sum = 0;
-        for (let j = i - smoothD + 1; j <= i; j++) sum += smoothKValues[j];
-        dValues.push(sum / smoothD);
-    }
-    return { k: smoothKValues, d: dValues };
-}
-
-function calculateATR(high, low, close, period = 14) {
-    if (high.length < period || low.length < period || close.length < period + 1) return [];
-    const tr = [];
-    for (let i = 1; i < close.length; i++) {
-        const h = high[i] || close[i];
-        const l = low[i] || close[i];
-        const prevClose = close[i-1];
-        const tr1 = h - l;
-        const tr2 = Math.abs(h - prevClose);
-        const tr3 = Math.abs(l - prevClose);
-        tr.push(Math.max(tr1, tr2, tr3));
-    }
-    let atr = [];
-    let sum = 0;
-    for (let i = 0; i < period && i < tr.length; i++) sum += tr[i];
-    atr.push(sum / period);
-    for (let i = period; i < tr.length; i++) {
-        const prevAtr = atr[atr.length - 1];
-        const newAtr = (prevAtr * (period - 1) + tr[i]) / period;
-        atr.push(newAtr);
-    }
-    return atr;
-}
-
-function calculateParabolicSAR(priceData, step = 0.02, maxStep = 0.20) {
-    if (!priceData || priceData.length < 2) return [];
-    let sar = [];
-    let trend = 'up';
-    let af = step;
-    let ep = priceData[0].high || priceData[0].ltp || priceData[0].close || 0;
-    let currentSAR = priceData[0].low || priceData[0].ltp || priceData[0].close || 0;
-    sar.push({ date: priceData[0].date, sar: currentSAR, trend: trend, af: af, ep: ep });
-
-    for (let i = 1; i < priceData.length; i++) {
-        const current = priceData[i];
-        const price = current.ltp || current.close || 0;
-        const high = current.high || price;
-        const low = current.low || price;
-
-        let newSAR;
-        if (trend === 'up') {
-            newSAR = currentSAR + af * (ep - currentSAR);
-        } else {
-            newSAR = currentSAR - af * (currentSAR - ep);
-        }
-
-        if (trend === 'up' && price < newSAR) {
-            trend = 'down';
-            newSAR = ep;
-            af = step;
-            ep = low;
-        } else if (trend === 'down' && price > newSAR) {
-            trend = 'up';
-            newSAR = ep;
-            af = step;
-            ep = high;
-        } else {
-            if (trend === 'up') {
-                if (high > ep) {
-                    ep = high;
-                    af = Math.min(af + step, maxStep);
-                }
-            } else {
-                if (low < ep) {
-                    ep = low;
-                    af = Math.min(af + step, maxStep);
-                }
-            }
-        }
-
-        sar.push({ date: current.date, sar: newSAR, trend: trend, af: af, ep: ep });
-        currentSAR = newSAR;
-    }
-    return sar;
-}
-
-function arimaForecast(data, steps = 5) {
-    if (data.length < 3) return null;
-    const n = data.length;
-    let sumY = 0, sumY1 = 0, sumY1Y = 0, sumY1Sq = 0;
-    for (let i = 1; i < n; i++) {
-        sumY += data[i];
-        sumY1 += data[i-1];
-        sumY1Y += data[i-1] * data[i];
-        sumY1Sq += data[i-1] * data[i-1];
-    }
-    const phi = (sumY1Y - (sumY1 * sumY) / n) / (sumY1Sq - (sumY1 * sumY1) / n);
-    const c = (sumY - phi * sumY1) / n;
-    const forecast = [];
-    let last = data[data.length - 1];
-    for (let i = 0; i < steps; i++) {
-        const next = c + phi * last;
-        forecast.push(next);
-        last = next;
-    }
-    return forecast;
-}
 
 // ==========================================
 // 🚀 ইনিশিয়ালাইজেশন
 // ==========================================
 document.addEventListener('DOMContentLoaded', function() {
-    // ==========================================
-    // ১. পূর্ববর্তী সব ইনিশিয়ালাইজেশন (যা আছে)
-    // ==========================================
+    // স্টক লিস্ট সেট করা
     if (typeof dseStocks !== 'undefined') advStockList = dseStocks;
     else if (window.dseStocks) advStockList = window.dseStocks;
 
+    // লোড বাটন
     const loadBtn = document.getElementById('adv-chart-load');
     if (loadBtn) loadBtn.addEventListener('click', loadAdvancedChart);
 
+    // সার্চ ইনপুট
     const searchInput = document.getElementById('adv-chart-search');
     if (searchInput) {
         searchInput.addEventListener('input', handleSearchInput);
@@ -286,6 +83,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // ডেটা সোর্স সিলেক্ট
     const dataSource = document.getElementById('adv-data-source');
     if (dataSource) {
         dataSource.addEventListener('change', function() {
@@ -294,6 +92,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // পিরিয়ড সিলেক্ট
     const periodSelect = document.getElementById('adv-chart-period');
     if (periodSelect) {
         periodSelect.addEventListener('change', function() {
@@ -302,6 +101,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // ইন্ডিকেটর টগল
     document.querySelectorAll('.indicator-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const indicator = this.dataset.indicator;
@@ -324,7 +124,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // টগল বাটন ইভেন্ট (Line/Candle)
+    // চার্ট টগল (Line/Candle)
     const lineBtn = document.getElementById('toggle-chart-type');
     const candleBtn = document.getElementById('toggle-chart-type-candle');
     if (lineBtn && candleBtn) {
@@ -357,32 +157,23 @@ document.addEventListener('DOMContentLoaded', function() {
         candleBtn.classList.remove('active');
     }
 
-    // ==========================================
-    // ২. ⭐ নতুন অংশ: URL প্যারামিটার থেকে টিকার নাম নিয়ে চার্ট লোড
-    // ==========================================
+    // URL প্যারামিটার থেকে টিকার নাম নিয়ে চার্ট লোড
     const params = new URLSearchParams(window.location.search);
     const tickerFromURL = params.get('ticker');
-    
     if (tickerFromURL) {
-        // সার্চ ইনপুটে টিকার নাম সেট করুন
         const searchInput = document.getElementById('adv-chart-search');
-        if (searchInput) {
-            searchInput.value = tickerFromURL;
-        }
-        // গ্লোবাল টিকার নাম আপডেট করুন
+        if (searchInput) searchInput.value = tickerFromURL;
         advCurrentTicker = tickerFromURL;
-        // চার্ট লোড করুন (ক্যাশ উপেক্ষা করে নতুন ডেটা আনতে forceRefresh = true পাঠাই)
         loadAdvancedChart(tickerFromURL);
     } else {
-        // ডিফল্ট: যদি কোনো টিকার নাম না থাকে, তাহলে আগের মতো ডিফল্ট টিকার চার্ট লোড করুন
         loadAdvancedChart();
     }
 
-    // থিম লোড (যদি ফাংশন থাকে)
     if (typeof loadSavedTheme === 'function') loadSavedTheme();
 });
+
 // ==========================================
-// 📊 loadAdvancedChart - ক্যাশিং সহ
+// 📊 loadAdvancedChart - Database + Live API
 // ==========================================
 async function loadAdvancedChart(ticker) {
     const searchInput = document.getElementById('adv-chart-search');
@@ -404,17 +195,17 @@ async function loadAdvancedChart(ticker) {
     const footerSource = document.getElementById('footer-source');
     if (footerSource) {
         const sourceSelect = document.getElementById('adv-data-source');
-        footerSource.innerText = sourceSelect ? sourceSelect.selectedOptions[0].text : 'Firebase';
+        footerSource.innerText = sourceSelect ? sourceSelect.selectedOptions[0].text : 'Database';
     }
 
-    const source = document.getElementById('adv-data-source')?.value || 'cse_detailed';
+    const source = document.getElementById('adv-data-source')?.value || 'database';
     const period = advCurrentPeriod === 'all' ? 'all' : advCurrentPeriod;
     const cacheKey = `chart_${finalTicker}_${source}_${period}`;
-    const CACHE_TTL = 600000;
+    const CACHE_TTL = source === 'live' ? 120000 : 600000; // লাইভের জন্য ২ মিনিট
 
     const cachedData = CacheManager.get(cacheKey, CACHE_TTL);
     if (cachedData && cachedData.actualPrices && cachedData.actualPrices.length > 0) {
-        console.log(`📊 Chart data loaded from cache for ${finalTicker}`);
+        console.log(`📊 Chart data loaded from cache for ${finalTicker} (${source})`);
         advChartData = cachedData;
         updateStockInfo(advChartData);
         if (currentChartType === 'line') renderAdvancedChart(advChartData);
@@ -430,63 +221,100 @@ async function loadAdvancedChart(ticker) {
 
     try {
         const startDate = new Date();
-        startDate.setDate(startDate.getDate() - (period === 'all' ? 9999 : period));
+        startDate.setDate(startDate.getDate() - (period === 'all' ? 365 : period));
         const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = new Date().toISOString().split('T')[0];
 
         let priceData = [], labels = [], highData = [], lowData = [];
 
-        if (source === 'cse_detailed' || source === 'daily_prices') {
-            const collection = source === 'cse_detailed' ? 'cse_detailed_data' : 'daily_prices';
-            const tickerField = source === 'cse_detailed' ? 'code' : 'ticker';
-            const priceField = source === 'cse_detailed' ? 'ltp' : 'price';
-
-            if (typeof db !== 'undefined') {
-                let query = db.collection(collection)
-                    .where(tickerField, '==', finalTicker)
-                    .orderBy('date', 'asc');
-                if (period !== 'all') query = query.where('date', '>=', startDateStr);
-                const snap = await query.get();
-                if (!snap.empty) {
-                    snap.forEach(doc => {
-                        const data = doc.data();
-                        const price = parseFloat(data[priceField]) || parseFloat(data.close) || 0;
-                        const high = parseFloat(data.high) || price;
-                        const low = parseFloat(data.low) || price;
-                        if (price > 0) {
-                            labels.push(data.date);
-                            priceData.push(price);
-                            highData.push(high);
-                            lowData.push(low);
-                        }
-                    });
+        if (source === 'database') {
+            // ==========================================
+            // ১. Database (Supabase history_dse)
+            // ==========================================
+            if (typeof supabase !== 'undefined' && supabase) {
+                try {
+                    let query = supabase
+                        .from('history_dse')
+                        .select('date, ltp, high, low')
+                        .eq('ticker', finalTicker)
+                        .gte('date', startDateStr)
+                        .order('date', { ascending: true });
+                    
+                    const { data, error } = await query;
+                    if (!error && data && data.length > 0) {
+                        data.forEach(row => {
+                            const price = parseFloat(row.ltp);
+                            const high = parseFloat(row.high) || price;
+                            const low = parseFloat(row.low) || price;
+                            if (price > 0) {
+                                labels.push(row.date);
+                                priceData.push(price);
+                                highData.push(high);
+                                lowData.push(low);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Supabase history_dse fetch failed:', e);
                 }
             }
-        } else if (source === 'cse_market' || source === 'dse_live') {
-            const table = source === 'cse_market' ? 'cse_market_data' : 'dse_live_data';
-            const tickerField = source === 'cse_market' ? 'code' : 'ticker';
-            const priceField = 'ltp';
 
-            if (typeof supabase !== 'undefined') {
-                let query = supabase
-                    .from(table)
-                    .select('*')
-                    .eq(tickerField, finalTicker)
-                    .order('date', { ascending: true });
-                if (period !== 'all') query = query.gte('date', startDateStr);
-                const { data, error } = await query;
-                if (!error && data) {
-                    data.forEach(row => {
-                        const price = parseFloat(row[priceField]);
-                        const high = parseFloat(row.high) || price;
-                        const low = parseFloat(row.low) || price;
+            // Firebase ফ্যালব্যাক (যদি Supabase না পাওয়া যায়)
+            if (priceData.length === 0 && typeof db !== 'undefined') {
+                try {
+                    let query = db.collection('daily_prices')
+                        .where('ticker', '==', finalTicker)
+                        .where('date', '>=', startDateStr)
+                        .orderBy('date', 'asc');
+                    
+                    const snap = await query.get();
+                    if (!snap.empty) {
+                        snap.forEach(doc => {
+                            const data = doc.data();
+                            const price = parseFloat(data.price) || parseFloat(data.close) || 0;
+                            const high = parseFloat(data.high) || price;
+                            const low = parseFloat(data.low) || price;
+                            if (price > 0) {
+                                labels.push(data.date);
+                                priceData.push(price);
+                                highData.push(high);
+                                lowData.push(low);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Firebase daily_prices fallback failed:', e);
+                }
+            }
+        } else {
+            // ==========================================
+            // ২. Live API (bd-stock-api)
+            // ==========================================
+            const apiUrl = `https://bd-stock-api-an3n.vercel.app/v1/dse/historical?start=${startDateStr}&end=${endDateStr}&code=${finalTicker}`;
+            
+            try {
+                const response = await fetch(apiUrl);
+                const result = await response.json();
+                
+                if (result.success && result.data && result.data.length > 0) {
+                    result.data.forEach(item => {
+                        const price = parseFloat(item['LTP*']);
+                        const high = parseFloat(item['HIGH']) || price;
+                        const low = parseFloat(item['LOW']) || price;
                         if (price > 0) {
-                            labels.push(row.date);
+                            labels.push(item['DATE']);
                             priceData.push(price);
                             highData.push(high);
                             lowData.push(low);
                         }
                     });
+                    console.log(`✅ Live API loaded ${priceData.length} records for ${finalTicker}`);
+                } else {
+                    showToast('No live data available for this period', 'warning');
                 }
+            } catch (error) {
+                console.error('Live API fetch error:', error);
+                showToast('Failed to load live data: ' + error.message, 'error');
             }
         }
 
@@ -495,11 +323,12 @@ async function loadAdvancedChart(ticker) {
             return;
         }
 
+        // অ্যাভারেজ বাই প্রাইস (গ্র্যান্ড পোর্টফোলিও থেকে)
         let avgBuyPrice = 0;
-        const user = auth.currentUser;
+        const user = auth?.currentUser;
         if (user) {
             try {
-                const unifiedData = await unifiedEngine.calculate(user.uid, true);
+                const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
                 const stockData = unifiedData.stockDetails.find(s => s.ticker === finalTicker);
                 if (stockData && stockData.totalQty > 0) {
                     avgBuyPrice = stockData.totalCost / stockData.totalQty;
@@ -507,6 +336,7 @@ async function loadAdvancedChart(ticker) {
             } catch (e) { /* ignore */ }
         }
 
+        // ফরকাস্ট
         const forecast = arimaForecast(priceData, 5);
         let forecastLabels = [], forecastValues = [];
         if (forecast) {
@@ -535,11 +365,12 @@ async function loadAdvancedChart(ticker) {
             low: Math.min(...priceData),
             currentPrice: priceData[priceData.length - 1] || 0,
             highData,
-            lowData
+            lowData,
+            dataSource: source
         };
 
         CacheManager.set(cacheKey, chartData, CACHE_TTL);
-        console.log(`📊 Chart data cached for ${finalTicker}`);
+        console.log(`📊 Chart data cached for ${finalTicker} (${source})`);
 
         advChartData = chartData;
         updateStockInfo(advChartData);
@@ -559,7 +390,7 @@ async function loadAdvancedChart(ticker) {
 }
 
 // ==========================================
-// 🔍 সার্চ সাজেশন (নিরাপদ)
+// 🔍 সার্চ সাজেশন
 // ==========================================
 function handleSearchInput() {
     const query = this.value.trim().toUpperCase();
@@ -590,7 +421,7 @@ function selectAdvChartStock(ticker) {
 }
 
 // ==========================================
-// 📈 লাইন চার্ট রেন্ডার
+// 📈 লাইন চার্ট রেন্ডার (অ্যানিমেশন বন্ধ + শুধু অ্যাক্টিভ ইন্ডিকেটর)
 // ==========================================
 function renderAdvancedChart(data) {
     if (!data) return;
@@ -611,21 +442,24 @@ function renderAdvancedChart(data) {
     const highData = data.highData || [];
     const lowData = data.lowData || [];
 
-    const sma5 = calculateSMA(actualPrices, 5);
-    const sma10 = calculateSMA(actualPrices, 10);
-    const sma20 = calculateSMA(actualPrices, 20);
-    const sma50 = calculateSMA(actualPrices, 50);
-    const ema5 = calculateEMA(actualPrices, 5);
-    const ema10 = calculateEMA(actualPrices, 10);
-    const ema20 = calculateEMA(actualPrices, 20);
-    const ema50 = calculateEMA(actualPrices, 50);
-    const bollinger = calculateBollingerBands(actualPrices, 20, 2);
-    const rsiData = calculateRSI(actualPrices, 14);
-    const stochastic = calculateStochastic(highData, lowData, actualPrices, 14, 3);
-    const atr = calculateATR(highData, lowData, actualPrices, 14);
+    // ✅ শুধু অ্যাক্টিভ ইন্ডিকেটরগুলোর জন্য ক্যালকুলেশন
+    const sma5 = advActiveIndicators.sma5 ? calculateSMA(actualPrices, 5) : [];
+    const sma10 = advActiveIndicators.sma10 ? calculateSMA(actualPrices, 10) : [];
+    const sma20 = advActiveIndicators.sma20 ? calculateSMA(actualPrices, 20) : [];
+    const sma50 = advActiveIndicators.sma50 ? calculateSMA(actualPrices, 50) : [];
+    
+    const ema5 = advActiveIndicators.ema5 ? calculateEMA(actualPrices, 5) : [];
+    const ema10 = advActiveIndicators.ema10 ? calculateEMA(actualPrices, 10) : [];
+    const ema20 = advActiveIndicators.ema20 ? calculateEMA(actualPrices, 20) : [];
+    const ema50 = advActiveIndicators.ema50 ? calculateEMA(actualPrices, 50) : [];
+    
+    const bollinger = advActiveIndicators.bollinger ? calculateBollingerBands(actualPrices, 20, 2) : null;
+    const rsiData = advActiveIndicators.rsi ? calculateRSI(actualPrices, 14) : [];
+    const stochastic = advActiveIndicators.stochastic ? calculateStochastic(highData, lowData, actualPrices, 14, 3) : { k: [], d: [] };
+    const atr = advActiveIndicators.atr ? calculateATR(highData, lowData, actualPrices, 14) : [];
     const forecast = advActiveIndicators.forecast ? data.forecastValues : [];
 
-    // PSAR
+    // PSAR (শুধু অ্যাক্টিভ থাকলে)
     let psarData = [];
     if (advActiveIndicators.psar && actualPrices.length > 0) {
         const priceDataForPSAR = data.actualLabels.map((date, i) => ({
@@ -801,6 +635,7 @@ function renderAdvancedChart(data) {
         type: 'line',
         data: { labels, datasets },
         options: {
+            animation: false,
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
@@ -848,22 +683,46 @@ function renderAdvancedChart(data) {
         }
     });
 
-    // RSI চার্ট
+    // RSI চার্ট (শুধু অ্যাক্টিভ থাকলে)
     const rsiCanvas = document.getElementById('adv-rsi-chart');
-    if (rsiCanvas) {
+    if (rsiCanvas && advActiveIndicators.rsi) {
         renderRSIChart(rsiData, isDark, rsiCanvas);
+    } else if (rsiCanvas) {
+        const ctx = rsiCanvas.getContext('2d');
+        ctx.clearRect(0, 0, rsiCanvas.width, rsiCanvas.height);
+        ctx.fillStyle = isDark ? '#64748b' : '#94a3b8';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('RSI not active', rsiCanvas.width/2, 40);
     }
 
-    // Stochastic চার্ট
+    // Stochastic চার্ট (শুধু অ্যাক্টিভ থাকলে)
     const stochCanvas = document.getElementById('adv-stochastic-chart');
-    if (stochCanvas) {
+    if (stochCanvas && advActiveIndicators.stochastic) {
         renderStochasticChart(stochastic, isDark, stochCanvas);
+    } else if (stochCanvas) {
+        const ctx = stochCanvas.getContext('2d');
+        ctx.clearRect(0, 0, stochCanvas.width, stochCanvas.height);
+        ctx.fillStyle = isDark ? '#64748b' : '#94a3b8';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Stochastic not active', stochCanvas.width/2, 40);
     }
 
     // কমেন্ট আপডেট
     updatePriceComment(data);
-    updateRSIComment(rsiData);
-    updateStochComment(stochastic);
+    if (advActiveIndicators.rsi) {
+        updateRSIComment(rsiData);
+    } else {
+        const commentDiv = document.getElementById('adv-rsi-comment');
+        if (commentDiv) commentDiv.textContent = '💡 RSI indicator is off. Click button to activate.';
+    }
+    if (advActiveIndicators.stochastic) {
+        updateStochComment(stochastic);
+    } else {
+        const commentDiv = document.getElementById('adv-stoch-comment');
+        if (commentDiv) commentDiv.textContent = '💡 Stochastic indicator is off. Click button to activate.';
+    }
 
     const updateTime = document.getElementById('adv-chart-update-time');
     if (updateTime) updateTime.innerText = new Date().toLocaleString();
@@ -872,7 +731,7 @@ function renderAdvancedChart(data) {
 }
 
 // ==========================================
-// 📊 RSI চার্ট
+// 📊 RSI চার্ট (অ্যানিমেশন বন্ধ)
 // ==========================================
 function renderRSIChart(rsiData, isDark, canvas) {
     const ctx = canvas.getContext('2d');
@@ -920,6 +779,7 @@ function renderRSIChart(rsiData, isDark, canvas) {
             ]
         },
         options: {
+            animation: false,
             responsive: true,
             maintainAspectRatio: false,
             plugins: { legend: { display: false } },
@@ -932,17 +792,28 @@ function renderRSIChart(rsiData, isDark, canvas) {
 }
 
 // ==========================================
-// 📊 Stochastic চার্ট
+// 📊 Stochastic চার্ট (অ্যানিমেশন বন্ধ) - FIXED
 // ==========================================
 function renderStochasticChart(stochData, isDark, canvas) {
     const ctx = canvas.getContext('2d');
     if (advStochChart) advStochChart.destroy();
-    if (!stochData || !stochData.k || stochData.k.length === 0) return;
+    
+    // ✅ ডেটা ভ্যালিডিটি চেক
+    if (!stochData || !stochData.k || stochData.k.length === 0) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = isDark ? '#64748b' : '#94a3b8';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No Stochastic data available', canvas.width/2, 40);
+        return;
+    }
 
     const textColor = isDark ? '#f1f5f9' : '#1e293b';
     const gridColor = isDark ? '#334155' : '#e2e8f0';
 
     const labels = stochData.k.map((_, i) => i);
+    const kValues = stochData.k;
+    const dValues = stochData.d || [];
 
     advStochChart = new Chart(ctx, {
         type: 'line',
@@ -950,24 +821,26 @@ function renderStochasticChart(stochData, isDark, canvas) {
             labels,
             datasets: [
                 {
-                    label: '%K',
-                    data: stochData.k,
+                    label: '%K (14)',
+                    data: kValues,
                     borderColor: '#10b981',
                     borderWidth: 2,
                     fill: false,
-                    pointRadius: 1
+                    pointRadius: 1,
+                    tension: 0.2
                 },
                 {
-                    label: '%D',
-                    data: stochData.d,
+                    label: '%D (3)',
+                    data: dValues,
                     borderColor: '#f59e0b',
                     borderWidth: 2,
                     fill: false,
-                    pointRadius: 1
+                    pointRadius: 1,
+                    tension: 0.2
                 },
                 {
                     label: 'Overbought (80)',
-                    data: new Array(stochData.k.length).fill(80),
+                    data: new Array(kValues.length).fill(80),
                     borderColor: 'rgba(239, 68, 68, 0.5)',
                     borderDash: [4, 4],
                     borderWidth: 1,
@@ -976,7 +849,7 @@ function renderStochasticChart(stochData, isDark, canvas) {
                 },
                 {
                     label: 'Oversold (20)',
-                    data: new Array(stochData.k.length).fill(20),
+                    data: new Array(kValues.length).fill(20),
                     borderColor: 'rgba(16, 185, 129, 0.5)',
                     borderDash: [4, 4],
                     borderWidth: 1,
@@ -986,12 +859,26 @@ function renderStochasticChart(stochData, isDark, canvas) {
             ]
         },
         options: {
+            animation: false,
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: { 
+                legend: { 
+                    display: true,
+                    labels: { color: textColor, boxWidth: 12, font: { size: 10 } }
+                }
+            },
             scales: {
-                x: { display: false },
-                y: { min: 0, max: 100, ticks: { color: textColor, stepSize: 20 }, grid: { color: gridColor } }
+                x: { 
+                    display: false,
+                    grid: { color: gridColor }
+                },
+                y: { 
+                    min: 0, 
+                    max: 100, 
+                    ticks: { color: textColor, stepSize: 20 }, 
+                    grid: { color: gridColor } 
+                }
             }
         }
     });
@@ -1063,7 +950,7 @@ function renderCandlestickChart(data) {
     const candleData = prepareCandlestickData(data);
     candleSeries.setData(candleData);
 
-    // ২. ইন্ডিকেটর ওভারলে
+    // ২. ইন্ডিকেটর ওভারলে (শুধু অ্যাক্টিভ ইন্ডিকেটর)
     const actualPrices = data.actualPrices;
     const actualLabels = data.actualLabels;
     const highData = data.highData || [];
@@ -1246,30 +1133,36 @@ function updateCandlestickComment(data) {
     }
 
     // RSI
-    const rsiData = calculateRSI(prices, 14);
-    const lastRSI = rsiData.length ? rsiData[rsiData.length - 1].rsi : null;
-    if (lastRSI !== null) {
-        if (lastRSI < 30) comment += '| RSI oversold (<30) – potential bounce ';
-        else if (lastRSI > 70) comment += '| RSI overbought (>70) – potential pullback ';
-        else if (lastRSI < 40) comment += '| RSI weak (could go lower) ';
-        else if (lastRSI > 60) comment += '| RSI strong (could go higher) ';
+    if (advActiveIndicators.rsi) {
+        const rsiData = calculateRSI(prices, 14);
+        const lastRSI = rsiData.length ? rsiData[rsiData.length - 1].rsi : null;
+        if (lastRSI !== null) {
+            if (lastRSI < 30) comment += '| RSI oversold (<30) – potential bounce ';
+            else if (lastRSI > 70) comment += '| RSI overbought (>70) – potential pullback ';
+            else if (lastRSI < 40) comment += '| RSI weak (could go lower) ';
+            else if (lastRSI > 60) comment += '| RSI strong (could go higher) ';
+        }
     }
 
     // Bollinger
-    const bb = calculateBollingerBands(prices, 20, 2);
-    if (bb && bb.upper.length > 0) {
-        const lastUpper = bb.upper[bb.upper.length - 1];
-        const lastLower = bb.lower[bb.lower.length - 1];
-        if (currentPrice <= lastLower) comment += '| Price near lower BB (oversold) ';
-        else if (currentPrice >= lastUpper) comment += '| Price near upper BB (overbought) ';
+    if (advActiveIndicators.bollinger) {
+        const bb = calculateBollingerBands(prices, 20, 2);
+        if (bb && bb.upper.length > 0) {
+            const lastUpper = bb.upper[bb.upper.length - 1];
+            const lastLower = bb.lower[bb.lower.length - 1];
+            if (currentPrice <= lastLower) comment += '| Price near lower BB (oversold) ';
+            else if (currentPrice >= lastUpper) comment += '| Price near upper BB (overbought) ';
+        }
     }
 
     // PSAR
-    const psar = calculateParabolicSAR(prices.map((p, i) => ({ date: data.actualLabels[i], ltp: p, high: high[i] || p, low: low[i] || p })));
-    if (psar.length > 0) {
-        const lastPSAR = psar[psar.length - 1].sar;
-        if (lastPSAR < currentPrice) comment += '| PSAR bullish ';
-        else if (lastPSAR > currentPrice) comment += '| PSAR bearish ';
+    if (advActiveIndicators.psar) {
+        const psar = calculateParabolicSAR(prices.map((p, i) => ({ date: data.actualLabels[i], ltp: p, high: high[i] || p, low: low[i] || p })));
+        if (psar.length > 0) {
+            const lastPSAR = psar[psar.length - 1].sar;
+            if (lastPSAR < currentPrice) comment += '| PSAR bullish ';
+            else if (lastPSAR > currentPrice) comment += '| PSAR bearish ';
+        }
     }
 
     // ফরকাস্ট
@@ -1281,7 +1174,6 @@ function updateCandlestickComment(data) {
         else comment += '| ARIMA sees sideways movement ';
     }
 
-    // ✅ UI ক্লাস যোগ করা (বুলিশ/বেয়ারিশ)
     commentDiv.textContent = comment || '💡 No strong signals.';
     commentDiv.classList.remove('bullish', 'bearish');
     if (comment.includes('bullish') || comment.includes('🟢') || comment.includes('potential bounce')) {
@@ -1326,20 +1218,24 @@ function updatePriceComment(data) {
     const pct = prevPrice ? (change / prevPrice) * 100 : 0;
     let comment = `📊 Last: ৳${lastPrice.toFixed(2)} (${change >= 0 ? '+' : ''}${change.toFixed(2)}, ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
 
-    const rsiData = calculateRSI(data.actualPrices, 14);
-    const lastRSI = rsiData.length ? rsiData[rsiData.length - 1].rsi : null;
-    if (lastRSI !== null) {
-        if (lastRSI < 30) comment += ' | ⚡ RSI Oversold (<30)';
-        else if (lastRSI > 70) comment += ' | ⚡ RSI Overbought (>70)';
-        else comment += ` | RSI ${lastRSI.toFixed(1)} (Neutral)`;
+    if (advActiveIndicators.rsi) {
+        const rsiData = calculateRSI(data.actualPrices, 14);
+        const lastRSI = rsiData.length ? rsiData[rsiData.length - 1].rsi : null;
+        if (lastRSI !== null) {
+            if (lastRSI < 30) comment += ' | ⚡ RSI Oversold (<30)';
+            else if (lastRSI > 70) comment += ' | ⚡ RSI Overbought (>70)';
+            else comment += ` | RSI ${lastRSI.toFixed(1)} (Neutral)`;
+        }
     }
 
-    const bb = calculateBollingerBands(data.actualPrices, 20, 2);
-    if (bb && bb.upper.length) {
-        const lastUpper = bb.upper[bb.upper.length - 1];
-        const lastLower = bb.lower[bb.lower.length - 1];
-        if (lastPrice <= lastLower) comment += ' | 📉 Price near Lower BB (Oversold)';
-        else if (lastPrice >= lastUpper) comment += ' | 📈 Price near Upper BB (Overbought)';
+    if (advActiveIndicators.bollinger) {
+        const bb = calculateBollingerBands(data.actualPrices, 20, 2);
+        if (bb && bb.upper.length) {
+            const lastUpper = bb.upper[bb.upper.length - 1];
+            const lastLower = bb.lower[bb.lower.length - 1];
+            if (lastPrice <= lastLower) comment += ' | 📉 Price near Lower BB (Oversold)';
+            else if (lastPrice >= lastUpper) comment += ' | 📈 Price near Upper BB (Overbought)';
+        }
     }
 
     if (advActiveIndicators.psar) {
@@ -1357,7 +1253,6 @@ function updatePriceComment(data) {
         }
     }
 
-    // ✅ UI ক্লাস যোগ করা (বুলিশ/বেয়ারিশ)
     commentDiv.textContent = comment;
     commentDiv.classList.remove('bullish', 'bearish');
     if (comment.includes('Bullish') || comment.includes('🟢')) {
@@ -1387,7 +1282,6 @@ function updateRSIComment(rsiData) {
     else if (rsi > 60) comment += 'Strong (could go higher)';
     else comment += 'Neutral (no clear signal)';
     commentDiv.textContent = comment;
-    // RSI-তে ক্লাস যোগ করা (ঐচ্ছিক)
     commentDiv.classList.remove('bullish', 'bearish');
     if (rsi < 30) commentDiv.classList.add('bullish');
     else if (rsi > 70) commentDiv.classList.add('bearish');
@@ -1408,7 +1302,6 @@ function updateStochComment(stochData) {
          lastK < 40 ? 'Weak' :
          lastK > 60 ? 'Strong' : 'Neutral');
     commentDiv.textContent = comment;
-    // Stochastic-এ ক্লাস যোগ করা (ঐচ্ছিক)
     commentDiv.classList.remove('bullish', 'bearish');
     if (lastK < 20) commentDiv.classList.add('bullish');
     else if (lastK > 80) commentDiv.classList.add('bearish');
@@ -1636,5 +1529,6 @@ window.selectAdvChartStock = selectAdvChartStock;
 window.toggleDarkMode = toggleDarkMode;
 window.loadCandlestickLibrary = loadCandlestickLibrary;
 window.renderCandlestickChart = renderCandlestickChart;
+window.getHistoricalPricesFromSupabase = getHistoricalPricesFromSupabase;
 
-console.log('✅ adv-charts.js (Zoom + PSAR + Comments + Candlestick with Indicators) loaded successfully');
+console.log('✅ adv-charts.js (Database + Live API) loaded successfully');

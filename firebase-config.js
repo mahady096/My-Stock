@@ -1,6 +1,7 @@
 // ==========================================
 // 📁 firebase-config.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন
 //    Firebase initialization, auth, firestore with persistence
+//    🔥 Compat SDK (v9 compat) সঠিকভাবে ব্যবহার করা হয়েছে
 // ==========================================
 
 // Firebase কনফিগারেশন
@@ -41,6 +42,7 @@ let db = null;
 
 try {
   if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0) {
+    // 🔥 compat SDK ব্যবহার করে auth ও firestore ইনিট
     auth = firebase.auth();
     db = firebase.firestore();
     console.log("✅ Firebase Auth & Firestore initialized");

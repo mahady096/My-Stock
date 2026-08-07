@@ -1,6 +1,7 @@
 // ==========================================
 // 📦 cache-helper.js - সেন্ট্রাল ক্যাশ ম্যানেজার
 //    sessionStorage-ভিত্তিক, TTL সাপোর্ট, অটো ক্লিনআপ
+//    ⚡ উন্নত পারফরম্যান্সের জন্য TTL কনফিগারেশন যোগ করা হয়েছে
 // ==========================================
 
 const CacheManager = {
@@ -9,10 +10,12 @@ const CacheManager = {
     
     // ⏱️ ডিফল্ট TTL (মিলিসেকেন্ড) – বিভিন্ন ক্যাশ ক্যাটাগরির জন্য
     DEFAULTS: {
-        PRICE: 300000,      // ৫ মিনিট
-        ANALYSIS: 600000,   // ১০ মিনিট
-        CHART: 600000,      // ১০ মিনিট
-        SCANNER: 3600000,   // ১ ঘন্টা
+        PRICE: 600000,      // ৫ → ১০ মিনিট (বাড়ানো হয়েছে)
+        ANALYSIS: 1200000,   // ১০ → ২০ মিনিট
+        CHART: 1200000,      // ১০ → ২০ মিনিট
+        SCANNER: 7200000,    // ১ → ২ ঘন্টা (মার্কেট ক্লোজের পর)
+        TIMELINE: 1800000,   // ৩০ মিনিট (নতুন)
+        DASHBOARD: 300000,   // ৫ মিনিট
     },
 
     // ==========================================
@@ -176,6 +179,55 @@ const CacheManager = {
             return sessionStorage.getItem(this.PREFIX + key) !== null;
         } catch (e) {
             return false;
+        }
+    },
+
+    // ==========================================
+    // 📈 ক্যাশের পরিসংখ্যান (ডিবাগিং)
+    // @returns {Object} - মোট এন্ট্রি, সাইজ, ইত্যাদি
+    // ==========================================
+    getStats() {
+        try {
+            let count = 0;
+            let totalSize = 0;
+            const keys = [];
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                if (key.startsWith(this.PREFIX)) {
+                    count++;
+                    totalSize += sessionStorage.getItem(key).length || 0;
+                    keys.push(key);
+                }
+            }
+            return {
+                count,
+                sizeKB: (totalSize / 1024).toFixed(2),
+                keys
+            };
+        } catch (e) {
+            return { count: 0, sizeKB: '0', keys: [] };
+        }
+    },
+
+    // ==========================================
+    // 🔄 নির্দিষ্ট ক্যাশ গ্রুপ রিফ্রেশ
+    // @param {string} pattern - কী-র প্যাটার্ন (যেমন 'price_', 'analysis_')
+    // ==========================================
+    clearByPattern(pattern) {
+        try {
+            const keysToRemove = [];
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                if (key.startsWith(this.PREFIX + pattern)) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach(key => sessionStorage.removeItem(key));
+            console.log(`🗑️ Cleared ${keysToRemove.length} cache entries with pattern "${pattern}"`);
+            return keysToRemove.length;
+        } catch (e) {
+            console.warn('clearByPattern error:', e);
+            return 0;
         }
     }
 };
