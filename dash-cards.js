@@ -4,6 +4,7 @@
 //    কার্ড: টোটাল ভ্যালু, ইনভেস্টমেন্ট, P/L, ডেইলি G/L, ইনকাম
 //    ⚠️ getUserDeposit ও updateUserDeposit dash-utils.js থেকে নেওয়া
 //    🔥 loadDashboardData ফাংশন যোগ করা হয়েছে
+//    🆕 App Daily Suggestion (loadDailySuggestion, refreshDailySuggestion) যোগ করা হয়েছে
 // ==========================================
 
 // ==========================================
@@ -57,6 +58,15 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
                         loadSignalData();
                     }
                     updateTimestamp();
+                    
+                    // 🔥 ক্যাশ থেকে লোড করার পরেও ডেইলি সাজেশন লোড
+                    try {
+                        if (typeof loadDailySuggestion === 'function') {
+                            setTimeout(loadDailySuggestion, 400);
+                        }
+                    } catch (e) {
+                        console.warn('Daily Suggestion (cache) load error:', e);
+                    }
                     return;
                 }
             }
@@ -201,6 +211,19 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
 
         console.log(`✅ Dashboard loaded for ${portfolioId || 'grand'}`);
 
+        // ==========================================
+        // 🔥 ডেইলি সাজেশন লোড (Dashboard Load-এর অংশ)
+        // ==========================================
+        try {
+            if (typeof loadDailySuggestion === 'function') {
+                setTimeout(loadDailySuggestion, 600);
+            } else {
+                console.warn('⚠️ loadDailySuggestion function not found');
+            }
+        } catch (e) {
+            console.warn('⚠️ Daily Suggestion load error:', e);
+        }
+
     } catch (error) {
         console.error('Dashboard load error:', error);
         if (typeof showToast === 'function') showToast('Error loading dashboard data', 'error');
@@ -241,6 +264,17 @@ function updateDashboardCards(data) {
     if (data.dailyPct !== undefined && dashDailyPct && data.totalInvestment > 0) {
         dashDailyPct.innerHTML = `${data.dailyPct >= 0 ? '+' : ''}${data.dailyPct.toFixed(2)}%`;
         dashDailyPct.style.color = data.dailyPct >= 0 ? '#90ffb0' : '#ffaaaa';
+    }
+    
+    // ==========================================
+    // 🔥 ক্যাশ হিট হলেও ডেইলি সাজেশন লোড
+    // ==========================================
+    try {
+        if (typeof loadDailySuggestion === 'function') {
+            setTimeout(loadDailySuggestion, 400);
+        }
+    } catch (e) {
+        console.warn('Daily Suggestion (cache) load error:', e);
     }
 }
 
@@ -588,177 +622,374 @@ window.resetIncomeFilter = function() {
     const user = auth && auth.currentUser ? auth.currentUser : null;
     if (user) loadIncomeChartAndTable(user.uid, startInput?.value, endInput?.value);
 };
+
 // ==========================================
-// 📊 ড্যাশবোর্ড ডেটা লোডার (মূল ফাংশন)
+// 🆕 App Daily Suggestion - VWAP + Volume Profile + RSI + ATH/ATL + থ্রেশহোল্ড
 // ==========================================
 
-async function loadDashboardData(portfolioId = null, forceRefresh = false) {
-    const today = new Date();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(today.getDate() - 30);
-
-    const startInput = document.getElementById('dash-chart-start');
-    const endInput = document.getElementById('dash-chart-end');
-    if (startInput) startInput.value = thirtyDaysAgo.toISOString().split('T')[0];
-    if (endInput) endInput.value = today.toISOString().split('T')[0];
-
-    const user = auth && auth.currentUser ? auth.currentUser : null;
-    if (!user) {
-        console.log('No user logged in');
+/**
+ * ডেইলি সাজেশন লোড করে
+ * পোর্টফোলিওর প্রতিটি শেয়ার অ্যানালাইসিস করে BUY/SELL সাজেশন দেয়
+ */
+async function loadDailySuggestion() {
+    const loader = document.getElementById('ds-loader');
+    const content = document.getElementById('ds-content');
+    const updateTime = document.getElementById('ds-update-time');
+    
+    // এলিমেন্ট না থাকলে রিটার্ন
+    if (!loader || !content) {
+        console.warn('⚠️ Daily Suggestion elements not found in DOM');
         return;
     }
-    window.currentDashboardPortfolioId = portfolioId;
 
-    // ক্যাশ চেক
-    const cacheKey = `dashboard_${user.uid}_${portfolioId || 'all'}`;
-    if (!forceRefresh) {
-        try {
-            const cached = sessionStorage.getItem(cacheKey);
-            if (cached) {
-                const parsed = JSON.parse(cached);
-                if (Date.now() - parsed.timestamp < 300000) {
-                    console.log('📦 Dashboard loaded from cache');
-                    const data = parsed.data;
-                    updateDashboardCards(data);
-                    if (typeof renderDashboardHistoryChart === 'function') {
-                        renderDashboardHistoryChart();
-                    }
-                    if (typeof renderDashboardDailyPLChart === 'function') {
-                        renderDashboardDailyPLChart();
-                    }
-                    if (typeof updatePerformanceSummary === 'function') {
-                        updatePerformanceSummary();
-                    }
-                    if (typeof updateDSEXIndicator === 'function') {
-                        updateDSEXIndicator();
-                    }
-                    if (typeof updateTotalIncomeCard === 'function') {
-                        updateTotalIncomeCard();
-                    }
-                    if (typeof loadSignalData === 'function') {
-                        loadSignalData();
-                    }
-                    if (typeof updateTimestamp === 'function') {
-                        updateTimestamp();
-                    }
-                    return;
-                }
-            }
-        } catch (e) { /* ignore */ }
+    const user = auth?.currentUser;
+    if (!user) {
+        if (loader) loader.innerHTML = '⚠️ Please login first';
+        return;
     }
 
-    if (typeof showDataLoading === 'function') showDataLoading(true);
     try {
-        const unifiedData = await unifiedEngine.calculate(user.uid, portfolioId, forceRefresh);
-        
-        let totalCurrentValue = 0;
-        let totalInvestment = 0;
-        let totalProfitLoss = 0;
+        loader.style.display = 'block';
+        content.style.display = 'none';
 
-        if (unifiedData && unifiedData.stockDetails.length > 0) {
-            const tickers = unifiedData.stockDetails.map(s => s.ticker);
-            const priceMap = await getLatestAndPreviousPrices(tickers);
+        // ১. পোর্টফোলিও ডেটা
+        const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
+        if (!unifiedData || !unifiedData.stockDetails || unifiedData.stockDetails.length === 0) {
+            loader.innerHTML = '📭 No holdings found. Start buying shares!';
+            return;
+        }
 
-            for (let i = 0; i < unifiedData.stockDetails.length; i++) {
-                const stock = unifiedData.stockDetails[i];
-                const priceData = priceMap.get(stock.ticker);
-                let currentPrice = priceData?.currentPrice || 0;
-                if (currentPrice === 0) currentPrice = stock.avgBuyPriceWithCommission;
-                totalCurrentValue += stock.totalQty * currentPrice;
+        const stocks = unifiedData.stockDetails;
+        const totalHoldings = stocks.length;
+        let totalCost = 0, totalValue = 0, totalQty = 0;
+        let buySuggestions = [], sellSuggestions = [];
+
+        // ২. প্রতিটি স্টকের জন্য অ্যানালাইসিস
+        const tickers = stocks.map(s => s.ticker);
+        const priceMap = await getLatestAndPreviousPrices(tickers);
+        const pricePromises = tickers.map(t => getUnifiedPrice(t));
+        const currentPrices = await Promise.all(pricePromises);
+
+        // প্রাইস ডেটা ফেচ (গত ৩০ দিন)
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 30);
+        const startDateStr = startDate.toISOString().split('T')[0];
+
+        for (let i = 0; i < stocks.length; i++) {
+            const stock = stocks[i];
+            const ticker = stock.ticker;
+            const qty = stock.totalQty || 0;
+            const avgBuy = stock.avgBuyPriceWithCommission || stock.avgBuyPrice || 0;
+            const currentPrice = currentPrices[i] || 0;
+            const cost = stock.totalCost || 0;
+            const value = qty * currentPrice;
+            const pl = value - cost;
+            const plPct = cost > 0 ? (pl / cost) * 100 : 0;
+
+            totalCost += cost;
+            totalValue += value;
+            totalQty += qty;
+
+            // ৩. মেটাডেটা (ATH/ATL/RSI/VWAP/POC)
+            let ath = 0, atl = 0;
+            let rsi = 50, vwap = currentPrice, pocPrice = currentPrice;
+
+            try {
+                // Supabase history_dse থেকে ডেটা ফেচ
+                let priceData = [];
+                if (typeof supabase !== 'undefined' && supabase) {
+                    const { data, error } = await supabase
+                        .from('history_dse')
+                        .select('date, ltp, high, low, volume')
+                        .eq('ticker', ticker)
+                        .gte('date', startDateStr)
+                        .order('date', { ascending: true });
+                    if (!error && data && data.length > 0) {
+                        priceData = data;
+                    }
+                }
+
+                // Firebase ফ্যালব্যাক
+                if (priceData.length === 0 && typeof db !== 'undefined') {
+                    const snap = await db.collection('daily_prices')
+                        .where('ticker', '==', ticker)
+                        .where('date', '>=', startDateStr)
+                        .orderBy('date', 'asc')
+                        .get();
+                    if (!snap.empty) {
+                        snap.forEach(doc => {
+                            const d = doc.data();
+                            const price = parseFloat(d.price) || parseFloat(d.close) || 0;
+                            const high = parseFloat(d.high) || price;
+                            const low = parseFloat(d.low) || price;
+                            if (price > 0) {
+                                priceData.push({ date: d.date, ltp: price, high: high, low: low, volume: 0 });
+                            }
+                        });
+                    }
+                }
+
+                if (priceData && priceData.length > 0) {
+                    const prices = priceData.map(d => parseFloat(d.ltp));
+                    const highs = priceData.map(d => parseFloat(d.high) || parseFloat(d.ltp));
+                    const lows = priceData.map(d => parseFloat(d.low) || parseFloat(d.ltp));
+                    ath = Math.max(...highs);
+                    atl = Math.min(...lows);
+                    
+                    // RSI
+                    const rsiCalc = calculateRSI(prices, 14);
+                    if (rsiCalc && rsiCalc.length > 0) {
+                        const lastRsi = rsiCalc[rsiCalc.length - 1];
+                        rsi = lastRsi && lastRsi.rsi !== null ? lastRsi.rsi : 50;
+                    }
+                    
+                    // VWAP
+                    const volumes = priceData.map(d => parseFloat(d.volume) || 1);
+                    const vwapCalc = calculateAnchoredVWAP(prices, volumes, 0);
+                    if (vwapCalc && vwapCalc.length > 0) {
+                        vwap = vwapCalc[vwapCalc.length - 1] || currentPrice;
+                    }
+                    
+                    // Volume Profile POC
+                    const volProfile = calculateVolumeProfile(prices, volumes, 20);
+                    if (volProfile && volProfile.pocPrice > 0) {
+                        pocPrice = volProfile.pocPrice;
+                    }
+                }
+            } catch (e) { 
+                console.warn(`⚠️ Meta data fetch failed for ${ticker}:`, e);
             }
-            totalInvestment = unifiedData.totalInvestment;
-            totalProfitLoss = totalCurrentValue - totalInvestment;
-        }
 
-        // কার্ড আপডেট
-        const dashTotalValue = document.getElementById('dash-total-value');
-        const dashTotalCost = document.getElementById('dash-total-cost');
-        const dashTotalGL = document.getElementById('dash-total-gl');
-        const dashGLPct = document.getElementById('dash-total-gl-pct');
-        const dashDaily = document.getElementById('dash-total-daily');
-        const dashDailyPct = document.getElementById('dash-total-daily-pct');
+            // ৪. থ্রেশহোল্ড ভিত্তিক স্কোর (স্ক্রিনশটের লজিক)
+            let buyScore = 0, sellScore = 0;
+            let reasons = [];
 
-        if (dashTotalValue) dashTotalValue.innerHTML = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-        if (dashTotalCost) dashTotalCost.innerHTML = `৳${totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-        if (dashTotalGL) {
-            dashTotalGL.innerHTML = `${totalProfitLoss >= 0 ? '+' : ''}৳${totalProfitLoss.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-            dashTotalGL.style.color = totalProfitLoss >= 0 ? '#90ffb0' : '#ffaaaa';
-        }
-        if (dashGLPct && totalInvestment > 0) {
-            const totalPct = (totalProfitLoss / totalInvestment) * 100;
-            dashGLPct.innerHTML = `${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(2)}%`;
-            dashGLPct.style.color = totalPct >= 0 ? '#90ffb0' : '#ffaaaa';
-        }
+            // --- থ্রেশহোল্ড লজিক ---
+            if (plPct <= -25) { buyScore += 5; reasons.push('-25%+ loss → Strong Buy'); }
+            else if (plPct <= -15) { buyScore += 3; reasons.push('-15% loss → Buy More'); }
+            else if (plPct <= -5) { buyScore += 1; reasons.push('-5% loss → Hold/Buy'); }
+            else if (plPct >= 100) { sellScore += 5; reasons.push('+100% profit → Exit'); }
+            else if (plPct >= 60) { sellScore += 4; reasons.push('+60% profit → Sell 40%'); }
+            else if (plPct >= 45) { sellScore += 3; reasons.push('+45% profit → Sell 30%'); }
+            else if (plPct >= 35) { sellScore += 2; reasons.push('+35% profit → Sell 20%'); }
+            else if (plPct >= 25) { sellScore += 1; reasons.push('+25% profit → Sell 10%'); }
+            else if (plPct >= 15) { /* Stay Patient */ }
+            else if (plPct >= 5) { /* Hold */ }
 
-        // ডেইলি G/L
-        if (unifiedData && unifiedData.stockDetails.length > 0) {
-            const tickers = unifiedData.stockDetails.map(s => s.ticker);
-            const priceMap = await getLatestAndPreviousPrices(tickers);
-            let dailyGL = 0;
-            for (const stock of unifiedData.stockDetails) {
-                const priceData = priceMap.get(stock.ticker);
-                const currentPrice = priceData?.currentPrice || 0;
-                const prevPrice = priceData?.previousPrice || 0;
-                const qty = stock.totalQty || 0;
-                if (prevPrice > 0 && qty > 0) {
-                    dailyGL += qty * (currentPrice - prevPrice);
+            // --- ইন্ডিকেটর ভিত্তিক স্কোর ---
+            // VWAP
+            if (currentPrice > vwap * 1.02) { buyScore += 1; reasons.push('Price above VWAP'); }
+            else if (currentPrice < vwap * 0.98) { sellScore += 1; reasons.push('Price below VWAP'); }
+
+            // POC
+            if (currentPrice > pocPrice * 1.02) { buyScore += 1; reasons.push('Price above POC'); }
+            else if (currentPrice < pocPrice * 0.98) { sellScore += 1; reasons.push('Price below POC'); }
+
+            // RSI
+            if (rsi < 30) { buyScore += 2; reasons.push('RSI oversold (<30)'); }
+            else if (rsi > 70) { sellScore += 2; reasons.push('RSI overbought (>70)'); }
+
+            // ATH/ATL
+            if (ath > 0 && currentPrice >= ath * 0.95) { sellScore += 1; reasons.push('Near ATH'); }
+            if (atl > 0 && currentPrice <= atl * 1.05) { buyScore += 1; reasons.push('Near ATL'); }
+
+            // ৫. ফাইনাল ডিসিশন
+            const netScore = buyScore - sellScore;
+
+            if (netScore >= 3) {
+                buySuggestions.push({ 
+                    ticker, 
+                    currentPrice, 
+                    avgBuy, 
+                    plPct, 
+                    reasons: reasons.slice(0, 3), 
+                    score: netScore 
+                });
+            } else if (netScore <= -3) {
+                sellSuggestions.push({ 
+                    ticker, 
+                    currentPrice, 
+                    avgBuy, 
+                    plPct, 
+                    reasons: reasons.slice(0, 3), 
+                    score: Math.abs(netScore) 
+                });
+            }
+
+            // ⭐ বোনাস: জোরালো সিগন্যাল
+            if (plPct >= 25 && netScore >= 1) {
+                // ইতিমধ্যে sellSuggestions-এ যোগ না হলে যোগ করুন
+                const exists = sellSuggestions.some(s => s.ticker === ticker);
+                if (!exists) {
+                    sellSuggestions.push({ 
+                        ticker, 
+                        currentPrice, 
+                        avgBuy, 
+                        plPct, 
+                        reasons: ['+25% profit reached'], 
+                        score: 3 
+                    });
                 }
             }
-            if (dashDaily) {
-                dashDaily.innerHTML = `${dailyGL >= 0 ? '+' : ''}৳${dailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-                dashDaily.style.color = dailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
-            }
-            if (dashDailyPct && totalInvestment > 0) {
-                const dailyPct = (dailyGL / totalInvestment) * 100;
-                dashDailyPct.innerHTML = `${dailyPct >= 0 ? '+' : ''}${dailyPct.toFixed(2)}%`;
-                dashDailyPct.style.color = dailyPct >= 0 ? '#90ffb0' : '#ffaaaa';
-            }
-        } else {
-            if (dashDaily) {
-                dashDaily.innerHTML = '৳0.00';
-                dashDaily.style.color = '#94a3b8';
-            }
-            if (dashDailyPct) {
-                dashDailyPct.innerHTML = '0.00%';
-                dashDailyPct.style.color = '#94a3b8';
+            if (plPct <= -25 && netScore >= 1) {
+                const exists = buySuggestions.some(s => s.ticker === ticker);
+                if (!exists) {
+                    buySuggestions.push({ 
+                        ticker, 
+                        currentPrice, 
+                        avgBuy, 
+                        plPct, 
+                        reasons: ['-25% loss – buy opportunity'], 
+                        score: 3 
+                    });
+                }
             }
         }
 
-        // ক্যাশে সেভ
-        try {
-            sessionStorage.setItem(cacheKey, JSON.stringify({
-                timestamp: Date.now(),
-                data: { totalInvestment, totalCurrentValue, totalProfitLoss }
-            }));
-        } catch (e) { /* ignore */ }
+        // ৬. সাজেশন সাজানো (স্কোর অনুযায়ী)
+        buySuggestions.sort((a, b) => b.score - a.score);
+        sellSuggestions.sort((a, b) => b.score - a.score);
 
-        // অন্যান্য UI আপডেট
-        if (typeof updatePerformanceSummary === 'function') await updatePerformanceSummary();
-        if (typeof updateDSEXIndicator === 'function') await updateDSEXIndicator();
-        if (typeof renderDashboardHistoryChart === 'function') await renderDashboardHistoryChart();
-        if (typeof updateTotalIncomeCard === 'function') await updateTotalIncomeCard();
-        if (typeof renderDashboardDailyPLChart === 'function') await renderDashboardDailyPLChart();
-        if (typeof loadSignalData === 'function') await loadSignalData();
-        if (typeof initDashboardSearch === 'function') initDashboardSearch();
-        if (typeof updateSidebarPortfolioList === 'function') updateSidebarPortfolioList();
-        if (typeof updateBuyPortfolioSelect === 'function') updateBuyPortfolioSelect();
+        // ৭. UI আপডেট
+        const avgBuyOverall = totalQty > 0 ? totalCost / totalQty : 0;
+        const totalPlPct = totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : 0;
 
-        if (typeof updateTimestamp === 'function') updateTimestamp();
-        console.log(`✅ Dashboard loaded for ${portfolioId || 'grand'}`);
+        const totalHoldingsEl = document.getElementById('ds-total-holdings');
+        const avgBuyEl = document.getElementById('ds-avg-buy');
+        const totalPlEl = document.getElementById('ds-total-pl');
+        const currentValueEl = document.getElementById('ds-current-value');
+
+        if (totalHoldingsEl) totalHoldingsEl.textContent = totalHoldings;
+        if (avgBuyEl) avgBuyEl.textContent = `৳${avgBuyOverall.toFixed(2)}`;
+        if (totalPlEl) {
+            totalPlEl.textContent = `${totalPlPct >= 0 ? '+' : ''}${totalPlPct.toFixed(2)}%`;
+            totalPlEl.style.color = totalPlPct >= 0 ? '#10b981' : '#ef4444';
+        }
+        if (currentValueEl) currentValueEl.textContent = `৳${totalValue.toFixed(2)}`;
+
+        // BUY লিস্ট রেন্ডার
+        renderDailySuggestionList('ds-buy-list', buySuggestions, 'buy');
+        const buyCountEl = document.getElementById('ds-buy-count');
+        if (buyCountEl) buyCountEl.textContent = buySuggestions.length;
+
+        // SELL লিস্ট রেন্ডার
+        renderDailySuggestionList('ds-sell-list', sellSuggestions, 'sell');
+        const sellCountEl = document.getElementById('ds-sell-count');
+        if (sellCountEl) sellCountEl.textContent = sellSuggestions.length;
+
+        // থ্রেশহোল্ড সারাংশ
+        const thresholdText = document.getElementById('ds-threshold-text');
+        if (thresholdText) {
+            if (buySuggestions.length === 0 && sellSuggestions.length === 0) {
+                thresholdText.innerHTML = '⚪ No strong signals. Your portfolio is balanced. Follow the system: <strong>-5% Hold | -15% Buy More | -25% Buy More | +25% Sell 10% | +35% Sell 20% | +45% Sell 30% | +60% Sell 40% | +100% Exit</strong>';
+            } else {
+                let msg = '';
+                if (buySuggestions.length > 0) {
+                    msg += `📈 <strong>${buySuggestions.length}</strong> BUY signal(s) detected. `;
+                }
+                if (sellSuggestions.length > 0) {
+                    msg += `📉 <strong>${sellSuggestions.length}</strong> SELL signal(s) detected. `;
+                }
+                msg += 'Follow the threshold system for best results.';
+                thresholdText.innerHTML = msg;
+            }
+        }
+
+        // সময় আপডেট
+        if (updateTime) updateTime.textContent = new Date().toLocaleString();
+
+        loader.style.display = 'none';
+        content.style.display = 'block';
+
     } catch (error) {
-        console.error('Dashboard load error:', error);
-        if (typeof showToast === 'function') showToast('Error loading dashboard data', 'error');
-    } finally {
-        if (typeof showDataLoading === 'function') showDataLoading(false);
+        console.error('Daily Suggestion error:', error);
+        loader.innerHTML = `❌ Error: ${error.message}`;
     }
 }
 
-// গ্লোবালি এক্সপোজ
-window.loadDashboardData = loadDashboardData;
 // ==========================================
-// 📌 গ্লোবাল এক্সপোজ
+// 📋 সাজেশন লিস্ট রেন্ডার
 // ==========================================
+function renderDailySuggestionList(containerId, data, type) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
 
+    if (!data || data.length === 0) {
+        container.innerHTML = `<div style="text-align:center; padding:20px; opacity:0.5; font-size:13px;">No ${type} suggestions</div>`;
+        return;
+    }
+
+    const isBuy = type === 'buy';
+    const bgColor = isBuy ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)';
+    const borderColor = isBuy ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+    const signalColor = isBuy ? '#10b981' : '#ef4444';
+    const signalText = isBuy ? '🟢 BUY' : '🔴 SELL';
+
+    let html = '';
+    for (const item of data) {
+        const plColor = item.plPct >= 0 ? '#10b981' : '#ef4444';
+        const reasonsText = item.reasons?.join(', ') || 'No specific reason';
+        html += `
+            <div onclick="if(typeof openStockDetailModal === 'function') openStockDetailModal('${item.ticker}')" style="
+                background: ${bgColor};
+                border: 1px solid ${borderColor};
+                border-radius: 8px;
+                padding: 10px 14px;
+                margin-bottom: 6px;
+                cursor: pointer;
+                transition: all 0.2s;
+            " onmouseover="this.style.transform='scale(1.01)'" onmouseout="this.style.transform='scale(1)'">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-weight: 700; color: var(--primary-color); text-decoration: underline;">${item.ticker}</span>
+                        <span style="font-size: 11px; opacity: 0.6; margin-left: 8px;">Avg: ৳${item.avgBuy.toFixed(2)}</span>
+                        <span style="font-size: 11px; opacity: 0.6; margin-left: 8px;">LTP: ৳${item.currentPrice.toFixed(2)}</span>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-weight: 700; font-size: 14px; color: ${signalColor};">${signalText}</div>
+                        <div style="font-size: 11px; color: ${plColor};">${item.plPct >= 0 ? '+' : ''}${item.plPct.toFixed(2)}%</div>
+                    </div>
+                </div>
+                <div style="font-size: 11px; opacity: 0.7; margin-top: 4px; border-top: 1px solid ${borderColor}; padding-top: 4px;">
+                    💡 ${reasonsText}
+                </div>
+            </div>
+        `;
+    }
+    container.innerHTML = html;
+}
+
+// ==========================================
+// 🔄 ডেইলি সাজেশন রিফ্রেশ
+// ==========================================
+async function refreshDailySuggestion() {
+    try {
+        if (typeof showToast === 'function') {
+            showToast('🔄 Refreshing daily suggestion...', 'info');
+        }
+        
+        if (typeof loadDailySuggestion === 'function') {
+            await loadDailySuggestion();
+            if (typeof showToast === 'function') {
+                showToast('✅ Daily suggestion refreshed!', 'success');
+            }
+        } else {
+            console.warn('⚠️ loadDailySuggestion function not found');
+            if (typeof showToast === 'function') {
+                showToast('⚠️ Suggestion module not loaded', 'warning');
+            }
+        }
+    } catch (error) {
+        console.error('❌ Refresh Daily Suggestion error:', error);
+        if (typeof showToast === 'function') {
+            showToast('❌ Failed to refresh: ' + error.message, 'error');
+        }
+    }
+}
+
+// ==========================================
+// 📌 গ্লোবাল এক্সপোজ (HTML থেকে কল করার জন্য)
+// ==========================================
 window.loadDashboardData = loadDashboardData;
 window.updateDashboardCards = updateDashboardCards;
 window.updateDashboardCardsFromAnalysis = updateDashboardCardsFromAnalysis;
@@ -769,5 +1000,8 @@ window.saveDeposit = window.saveDeposit;
 window.loadIncomeChartAndTable = loadIncomeChartAndTable;
 window.applyIncomeFilter = window.applyIncomeFilter;
 window.resetIncomeFilter = window.resetIncomeFilter;
+window.loadDailySuggestion = loadDailySuggestion;
+window.refreshDailySuggestion = refreshDailySuggestion;
+window.renderDailySuggestionList = renderDailySuggestionList;
 
-console.log('✅ dash-cards.js loaded successfully');
+console.log('✅ dash-cards.js loaded successfully (with Daily Suggestion)');

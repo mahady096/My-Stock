@@ -121,6 +121,33 @@
             background: var(--hover-bg);
         }
 
+        /* টাইমফ্রেম বাটন গ্রুপ */
+        .timeframe-group {
+            display: flex;
+            gap: 4px;
+            margin: 10px 0 15px 0;
+            flex-wrap: wrap;
+        }
+        .timeframe-group .tf-btn {
+            padding: 4px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            background: transparent;
+            color: var(--text-primary);
+            transition: all 0.2s;
+        }
+        .timeframe-group .tf-btn.active {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+        }
+        .timeframe-group .tf-btn:hover:not(.active) {
+            background: var(--hover-bg);
+        }
+
         /* ইন্ডিকেটর গ্রুপ */
         .indicator-group {
             display: flex;
@@ -152,6 +179,33 @@
         .indicator-group .indicator-btn:hover {
             transform: scale(1.05);
             border-color: var(--primary-color);
+        }
+
+        /* প্রিসেট কন্ট্রোলস */
+        .preset-controls {
+            display: flex;
+            gap: 8px;
+            margin: 10px 0 15px 0;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .preset-controls button,
+        .preset-controls select {
+            padding: 4px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .preset-controls button:hover {
+            background: var(--hover-bg);
+        }
+        .preset-controls select {
+            min-width: 120px;
+            background: var(--input-bg);
         }
 
         /* ইনফো কার্ড */
@@ -203,14 +257,39 @@
         .adv-chart-container:hover {
             box-shadow: var(--card-shadow-hover);
         }
+        .adv-chart-container .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
         .adv-chart-container h3,
         .adv-chart-container h4 {
-            margin: 0 0 10px 0;
+            margin: 0;
             font-size: 16px;
             color: var(--text-primary);
             display: flex;
             align-items: center;
             gap: 8px;
+        }
+        .adv-chart-container .chart-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .adv-chart-container .chart-actions button {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 4px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-primary);
+            transition: all 0.2s;
+        }
+        .adv-chart-container .chart-actions button:hover {
+            background: var(--hover-bg);
         }
         .adv-chart-wrapper {
             position: relative;
@@ -247,6 +326,9 @@
             color: white;
             border: 1px solid rgba(255,255,255,0.08);
             box-shadow: var(--card-shadow);
+        }
+        [data-theme="dark"] .adv-suggestion-box {
+            background: linear-gradient(135deg, #0f172a 0%, #020617 100%);
         }
         .adv-suggestion-box .signal-badge {
             display: inline-block;
@@ -288,11 +370,6 @@
             margin-top: 2px;
         }
 
-        /* ডার্ক মোডে সাজেশন */
-        [data-theme="dark"] .adv-suggestion-box {
-            background: linear-gradient(135deg, #0f172a 0%, #020617 100%);
-        }
-
         /* রেসপনসিভ */
         @media (max-width: 768px) {
             .adv-header { flex-direction: column; align-items: stretch; }
@@ -300,13 +377,17 @@
             .adv-controls select, .adv-controls input { width: 100%; }
             .adv-info-cards { grid-template-columns: repeat(3, 1fr); }
             .adv-chart-wrapper { height: 250px; }
-            .adv-chart-wrapper-sm { height: 130px; }
-            .indicator-group .indicator-btn { font-size: 11px; padding: 4px 10px; }
+            .adv-chart-wrapper-sm { height: 120px; }
+            .indicator-group .indicator-btn { font-size: 10px; padding: 3px 8px; }
+            .chart-toggle-group .toggle-btn { font-size: 11px; padding: 6px 12px; }
+            .timeframe-group .tf-btn { font-size: 11px; padding: 3px 10px; }
+            .preset-controls button, .preset-controls select { font-size: 11px; padding: 3px 10px; }
+            .adv-chart-container .chart-header { flex-direction: column; align-items: flex-start; }
         }
         @media (max-width: 480px) {
             .adv-info-cards { grid-template-columns: repeat(2, 1fr); }
             .adv-header h1 { font-size: 20px; }
-            .adv-suggestion-grid { grid-template-columns: 1fr 1fr; }
+            .adv-suggestion-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
         }
         @media (max-width: 400px) {
             .adv-info-cards { grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -322,6 +403,15 @@
         .adv-suggestion-box::-webkit-scrollbar-thumb {
             background: var(--primary-color);
             border-radius: 10px;
+        }
+
+        /* অ্যানিমেশন */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .adv-chart-container {
+            animation: fadeIn 0.3s ease;
         }
     </style>
 </head>
@@ -351,22 +441,33 @@
     <div class="adv-page">
         <!-- হেডার -->
         <div class="adv-header">
-          <div style="display: flex; align-items: center; gap: 16px;">
-        <button onclick="goBackToStockModal()" style="padding: 8px 18px; background: var(--bg-secondary); border: 2px solid var(--border-color); border-radius: 30px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-primary); transition: 0.3s;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='var(--bg-secondary)'">
-            ⬅ Back
-        </button>
-        <h1>📈 <span>Advanced Charts</span></h1>
-    </div>
-          
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <button onclick="goBackToStockModal()" style="
+                    padding: 8px 18px;
+                    background: var(--bg-secondary);
+                    border: 2px solid var(--border-color);
+                    border-radius: 30px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-size: 14px;
+                    color: var(--text-primary);
+                    transition: 0.3s;
+                " onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                    ⬅ Back
+                </button>
+                <h1>📈 <span>Advanced Charts</span></h1>
+            </div>
             <div class="adv-controls">
                 <div class="adv-search-wrapper" style="position:relative;">
                     <input type="text" id="adv-chart-search" placeholder="Search share (e.g. GP)" autocomplete="off">
                     <div id="adv-chart-suggestions" class="adv-suggestions"></div>
                 </div>
-<select id="adv-data-source">
-    <option value="database">💾 Database (Supabase)</option>
-    <option value="live">📡 Live API</option>
-</select>
+                <select id="adv-data-source">
+                    <option value="database">💾 Database (Supabase)</option>
+                    <option value="live">📡 Live API</option>
+                </select>
                 <select id="adv-chart-period">
                     <option value="30">1 Month</option>
                     <option value="90">3 Months</option>
@@ -384,9 +485,22 @@
             <button id="toggle-chart-type-candle" class="toggle-btn">🕯️ Candlestick</button>
         </div>
 
+        <!-- টাইমফ্রেম বাটন -->
+        <div class="timeframe-group">
+            <button class="tf-btn active" data-tf="1d" onclick="switchTimeframe('1d')">1D</button>
+            <button class="tf-btn" data-tf="1w" onclick="switchTimeframe('1w')">1W</button>
+            <button class="tf-btn" data-tf="1M" onclick="switchTimeframe('1M')">1M</button>
+        </div>
+
         <!-- ক্যান্ডেল চার্ট কন্টেইনার (ডিফল্ট লুকানো) -->
         <div class="adv-chart-container" id="candlestick-wrapper" style="display:none;">
-            <h3>🕯️ Candlestick Chart</h3>
+            <div class="chart-header">
+                <h3>🕯️ Candlestick Chart</h3>
+                <div class="chart-actions">
+                    <button onclick="toggleFullscreen()">⛶ Fullscreen</button>
+                    <button onclick="downloadChartAsPNG()">📥 PNG</button>
+                </div>
+            </div>
             <div id="candlestick-chart" style="height: 400px; width: 100%;"></div>
             <div id="candlestick-comment" class="adv-comment-box">💡 Analysis will appear here</div>
         </div>
@@ -400,8 +514,18 @@
             <div class="adv-info-card"><div class="label">AVG BUY</div><div class="value" id="adv-info-avgbuy">-</div></div>
         </div>
 
-        <!-- ইন্ডিকেটর -->
+        <!-- ইন্ডিকেটর প্রিসেট -->
+        <div class="preset-controls">
+            <button onclick="saveIndicatorPreset()">💾 Save Preset</button>
+            <select id="preset-select" onchange="loadIndicatorPreset(this.value)">
+                <option value="">Load Preset</option>
+            </select>
+            <button onclick="deleteIndicatorPreset()">🗑️ Delete</button>
+        </div>
+
+        <!-- ইন্ডিকেটর (সম্পূর্ণ আপডেটেড) -->
         <div class="indicator-group" id="indicator-group">
+            <!-- মূল ইন্ডিকেটর -->
             <button class="indicator-btn active" data-indicator="sma5">SMA 5</button>
             <button class="indicator-btn active" data-indicator="sma10">SMA 10</button>
             <button class="indicator-btn active" data-indicator="sma20">SMA 20</button>
@@ -416,13 +540,28 @@
             <button class="indicator-btn" data-indicator="atr">ATR</button>
             <button class="indicator-btn" data-indicator="forecast">ARIMA Forecast</button>
             <button class="indicator-btn" data-indicator="psar">PSAR</button>
+            <button class="indicator-btn" data-indicator="linreg">LinReg Forecast</button>
+<button class="indicator-btn" data-indicator="wma">WMA Forecast</button>
+<button class="indicator-btn" data-indicator="holtWinters">Holt-Winters</button>
+<button class="indicator-btn" data-indicator="vwapForecast">VWAP Forecast</button>
+<button class="indicator-btn" data-indicator="macdForecast">MACD Forecast</button>
+            <!-- 🆕 নতুন ইন্ডিকেটর -->
+            <button class="indicator-btn" data-indicator="vwap">Anchored VWAP</button>
+            <button class="indicator-btn" data-indicator="volprofile">Volume Profile</button>
+            <button class="indicator-btn" data-indicator="fibonacci">Fibonacci</button>
+            <button class="indicator-btn" data-indicator="aroon">Aroon</button>
+            <button class="indicator-btn" data-indicator="ichimoku">Ichimoku</button>
         </div>
 
         <!-- মেইন লাইন চার্ট -->
         <div class="adv-chart-container" id="line-chart-wrapper">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+            <div class="chart-header">
                 <h3 id="adv-chart-title">📊 Select a share</h3>
-                <span style="font-size: 12px; color: var(--text-muted);">Last updated: <span id="adv-chart-update-time">-</span></span>
+                <div class="chart-actions">
+                    <button onclick="toggleFullscreen()">⛶ Fullscreen</button>
+                    <button onclick="downloadChartAsPNG()">📥 PNG</button>
+                    <span style="font-size: 12px; color: var(--text-muted);">Last updated: <span id="adv-chart-update-time">-</span></span>
+                </div>
             </div>
             <div class="adv-chart-wrapper">
                 <canvas id="adv-main-chart"></canvas>
@@ -453,11 +592,78 @@
             <div id="suggestion-content">
                 <div style="text-align:center; padding:20px; opacity:0.7;">Load a share to see suggestions</div>
             </div>
+            <!-- ========================================== -->
+<!-- 🆕 অ্যাডভান্সড ডিপ অ্যানালাইসিস সাজেশন (VWAP + Volume Profile সহ) -->
+<!-- ========================================== -->
+<div id="deep-analysis-suggestion" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 18px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
+        <h4 style="margin:0; color: #f1f5f9; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+            📊 <span>Smart Signal (VWAP + Volume Profile)</span>
+            <span style="font-size: 11px; opacity: 0.6; font-weight: normal;">(Institutional-grade analysis)</span>
+        </h4>
+        <span id="deep-analysis-time" style="font-size: 11px; opacity: 0.5;">Last updated: -</span>
+    </div>
+    
+    <!-- লোডিং -->
+    <div id="deep-analysis-loader" style="text-align:center; padding:15px; opacity:0.6; font-size:13px;">
+        ⏳ Analyzing with VWAP & Volume Profile...
+    </div>
+    
+    <!-- কন্টেন্ট -->
+    <div id="deep-analysis-content" style="display: none;">
+        
+        <!-- টপ ৩ কার্ড -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+            
+            <!-- কার্ড ১: VWAP স্ট্যাটাস -->
+            <div style="background: rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 14px; border-left: 3px solid #f59e0b;">
+                <div style="font-size: 10px; text-transform: uppercase; opacity: 0.5; letter-spacing: 0.5px;">Anchored VWAP</div>
+                <div id="da-vwap" style="font-size: 18px; font-weight: 600; margin-top: 2px;">-</div>
+                <div id="da-vwap-sub" style="font-size: 11px; opacity: 0.6;">-</div>
+            </div>
+            
+            <!-- কার্ড ২: POC (Point of Control) -->
+            <div style="background: rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 14px; border-left: 3px solid #8b5cf6;">
+                <div style="font-size: 10px; text-transform: uppercase; opacity: 0.5; letter-spacing: 0.5px;">Volume Profile (POC)</div>
+                <div id="da-poc" style="font-size: 18px; font-weight: 600; margin-top: 2px;">-</div>
+                <div id="da-poc-sub" style="font-size: 11px; opacity: 0.6;">-</div>
+            </div>
+            
+            <!-- কার্ড ৩: ফাইনাল সিগন্যাল -->
+            <div style="background: rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 14px; border-left: 3px solid #3b82f6;">
+                <div style="font-size: 10px; text-transform: uppercase; opacity: 0.5; letter-spacing: 0.5px;">Final Signal</div>
+                <div id="da-signal" style="font-size: 18px; font-weight: 600; margin-top: 2px;">-</div>
+                <div id="da-signal-sub" style="font-size: 11px; opacity: 0.6;">-</div>
+            </div>
+        </div>
+        
+        <!-- ডিটেইল টেবিল -->
+        <div style="background: rgba(255,255,255,0.04); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px;">
+            <table style="width: 100%; border-collapse: collapse; color: #e2e8f0;">
+                <thead>
+                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
+                        <th style="padding: 6px 8px; text-align: left; opacity: 0.7;">Metric</th>
+                        <th style="padding: 6px 8px; text-align: right; opacity: 0.7;">Value</th>
+                        <th style="padding: 6px 8px; text-align: right; opacity: 0.7;">Signal</th>
+                    </tr>
+                </thead>
+                <tbody id="da-table-body">
+                    <tr><td colspan="3" style="padding: 10px; text-align: center; opacity: 0.5;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- সারাংশ -->
+        <div id="da-summary" style="margin-top: 10px; padding: 10px 14px; border-radius: 6px; font-size: 13px; background: rgba(255,255,255,0.04); border-left: 4px solid #64748b;">
+            💡 <span id="da-summary-text">Analysis summary will appear here.</span>
+        </div>
+    </div>
+</div>
         </div>
 
         <!-- ফুটার -->
         <div style="text-align:center; margin-top:30px; padding:15px; font-size:12px; color:var(--text-muted); border-top:1px solid var(--border-color);">
-            StockPulse Advanced Charts v2.0 | Data source: <span id="footer-source">Firebase</span>
+            StockPulse Advanced Charts v2.0 | Data source: <span id="footer-source">Database</span>
         </div>
     </div>
 
@@ -469,13 +675,16 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="indicators.js"></script>
+    <script src="indicators.js"></script>
     <script src="firebase-config.js"></script>
     <script src="supabase-config.js"></script>
     <script src="config.js"></script>
     <script src="data-service.js"></script>
     <script src="cache-helper.js"></script>
     <script src="core.js"></script>
-    <script src="adv-charts.js"></script>
+    <!-- প্রথমে কোর ফাইল -->
+<script src="adv-charts-core.js"></script>
+<!-- তারপর এক্সট্রা ফাইল -->
+<script src="adv-charts-extras.js"></script>
 </body>
 </html>

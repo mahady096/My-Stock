@@ -800,6 +800,103 @@
                         </div>
                     </div>
                 </div>
+                <!-- ========================================== -->
+<!-- 🆕 App Daily Suggestion সেকশন -->
+<!-- ========================================== -->
+<div class="daily-suggestion-section" style="
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    margin-top: 30px;
+    box-shadow: var(--card-shadow);
+    border: 1px solid var(--border-color);
+">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px;">
+        <h3 style="margin:0; font-size: 18px; display: flex; align-items: center; gap: 8px;">
+            📊 <span>App Daily Suggestion</span>
+            <span style="font-size: 12px; opacity: 0.6; font-weight: normal;">(Based on your portfolio + indicators)</span>
+        </h3>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span id="ds-update-time" style="font-size: 11px; opacity: 0.6;">Last updated: -</span>
+            <button onclick="refreshDailySuggestion()" style="
+                background: var(--primary-color);
+                color: white;
+                border: none;
+                border-radius: 20px;
+                padding: 4px 14px;
+                cursor: pointer;
+                font-size: 12px;
+            ">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <!-- লোডিং -->
+    <div id="ds-loader" style="text-align:center; padding:30px; opacity:0.6;">
+        ⏳ Analyzing your portfolio...
+    </div>
+
+    <!-- কন্টেন্ট -->
+    <div id="ds-content" style="display: none;">
+        
+        <!-- সামারি কার্ড -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px;">
+            <div class="ds-summary-card" style="background: var(--bg-tertiary); border-radius: 8px; padding: 12px; text-align: center; border-left: 3px solid #3b82f6;">
+                <div style="font-size: 11px; opacity: 0.6;">Total Holdings</div>
+                <div id="ds-total-holdings" style="font-size: 22px; font-weight: 700;">-</div>
+            </div>
+            <div class="ds-summary-card" style="background: var(--bg-tertiary); border-radius: 8px; padding: 12px; text-align: center; border-left: 3px solid #10b981;">
+                <div style="font-size: 11px; opacity: 0.6;">Avg Buy (Weighted)</div>
+                <div id="ds-avg-buy" style="font-size: 22px; font-weight: 700;">-</div>
+            </div>
+            <div class="ds-summary-card" style="background: var(--bg-tertiary); border-radius: 8px; padding: 12px; text-align: center; border-left: 3px solid #f59e0b;">
+                <div style="font-size: 11px; opacity: 0.6;">Unrealized P&L %</div>
+                <div id="ds-total-pl" style="font-size: 22px; font-weight: 700;">-</div>
+            </div>
+            <div class="ds-summary-card" style="background: var(--bg-tertiary); border-radius: 8px; padding: 12px; text-align: center; border-left: 3px solid #8b5cf6;">
+                <div style="font-size: 11px; opacity: 0.6;">Current Value</div>
+                <div id="ds-current-value" style="font-size: 22px; font-weight: 700;">-</div>
+            </div>
+        </div>
+
+        <!-- BUY / SELL সাজেশন (স্ক্রিনশটের মতো) -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            
+            <!-- 📈 BUY সাজেশন -->
+            <div style="background: rgba(16, 185, 129, 0.05); border-radius: 12px; padding: 16px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="margin:0; color: #10b981;">📈 Buy Suggestion</h4>
+                    <span id="ds-buy-count" style="font-size: 12px; background: #10b981; color: white; padding: 2px 10px; border-radius: 12px;">0</span>
+                </div>
+                <div id="ds-buy-list" style="max-height: 300px; overflow-y: auto;">
+                    <div style="text-align:center; padding:20px; opacity:0.5; font-size:13px;">No buy suggestions</div>
+                </div>
+            </div>
+
+            <!-- 📉 SELL সাজেশন -->
+            <div style="background: rgba(239, 68, 68, 0.05); border-radius: 12px; padding: 16px; border: 1px solid rgba(239, 68, 68, 0.2);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="margin:0; color: #ef4444;">📉 Sell Suggestion</h4>
+                    <span id="ds-sell-count" style="font-size: 12px; background: #ef4444; color: white; padding: 2px 10px; border-radius: 12px;">0</span>
+                </div>
+                <div id="ds-sell-list" style="max-height: 300px; overflow-y: auto;">
+                    <div style="text-align:center; padding:20px; opacity:0.5; font-size:13px;">No sell suggestions</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- সাজেশন সারাংশ (স্ক্রিনশটের মতো থ্রেশহোল্ড) -->
+        <div id="ds-threshold-summary" style="
+            margin-top: 20px;
+            padding: 14px 18px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            border-left: 4px solid #f59e0b;
+            font-size: 13px;
+        ">
+            💡 <span id="ds-threshold-text">Loading suggestion logic...</span>
+        </div>
+    </div>
+</div>
             </section>
 
             <!-- Portfolio Analysis Section -->
