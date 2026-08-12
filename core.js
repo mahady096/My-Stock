@@ -571,6 +571,17 @@ async function getPreviousDayPrice(ticker) {
  * @param {boolean} forceRefresh - true দিলে ক্যাশ উপেক্ষা করে নতুন ডেটা ফেচ করবে
  * @returns {Promise<Map<string, {currentPrice, currentDate, previousPrice, previousDate}>>}
  */
+// ==========================================
+// 📊 getLatestAndPreviousPrices - ক্যাশিং সহ (ব্যাচ + ইনক্রিমেন্টাল)
+//    High/Low সহ Today's Price, Previous Price, Today's High, Today's Low
+// ==========================================
+
+/**
+ * একাধিক টিকারের বর্তমান ও আগের দিনের দাম ফেরত দেয় (ক্যাশিং সহ)
+ * @param {string[]} tickers - শেয়ারের কোডের অ্যারে (যেমন ["GP", "ROBI"])
+ * @param {boolean} forceRefresh - true দিলে ক্যাশ উপেক্ষা করে নতুন ডেটা ফেচ করবে
+ * @returns {Promise<Map<string, {currentPrice, currentDate, previousPrice, previousDate, high, low}>>}
+ */
 async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
     if (!tickers || !tickers.length) return new Map();
     
@@ -590,7 +601,9 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
                     currentPrice: cached.currentPrice,
                     currentDate: cached.currentDate || null,
                     previousPrice: cached.previousPrice || 0,
-                    previousDate: cached.previousDate || null
+                    previousDate: cached.previousDate || null,
+                    high: cached.high || 0,
+                    low: cached.low || 0
                 });
             } else {
                 missingTickers.push(ticker);
@@ -622,12 +635,12 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
     if (typeof supabase !== 'undefined' && supabase) {
         const supabaseChunks = chunkArray(missingTickers, 10);
         
-        // ২.১.১ cse_market_data (CSE)
+        // ২.১.১ cse_market_data (CSE) - বর্তমান প্রাইস + High/Low
         for (const chunk of supabaseChunks) {
             try {
                 const { data, error } = await supabase
                     .from('cse_market_data')
-                    .select('code, ltp, date')
+                    .select('code, ltp, high, low, date')
                     .in('code', chunk)
                     .order('date', { ascending: false });
                 if (!error && data) {
@@ -635,15 +648,22 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
                     data.forEach(row => {
                         if (!seen.has(row.code)) {
                             seen.add(row.code);
-                            const val = parseFloat(row.ltp);
+                            const val = parseFloat(row.ltp) || 0;
                             if (val > 0) {
                                 if (!fetchedData.has(row.code)) {
-                                    fetchedData.set(row.code, { currentPrice: 0, currentDate: null });
+                                    fetchedData.set(row.code, { 
+                                        currentPrice: 0, 
+                                        currentDate: null,
+                                        high: 0,
+                                        low: 0
+                                    });
                                 }
                                 const cur = fetchedData.get(row.code);
                                 if (!cur.currentPrice || cur.currentPrice === 0) {
                                     cur.currentPrice = val;
                                     cur.currentDate = row.date;
+                                    cur.high = parseFloat(row.high) || 0;
+                                    cur.low = parseFloat(row.low) || 0;
                                 }
                             }
                         }
@@ -660,7 +680,7 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
                 try {
                     const { data, error } = await supabase
                         .from('dse_live_data')
-                        .select('ticker, ltp, date')
+                        .select('ticker, ltp, high, low, date')
                         .in('ticker', chunk)
                         .order('date', { ascending: false });
                     if (!error && data) {
@@ -668,15 +688,22 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
                         data.forEach(row => {
                             if (!seen.has(row.ticker)) {
                                 seen.add(row.ticker);
-                                const val = parseFloat(row.ltp);
+                                const val = parseFloat(row.ltp) || 0;
                                 if (val > 0) {
                                     if (!fetchedData.has(row.ticker)) {
-                                        fetchedData.set(row.ticker, { currentPrice: 0, currentDate: null });
+                                        fetchedData.set(row.ticker, { 
+                                            currentPrice: 0, 
+                                            currentDate: null,
+                                            high: 0,
+                                            low: 0
+                                        });
                                     }
                                     const cur = fetchedData.get(row.ticker);
                                     if (!cur.currentPrice || cur.currentPrice === 0) {
                                         cur.currentPrice = val;
                                         cur.currentDate = row.date;
+                                        cur.high = parseFloat(row.high) || 0;
+                                        cur.low = parseFloat(row.low) || 0;
                                     }
                                 }
                             }
@@ -694,6 +721,7 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
             const fbChunks = chunkArray(stillMissingFB, 10);
             for (const chunk of fbChunks) {
                 try {
+                    // daily_prices থেকে বর্তমান প্রাইস
                     const snap = await db.collection('daily_prices')
                         .where('ticker', 'in', chunk)
                         .orderBy('date', 'desc')
@@ -707,12 +735,20 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
                                 const val = parseFloat(data.price) || parseFloat(data.close) || 0;
                                 if (val > 0) {
                                     if (!fetchedData.has(data.ticker)) {
-                                        fetchedData.set(data.ticker, { currentPrice: 0, currentDate: null });
+                                        fetchedData.set(data.ticker, { 
+                                            currentPrice: 0, 
+                                            currentDate: null,
+                                            high: 0,
+                                            low: 0
+                                        });
                                     }
                                     const cur = fetchedData.get(data.ticker);
                                     if (!cur.currentPrice || cur.currentPrice === 0) {
                                         cur.currentPrice = val;
                                         cur.currentDate = data.date;
+                                        // Firebase daily_prices-এ high/low নেই, তাই 0
+                                        cur.high = 0;
+                                        cur.low = 0;
                                     }
                                 }
                             }
@@ -833,7 +869,9 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
                     currentPrice: hardcoded,
                     currentDate: todayStr,
                     previousPrice: 0,
-                    previousDate: null
+                    previousDate: null,
+                    high: 0,
+                    low: 0
                 });
             }
         }
@@ -848,7 +886,9 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
                 currentPrice: data.currentPrice,
                 currentDate: data.currentDate || null,
                 previousPrice: data.previousPrice || 0,
-                previousDate: data.previousDate || null
+                previousDate: data.previousDate || null,
+                high: data.high || 0,
+                low: data.low || 0
             };
             resultMap.set(ticker, finalData);
             
@@ -864,13 +904,20 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
                 currentPrice: 0,
                 currentDate: null,
                 previousPrice: 0,
-                previousDate: null
+                previousDate: null,
+                high: 0,
+                low: 0
             });
         }
     }
 
     return resultMap;
 }
+
+// ==========================================
+// 📌 গ্লোবাল এক্সপোজ (ইতিমধ্যে core.js-এর শেষে আছে)
+// ==========================================
+window.getLatestAndPreviousPrices = getLatestAndPreviousPrices;
 
 // ==========================================
 // 📋 DSE স্টক লিস্ট

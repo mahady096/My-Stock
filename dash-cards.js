@@ -5,6 +5,7 @@
 //    ⚠️ getUserDeposit ও updateUserDeposit dash-utils.js থেকে নেওয়া
 //    🔥 loadDashboardData ফাংশন যোগ করা হয়েছে
 //    🆕 App Daily Suggestion (loadDailySuggestion, refreshDailySuggestion) যোগ করা হয়েছে
+//    🔔 অ্যালার্ট চেক (ধাপ ৩) ও ডেইলি সামারি (ধাপ ৪.১) যোগ করা হয়েছে
 // ==========================================
 
 // ==========================================
@@ -83,9 +84,12 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
         let totalProfitLoss = 0;
         let totalRemainingQty = 0;
 
+        // প্রাইস ম্যাপ তৈরি করুন (অ্যালার্ট চেকের জন্য)
+        let priceMap = new Map();
+
         if (unifiedData && unifiedData.stockDetails.length > 0) {
             const tickers = unifiedData.stockDetails.map(s => s.ticker);
-            const priceMap = await getLatestAndPreviousPrices(tickers);
+            priceMap = await getLatestAndPreviousPrices(tickers);
 
             for (let i = 0; i < unifiedData.stockDetails.length; i++) {
                 const stock = unifiedData.stockDetails[i];
@@ -94,6 +98,17 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
                 if (currentPrice === 0) currentPrice = stock.avgBuyPriceWithCommission;
                 totalCurrentValue += stock.totalQty * currentPrice;
                 totalRemainingQty += stock.totalQty;
+
+                // ==========================================
+                // 🔔 ধাপ ৩: অ্যালার্ট চেক করুন (প্রাইস লুপের ভেতরে)
+                // ==========================================
+                if (currentPrice > 0 && typeof notificationManager !== 'undefined' && notificationManager) {
+                    try {
+                        notificationManager.checkPriceAlerts(stock.ticker, currentPrice);
+                    } catch (e) {
+                        console.warn('Alert check error for', stock.ticker, e);
+                    }
+                }
             }
 
             totalInvestment = unifiedData.totalInvestment;
@@ -127,10 +142,10 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
         // ডেইলি G/L – আগের দিনের প্রাইস দিয়ে হিসাব (Supabase-first)
         if (unifiedData && unifiedData.stockDetails.length > 0) {
             const tickers = unifiedData.stockDetails.map(s => s.ticker);
-            const priceMap = await getLatestAndPreviousPrices(tickers);
+            const priceMapDaily = await getLatestAndPreviousPrices(tickers);
             let dailyGL = 0, dailyPct = 0;
             for (const stock of unifiedData.stockDetails) {
-                const priceData = priceMap.get(stock.ticker);
+                const priceData = priceMapDaily.get(stock.ticker);
                 const currentPrice = priceData?.currentPrice || 0;
                 const prevPrice = priceData?.previousPrice || 0;
                 const qty = stock.totalQty || 0;
@@ -222,6 +237,13 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
             }
         } catch (e) {
             console.warn('⚠️ Daily Suggestion load error:', e);
+        }
+
+        // ==========================================
+        // 🔔 অ্যালার্ট লিস্ট লোড করুন (UI আপডেটের জন্য)
+        // ==========================================
+        if (typeof loadActiveAlerts === 'function') {
+            setTimeout(loadActiveAlerts, 500);
         }
 
     } catch (error) {
@@ -818,7 +840,6 @@ async function loadDailySuggestion() {
 
             // ⭐ বোনাস: জোরালো সিগন্যাল
             if (plPct >= 25 && netScore >= 1) {
-                // ইতিমধ্যে sellSuggestions-এ যোগ না হলে যোগ করুন
                 const exists = sellSuggestions.some(s => s.ticker === ticker);
                 if (!exists) {
                     sellSuggestions.push({ 
@@ -988,7 +1009,107 @@ async function refreshDailySuggestion() {
 }
 
 // ==========================================
-// 📌 গ্লোবাল এক্সপোজ (HTML থেকে কল করার জন্য)
+// 📅 ডেইলি সামারি শিডিউলার (ধাপ ৪.১)
+// ==========================================
+function scheduleDailySummary() {
+    const now = new Date();
+    const target = new Date();
+    target.setHours(9, 0, 0, 0); // সকাল ৯টা
+    if (now > target) target.setDate(target.getDate() + 1);
+    const delay = target - now;
+
+    setTimeout(async () => {
+        const user = auth?.currentUser;
+        if (user && typeof notificationManager !== 'undefined' && notificationManager) {
+            try {
+                const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
+                if (unifiedData && unifiedData.stockDetails.length > 0) {
+                    const tickers = unifiedData.stockDetails.map(s => s.ticker);
+                    const priceMap = await getLatestAndPreviousPrices(tickers);
+                    let totalValue = 0, totalCost = 0;
+                    for (let i = 0; i < unifiedData.stockDetails.length; i++) {
+                        const stock = unifiedData.stockDetails[i];
+                        const priceData = priceMap.get(stock.ticker);
+                        const currentPrice = priceData?.currentPrice || 0;
+                        const qty = stock.totalQty || 0;
+                        totalValue += qty * currentPrice;
+                        totalCost += stock.totalCost || 0;
+                    }
+                    const pl = totalValue - totalCost;
+                    const pct = totalCost > 0 ? (pl / totalCost) * 100 : 0;
+                    notificationManager.showDailySummary(pl, pct, totalValue);
+                }
+            } catch (e) {
+                console.warn('Daily summary error:', e);
+            }
+        }
+        // আবার শিডিউল করুন (নেক্সট ডে)
+        scheduleDailySummary();
+    }, delay);
+}
+
+// ==========================================
+// 🔔 অ্যালার্ট লিস্ট লোড (ধাপ ৩ এর সাথে সম্পর্কিত)
+// ==========================================
+function loadActiveAlerts() {
+    const tbody = document.getElementById('alert-list-body');
+    if (!tbody) return;
+
+    if (typeof notificationManager === 'undefined' || !notificationManager) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; opacity:0.6;">Notification manager not loaded.</td></tr>`;
+        return;
+    }
+
+    const alerts = notificationManager.getAlerts();
+    const keys = Object.keys(alerts);
+
+    if (keys.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; opacity:0.6;">No alerts set.</td></tr>`;
+        return;
+    }
+
+    let html = '';
+    for (const ticker of keys) {
+        const alert = alerts[ticker];
+        const status = alert.triggered ? '🔔 Triggered' : '⏳ Active';
+        const statusColor = alert.triggered ? '#f59e0b' : '#10b981';
+        const directionMap = { 'up': '↑ Above', 'down': '↓ Below', 'any': '↕ Any' };
+
+        html += `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 6px 8px; font-weight: 600; color: var(--primary-color);">${ticker}</td>
+                <td style="padding: 6px 8px; text-align: right;">৳${alert.target.toFixed(2)}</td>
+                <td style="padding: 6px 8px; text-align: center;">${directionMap[alert.direction] || 'Any'}</td>
+                <td style="padding: 6px 8px; text-align: center; color: ${statusColor};">${status}</td>
+                <td style="padding: 6px 8px; text-align: center;">
+                    <button onclick="removeAlert('${ticker}')" style="
+                        background: #ef4444;
+                        color: white;
+                        border: none;
+                        padding: 2px 10px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 11px;
+                    ">✖</button>
+                </td>
+            </tr>
+        `;
+    }
+    tbody.innerHTML = html;
+}
+
+// অ্যালার্ট রিমুভ
+function removeAlert(ticker) {
+    if (!ticker) return;
+    if (typeof notificationManager !== 'undefined' && notificationManager) {
+        notificationManager.removeAlert(ticker);
+        loadActiveAlerts();
+        if (typeof showToast === 'function') showToast(`🗑️ Alert removed for ${ticker}`, 'info');
+    }
+}
+
+// ==========================================
+// 📌 গ্লোবাল এক্সপোজ (সব ফাংশন উইন্ডোতে)
 // ==========================================
 window.loadDashboardData = loadDashboardData;
 window.updateDashboardCards = updateDashboardCards;
@@ -1003,5 +1124,8 @@ window.resetIncomeFilter = window.resetIncomeFilter;
 window.loadDailySuggestion = loadDailySuggestion;
 window.refreshDailySuggestion = refreshDailySuggestion;
 window.renderDailySuggestionList = renderDailySuggestionList;
+window.scheduleDailySummary = scheduleDailySummary;
+window.loadActiveAlerts = loadActiveAlerts;
+window.removeAlert = removeAlert;
 
-console.log('✅ dash-cards.js loaded successfully (with Daily Suggestion)');
+console.log('✅ dash-cards.js loaded successfully (with Daily Suggestion, Alerts, and Daily Summary)');

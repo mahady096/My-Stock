@@ -1,6 +1,7 @@
 // ==========================================
 // 📁 ui-modals.js - UI মডাল সম্পর্কিত সব ফাংশন
 //    ui.js থেকে ভাগ করা (স্টক মডাল, গেইন/লস মডাল, ডিভিডেন্ড মডাল, ইত্যাদি)
+//    🔧 ফিক্স: Today's High/Low এবং ATH/ATL আলাদা করা হয়েছে
 // ==========================================
 
 // ==========================================
@@ -173,7 +174,7 @@ async function changeUserPassword() {
 }
 
 // ==========================================
-// ৩. অ্যাডভান্সড স্টক মডাল
+// ৩. অ্যাডভান্সড স্টক মডাল (সংশোধিত)
 // ==========================================
 
 window.openStockDetailModal = async function(ticker) {
@@ -217,7 +218,6 @@ window.openStockDetailModal = async function(ticker) {
         // ---------- ১. পোর্টফোলিও ডেটা (গ্র্যান্ড পোর্টফোলিও) ----------
         let remainingQty = 0, avgBuyPrice = 0, totalCost = 0;
         try {
-            // 🔥 portfolioId = null দিলে গ্র্যান্ড পোর্টফোলিও দেখাবে
             const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
             if (unifiedData && unifiedData.stockDetails) {
                 const stockData = unifiedData.stockDetails.find(s => s.ticker === ticker);
@@ -231,18 +231,52 @@ window.openStockDetailModal = async function(ticker) {
             console.warn('Portfolio data not available:', e);
         }
 
-        // ---------- ২. প্রাইস ডেটা ----------
+        // ---------- ২. প্রাইস ডেটা (বর্তমান + আগের + আজকের হাই/লো) ----------
         const priceDataMap = await getLatestAndPreviousPrices([ticker]);
         const priceData = priceDataMap.get(ticker);
         const currentPrice = priceData?.currentPrice || 0;
         const currentDate = priceData?.currentDate || null;
         const previousPrice = priceData?.previousPrice || 0;
         const previousDate = priceData?.previousDate || null;
+        const todayHigh = priceData?.high || 0;   // ✅ Today's High
+        const todayLow = priceData?.low || 0;     // ✅ Today's Low
+
+        // ---------- ৩. যদি priceData-এ high/low না থাকে, তাহলে Supabase থেকে সরাসরি ফেচ ----------
+        let finalHigh = todayHigh, finalLow = todayLow;
+        if (finalHigh === 0 && finalLow === 0 && typeof supabase !== 'undefined' && supabase) {
+            try {
+                const { data, error } = await supabase
+                    .from('cse_market_data')
+                    .select('high, low')
+                    .eq('code', ticker)
+                    .order('date', { ascending: false })
+                    .limit(1);
+                if (!error && data && data.length > 0) {
+                    finalHigh = parseFloat(data[0].high) || 0;
+                    finalLow = parseFloat(data[0].low) || 0;
+                }
+            } catch (e) { /* ignore */ }
+        }
+        // Firebase ফ্যালব্যাক
+        if (finalHigh === 0 && typeof db !== 'undefined') {
+            try {
+                const snap = await db.collection('cse_detailed_data')
+                    .where('code', '==', ticker)
+                    .orderBy('date', 'desc')
+                    .limit(1)
+                    .get();
+                if (!snap.empty) {
+                    const data = snap.docs[0].data();
+                    finalHigh = parseFloat(data.high) || 0;
+                    finalLow = parseFloat(data.low) || 0;
+                }
+            } catch (e) { /* ignore */ }
+        }
 
         const dailyChange = currentPrice - previousPrice;
         const dailyChangePercent = previousPrice > 0 ? (dailyChange / previousPrice) * 100 : 0;
 
-        // ---------- ৩. LTP আপডেট ----------
+        // ---------- ৪. LTP আপডেট ----------
         const ltpElem = document.getElementById('adv-ltp');
         if (ltpElem) {
             ltpElem.innerHTML = `৳${currentPrice.toFixed(2)}`;
@@ -260,7 +294,17 @@ window.openStockDetailModal = async function(ticker) {
             }
         }
 
-        // ---------- ৪. DSE ও CSE প্রাইস ----------
+        // ---------- ৫. Today's High/Low ----------
+        const highlowSpan = document.getElementById('adv-highlow');
+        if (highlowSpan) {
+            if (finalHigh > 0 && finalLow > 0) {
+                highlowSpan.innerText = `৳${finalHigh.toFixed(2)} / ৳${finalLow.toFixed(2)}`;
+            } else {
+                highlowSpan.innerText = '- / -';
+            }
+        }
+
+        // ---------- ৬. DSE ও CSE প্রাইস ----------
         const dsePrice = await getDSEPrice(ticker);
         const csePrice = await getCSEPrice(ticker);
         const dseSpan = document.getElementById('adv-dse-price');
@@ -268,7 +312,7 @@ window.openStockDetailModal = async function(ticker) {
         if (dseSpan) dseSpan.innerText = dsePrice > 0 ? dsePrice.toFixed(2) : '-';
         if (cseSpan) cseSpan.innerText = csePrice > 0 ? csePrice.toFixed(2) : '-';
 
-        // ---------- ৫. Previous Close ----------
+        // ---------- ৭. Previous Close ----------
         const prevCloseElem = document.getElementById('adv-prev-close');
         if (prevCloseElem) {
             prevCloseElem.innerHTML = `৳${previousPrice > 0 ? previousPrice.toFixed(2) : '-'}`;
@@ -281,13 +325,13 @@ window.openStockDetailModal = async function(ticker) {
             }
         }
 
-        // ---------- ৬. Holdings ----------
+        // ---------- ৮. Holdings ----------
         const holdingsQty = document.getElementById('adv-holdings-qty');
         const avgBuySpan = document.getElementById('adv-avg-buy');
         if (holdingsQty) holdingsQty.innerText = remainingQty > 0 ? remainingQty : '0';
         if (avgBuySpan) avgBuySpan.innerText = avgBuyPrice > 0 ? avgBuyPrice.toFixed(2) : '0';
 
-        // ---------- ৭. Total Gain/Loss ----------
+        // ---------- ৯. Total Gain/Loss ----------
         const gainAmount = document.getElementById('adv-gain-amount');
         const gainPercent = document.getElementById('adv-gain-percent');
         if (remainingQty > 0 && avgBuyPrice > 0 && currentPrice > 0) {
@@ -312,13 +356,13 @@ window.openStockDetailModal = async function(ticker) {
             }
         }
 
-        // ---------- ৮. মেটাডেটা (Supabase stock_metadata → Firebase stock_metadata fallback) ----------
+        // ---------- ১০. মেটাডেটা (Supabase stock_metadata → Firebase stock_metadata fallback) ----------
         try {
             let category = 'N/A', recordDate = '-', dividend = '-', eps = null;
             let ath = 0, atl = 0, athDate = null, atlDate = null;
             let foundInSupabase = false;
 
-            // ৮.ক Supabase stock_metadata থেকে ফেচ (প্রথম অগ্রাধিকার)
+            // Supabase stock_metadata
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
                     const { data, error } = await supabase
@@ -326,7 +370,6 @@ window.openStockDetailModal = async function(ticker) {
                         .select('ath, ath_date, atl, atl_date, category, record_date, dividend, eps')
                         .eq('ticker', ticker)
                         .limit(1);
-
                     if (!error && data && data.length > 0) {
                         const meta = data[0];
                         ath = meta.ath || 0;
@@ -338,14 +381,13 @@ window.openStockDetailModal = async function(ticker) {
                         dividend = meta.dividend || '-';
                         eps = meta.eps !== undefined && meta.eps !== null ? parseFloat(meta.eps) : null;
                         foundInSupabase = true;
-                        console.log(`✅ Metadata loaded from Supabase stock_metadata for ${ticker}`);
                     }
                 } catch (e) {
                     console.warn('Supabase stock_metadata fetch failed:', e);
                 }
             }
 
-            // ৮.খ যদি Supabase-এ না থাকে, Firebase stock_metadata ফ্যালব্যাক
+            // Firebase stock_metadata ফ্যালব্যাক
             if (!foundInSupabase && typeof db !== 'undefined') {
                 try {
                     const doc = await db.collection('stock_metadata').doc(ticker).get();
@@ -359,64 +401,37 @@ window.openStockDetailModal = async function(ticker) {
                         recordDate = data.record_date || '-';
                         dividend = data.dividend || '-';
                         eps = data.eps !== undefined && data.eps !== null ? parseFloat(data.eps) : null;
-                        console.log(`✅ Metadata loaded from Firebase stock_metadata for ${ticker}`);
                     }
                 } catch (e) {
                     console.warn('Firebase stock_metadata read failed:', e);
                 }
             }
 
-            // ৮.গ যদি কোথাও না পাওয়া যায়, তাহলে cse_market_data বা cse_detailed_data থেকে সরাসরি ফেচ (শেষ ফ্যালব্যাক)
-            if (!foundInSupabase && (ath === 0 || category === 'N/A')) {
-                // cse_market_data (Supabase)
-                if (typeof supabase !== 'undefined' && supabase) {
-                    try {
-                        const { data, error } = await supabase
-                            .from('cse_market_data')
-                            .select('category, record_date, dividend, eps')
-                            .eq('code', ticker)
-                            .order('date', { ascending: false })
-                            .limit(1);
-                        if (!error && data && data.length > 0) {
-                            category = data[0].category || 'N/A';
-                            recordDate = data[0].record_date || '-';
-                            dividend = data[0].dividend || '-';
-                            eps = data[0].eps !== undefined && data[0].eps !== null ? parseFloat(data[0].eps) : null;
-                        }
-                    } catch (e) {
-                        console.warn('cse_market_data fetch failed:', e);
-                    }
+            // ATH/ATL UI আপডেট
+            const athSpan = document.getElementById('adv-ath');
+            const atlSpan = document.getElementById('adv-atl');
+            const athDateSpan = document.getElementById('adv-ath-date');
+            const atlDateSpan = document.getElementById('adv-atl-date');
+            if (athSpan) athSpan.innerText = ath > 0 ? `৳${ath.toFixed(2)}` : '-';
+            if (atlSpan) atlSpan.innerText = atl > 0 ? `৳${atl.toFixed(2)}` : '-';
+            if (athDateSpan) {
+                if (athDate) {
+                    const d = new Date(athDate);
+                    athDateSpan.innerText = d.toLocaleDateString('bn-BD', { year: 'numeric', month: 'short', day: 'numeric' });
+                } else {
+                    athDateSpan.innerText = '-';
                 }
-
-                // Firebase cse_detailed_data (শেষ ফ্যালব্যাক)
-                if (category === 'N/A' && typeof db !== 'undefined') {
-                    try {
-                        const snap = await db.collection('cse_detailed_data')
-                            .where('code', '==', ticker)
-                            .orderBy('date', 'desc')
-                            .limit(1)
-                            .get();
-                        if (!snap.empty) {
-                            const data = snap.docs[0].data();
-                            category = data.category || 'N/A';
-                            recordDate = data.record_date || '-';
-                            dividend = data.dividend || '-';
-                            eps = data.eps !== undefined && data.eps !== null ? parseFloat(data.eps) : null;
-                        }
-                    } catch (e) {
-                        console.warn('Firebase cse_detailed_data fallback failed:', e);
-                    }
+            }
+            if (atlDateSpan) {
+                if (atlDate) {
+                    const d = new Date(atlDate);
+                    atlDateSpan.innerText = d.toLocaleDateString('bn-BD', { year: 'numeric', month: 'short', day: 'numeric' });
+                } else {
+                    atlDateSpan.innerText = '-';
                 }
             }
 
-            // ---------- UI আপডেট (পূর্বের মতো) ----------
-            const highlowSpan = document.getElementById('adv-highlow');
-            if (highlowSpan) {
-                const high = ath > 0 ? ath : 0;
-                const low = atl > 0 ? atl : 0;
-                highlowSpan.innerText = high > 0 && low > 0 ? `৳${high.toFixed(2)} / ৳${low.toFixed(2)}` : '- / -';
-            }
-
+            // EPS, Dividend, Record Date
             const epsSpan = document.getElementById('adv-eps');
             if (epsSpan) epsSpan.innerText = eps !== null && eps > 0 ? `৳${eps.toFixed(2)}` : '-';
 
@@ -447,34 +462,11 @@ window.openStockDetailModal = async function(ticker) {
                     }
                 };
             }
-
-            const athSpan = document.getElementById('adv-ath');
-            const atlSpan = document.getElementById('adv-atl');
-            const athDateSpan = document.getElementById('adv-ath-date');
-            const atlDateSpan = document.getElementById('adv-atl-date');
-            if (athSpan) athSpan.innerText = ath > 0 ? `৳${ath.toFixed(2)}` : '-';
-            if (atlSpan) atlSpan.innerText = atl > 0 ? `৳${atl.toFixed(2)}` : '-';
-            if (athDateSpan) {
-                if (athDate) {
-                    const d = new Date(athDate);
-                    athDateSpan.innerText = d.toLocaleDateString('bn-BD', { year: 'numeric', month: 'short', day: 'numeric' });
-                } else {
-                    athDateSpan.innerText = '-';
-                }
-            }
-            if (atlDateSpan) {
-                if (atlDate) {
-                    const d = new Date(atlDate);
-                    atlDateSpan.innerText = d.toLocaleDateString('bn-BD', { year: 'numeric', month: 'short', day: 'numeric' });
-                } else {
-                    atlDateSpan.innerText = '-';
-                }
-            }
         } catch (e) { 
             console.warn('Metadata fetch failed:', e); 
         }
 
-        // ---------- ৯. P/E Ratio ----------
+        // ---------- ১১. P/E Ratio ----------
         const peRatio = await getPERatio(ticker);
         const peSpan = document.getElementById('adv-pe');
         if (peSpan) {
@@ -485,13 +477,13 @@ window.openStockDetailModal = async function(ticker) {
             }
         }
 
-        // ---------- ১০. চার্ট লোড ----------
+        // ---------- ১২. চার্ট লোড ----------
         if (typeof loadPriceHistoryChart === 'function') loadPriceHistoryChart(ticker);
         if (typeof loadRSIChart === 'function') loadRSIChart(ticker);
         if (typeof loadGainAnalysisChart === 'function') loadGainAnalysisChart(ticker);
         if (typeof loadModalPerformanceTable === 'function') loadModalPerformanceTable(ticker);
 
-        // ---------- ১১. ডেটা সোর্স ও সময় ----------
+        // ---------- ১৩. ডেটা সোর্স ও সময় ----------
         const sourceSpan = document.getElementById('adv-data-source');
         const timeSpan = document.getElementById('adv-updated-time');
         if (sourceSpan) sourceSpan.innerText = currentDataMode === 'firebase' ? 'Firebase Cache' : 'Live API';
@@ -548,7 +540,6 @@ window.openGainHistoryModal = async function(ticker) {
             return;
         }
 
-        // 🔥 গ্র্যান্ড পোর্টফোলিও
         const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
         const stockData = unifiedData.stockDetails.find(s => s.ticker === ticker);
         if (!stockData || stockData.lots.length === 0) {
@@ -616,7 +607,7 @@ window.openGainHistoryModal = async function(ticker) {
                 const { data, error } = await supabase
                     .from('history_dse')
                     .select('date, ltp')
-                    .eq('code', ticker)
+                    .eq('ticker', ticker)
                     .gte('date', startDateStr)
                     .order('date', { ascending: true });
                 if (!error && data && data.length > 0) {
@@ -1115,4 +1106,4 @@ window.closeDSEXChartModal = closeDSEXChartModal;
 window.openAdvancedChartFromModal = openAdvancedChartFromModal;
 window.changeUserPassword = changeUserPassword;
 
-console.log('✅ ui-modals.js loaded successfully');
+console.log('✅ ui-modals.js loaded successfully (Today High/Low and ATH/ATL fixed)');

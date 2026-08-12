@@ -897,6 +897,78 @@
         </div>
     </div>
 </div>
+<!-- ========================================== -->
+<!-- 🔔 অ্যালার্ট ও নোটিফিকেশন সেকশন -->
+<!-- ========================================== -->
+<div class="alert-section" style="
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    margin-top: 20px;
+    box-shadow: var(--card-shadow);
+    border: 1px solid var(--border-color);
+">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px;">
+        <h4 style="margin:0; display: flex; align-items: center; gap: 8px;">
+            🔔 <span>Price Alerts</span>
+            <span style="font-size: 11px; opacity: 0.6; font-weight: normal;">(Browser Notification)</span>
+        </h4>
+        <button onclick="requestNotificationPermission()" style="
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            padding: 4px 16px;
+            cursor: pointer;
+            font-size: 12px;
+        ">🔔 Enable Notification</button>
+    </div>
+
+    <!-- অ্যালার্ট সেট ফর্ম -->
+    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px;">
+        <div style="position: relative; flex: 1; min-width: 120px;">
+            <input type="text" id="alert-ticker" placeholder="Ticker (e.g., GP)" 
+                   style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 13px;">
+            <div id="alert-suggestions" class="suggestion-list hidden" style="top: 38px;"></div>
+        </div>
+        <input type="number" id="alert-target-price" placeholder="Target Price" step="0.01"
+               style="flex: 1; min-width: 100px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 13px;">
+        <select id="alert-direction" style="padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 13px;">
+            <option value="any">Any Move</option>
+            <option value="up">Above Target</option>
+            <option value="down">Below Target</option>
+        </select>
+        <button onclick="setPriceAlert()" style="
+            padding: 8px 20px;
+            background: #10b981;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            white-space: nowrap;
+        ">➕ Set Alert</button>
+    </div>
+
+    <!-- সক্রিয় অ্যালার্ট লিস্ট -->
+    <div style="max-height: 200px; overflow-y: auto;">
+        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+            <thead style="background: var(--bg-tertiary);">
+                <tr>
+                    <th style="padding: 6px 8px; text-align: left;">Ticker</th>
+                    <th style="padding: 6px 8px; text-align: right;">Target</th>
+                    <th style="padding: 6px 8px; text-align: center;">Direction</th>
+                    <th style="padding: 6px 8px; text-align: center;">Status</th>
+                    <th style="padding: 6px 8px; text-align: center;">Action</th>
+                </tr>
+            </thead>
+            <tbody id="alert-list-body">
+                <tr><td colspan="5" style="text-align:center; padding:20px; opacity:0.6;">No alerts set.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
             </section>
 
             <!-- Portfolio Analysis Section -->

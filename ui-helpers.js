@@ -3,6 +3,7 @@
 //    ui.js থেকে ভাগ করা (থিম, টোস্ট, সাইডবার, কমিশন, ব্যাকআপ, ডেটা মোড)
 //    🔥 Database vs Live Data – দুই মোড সাপোর্ট
 //    ✅ লগইন/সাইনআপ ফাংশনালিটি DOMContentLoaded-এর ভেতরে নেওয়া হয়েছে
+//    🔔 ডেইলি সামারি শিডিউলার কল (scheduleDailySummary) যোগ করা হয়েছে
 // ==========================================
 
 // ==========================================
@@ -519,13 +520,19 @@ window.initDashboardSearch = function() {
 
 window.downloadPortfolioData = async function() {
     const user = auth && auth.currentUser ? auth.currentUser : null;
-    if (!user) { alert("লগইন করুন!"); return; }
+    if (!user) { 
+        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        return;
+    }
     if (!confirm("আপনার পোর্টফোলিও ডাটা ব্যাকআপ ডাউনলোড করতে চান?")) return;
     const loadingBtn = document.getElementById('btn-download-data');
     const originalText = loadingBtn ? loadingBtn.innerText : "ডাউনলোড";
     if (loadingBtn) { loadingBtn.innerText = "⏳ লোড হচ্ছে..."; loadingBtn.disabled = true; }
     try {
-        if (typeof db === 'undefined') { alert("Firebase not available"); return; }
+        if (typeof db === 'undefined') { 
+            if (typeof showToast === 'function') showToast('Firebase not available', 'error');
+            return;
+        }
         const buySnapshot = await db.collection('portfolios').where('userId', '==', user.uid).get();
         const sellSnapshot = await db.collection('sales_history').where('userId', '==', user.uid).get();
         const buyData = [];
@@ -565,10 +572,12 @@ window.downloadPortfolioData = async function() {
         document.body.appendChild(a);
         a.click();
         setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-        alert(`✅ সফল! ${buyData.length + sellData.length} টি রেকর্ড ডাউনলোড হয়েছে।`);
+        if (typeof showToast === 'function') {
+            showToast(`✅ ${buyData.length + sellData.length} records downloaded!`, 'success');
+        }
     } catch (e) {
         console.error(e);
-        alert("ব্যাকআপ নিতে ব্যর্থ");
+        if (typeof showToast === 'function') showToast('Backup failed', 'error');
     } finally {
         if (loadingBtn) {
             loadingBtn.innerText = originalText;
@@ -581,14 +590,20 @@ window.uploadPortfolioData = function(event) {
     const file = event.target.files[0];
     if (!file) return;
     const user = auth && auth.currentUser ? auth.currentUser : null;
-    if (!user) { alert("লগইন করুন!"); return; }
+    if (!user) {
+        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        return;
+    }
     if (!confirm("ফাইল আপলোড করবেন?")) { event.target.value = ''; return; }
     const reader = new FileReader();
     reader.onload = async function(e) {
         try {
             const data = JSON.parse(e.target.result);
             if (!data.buyTransactions || !data.sellTransactions) throw new Error("ভুল ফাইল ফরম্যাট!");
-            if (typeof db === 'undefined') { alert("Firebase not available"); return; }
+            if (typeof db === 'undefined') {
+                if (typeof showToast === 'function') showToast('Firebase not available', 'error');
+                return;
+            }
             const batch = db.batch();
             data.buyTransactions.forEach(item => {
                 if (item.shareName) batch.set(db.collection('portfolios').doc(), {
@@ -614,11 +629,11 @@ window.uploadPortfolioData = function(event) {
                 });
             });
             await batch.commit();
-            alert("✅ ডাটা রিস্টোর করা হয়েছে!");
+            if (typeof showToast === 'function') showToast('✅ Data restored successfully!', 'success');
             location.reload();
         } catch (err) {
             console.error(err);
-            alert("❌ ফাইল আপলোড ব্যর্থ");
+            if (typeof showToast === 'function') showToast('❌ Upload failed: ' + err.message, 'error');
         } finally {
             event.target.value = '';
         }
@@ -673,25 +688,31 @@ window.toggleScreenerDropdown = function() {
 
 window.confirmAndDeletePortfolio = async function() {
     const user = auth && auth.currentUser ? auth.currentUser : null;
-    if (!user) return alert("দয়া করে আগে লগইন করুন!");
+    if (!user) {
+        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        return;
+    }
     const firstCheck = confirm("সতর্কতা! আপনি কি আপনার পোর্টফোলিওর সমস্ত বাই (BUY) এবং সেল (SELL) হিস্ট্রি চিরতরে মুছে ফেলতে চান?");
     if (!firstCheck) return;
     const secondCheck = confirm("আপনি কিন্তু এই ডাটা আর কখনো ফিরে পাবেন না! আপনি কি আসলেই সম্পূর্ণ পোর্টফোলিও ডিলিট করতে নিশ্চিত?");
     if (!secondCheck) return;
     try {
-        if (typeof db === 'undefined') { alert("Firebase not available"); return; }
-        alert("পোর্টফোলিও মোছার কাজ শুরু হয়েছে, দয়া করে কিছুক্ষণ অপেক্ষা করুন...");
+        if (typeof db === 'undefined') {
+            if (typeof showToast === 'function') showToast('Firebase not available', 'error');
+            return;
+        }
+        if (typeof showToast === 'function') showToast('⏳ Deleting portfolio...', 'info');
         const buySnapshot = await db.collection("portfolios").where("userId", "==", user.uid).get();
         const sellSnapshot = await db.collection("sales_history").where("userId", "==", user.uid).get();
         const batch = db.batch();
         buySnapshot.forEach(doc => batch.delete(db.collection("portfolios").doc(doc.id)));
         sellSnapshot.forEach(doc => batch.delete(db.collection("sales_history").doc(doc.id)));
         await batch.commit();
-        alert("আপনার পোর্টফোলিওর সমস্ত ডাটা সফলভাবে মুছে ফেলা হয়েছে!");
+        if (typeof showToast === 'function') showToast('✅ Portfolio deleted successfully!', 'success');
         window.location.reload();
     } catch (error) {
         console.error(error);
-        alert("দুঃখিত, পোর্টফোলিওটি মুছে ফেলা সম্ভব হয়নি।");
+        if (typeof showToast === 'function') showToast('❌ Failed to delete portfolio', 'error');
     }
 };
 
@@ -704,8 +725,9 @@ async function setDatabaseMode() {
     try {
         if (currentDataMode === 'database') return;
         currentDataMode = 'database';
+        window.currentDataMode = 'database';
         localStorage.setItem('dataMode', 'database');
-        showToast('💾 Switching to Database Mode...', 'info');
+        if (typeof showToast === 'function') showToast('💾 Switching to Database Mode...', 'info');
         // UI আপডেট
         const dbBtn = document.getElementById('btn-database-mode');
         const liveBtn = document.getElementById('btn-live-mode');
@@ -713,25 +735,29 @@ async function setDatabaseMode() {
             dbBtn.classList.add('active');
             dbBtn.style.background = 'var(--primary-color)';
             dbBtn.style.color = 'white';
+            dbBtn.disabled = false;
         }
         if (liveBtn) {
             liveBtn.classList.remove('active');
             liveBtn.style.background = 'transparent';
             liveBtn.style.color = 'var(--text-primary)';
+            liveBtn.disabled = false;
         }
         const user = auth?.currentUser;
         if (user) {
             if (typeof loadDashboardData === 'function') await loadDashboardData(null, true);
             if (typeof loadUnifiedStockTable === 'function') await loadUnifiedStockTable(user.uid);
             if (typeof loadPortfolioAnalysisTable === 'function') await loadPortfolioAnalysisTable(user.uid, null, true);
+            if (typeof showToast === 'function') showToast('✅ Database mode activated', 'success');
         }
     } catch (error) {
         console.error('Database mode error:', error);
-        showToast('❌ Failed to switch: ' + error.message, 'error');
+        if (typeof showToast === 'function') showToast('❌ Failed to switch: ' + error.message, 'error');
     } finally {
-        // 🔥 সবসময় বাটন সক্রিয় রাখুন
         const liveBtn = document.getElementById('btn-live-mode');
+        const dbBtn = document.getElementById('btn-database-mode');
         if (liveBtn) liveBtn.disabled = false;
+        if (dbBtn) dbBtn.disabled = false;
     }
 }
 
@@ -740,7 +766,6 @@ async function setDatabaseMode() {
 // ==========================================
 async function setLiveDataMode() {
     try {
-        // ১. ইতিমধ্যে লাইভ মোডে থাকলে রিটার্ন
         if (currentDataMode === 'live') {
             console.log('ℹ️ Already in Live mode.');
             return;
@@ -748,10 +773,9 @@ async function setLiveDataMode() {
 
         console.log('🔵 Switching to Live mode...');
         currentDataMode = 'live';
-        window.currentDataMode = 'live'; // গ্লোবাল স্কোপেও সেট করুন
+        window.currentDataMode = 'live';
         localStorage.setItem('dataMode', 'live');
 
-        // ২. UI আপডেট (বাটনের স্টাইল)
         const dbBtn = document.getElementById('btn-database-mode');
         const liveBtn = document.getElementById('btn-live-mode');
 
@@ -759,14 +783,12 @@ async function setLiveDataMode() {
             liveBtn.classList.add('active');
             liveBtn.style.background = 'var(--primary-color)';
             liveBtn.style.color = 'white';
-            // 🔥 লাইভ বাটন সবসময় সক্রিয় রাখুন (Disabled রিমুভ)
             liveBtn.disabled = false;
         }
         if (dbBtn) {
             dbBtn.classList.remove('active');
             dbBtn.style.background = 'transparent';
             dbBtn.style.color = 'var(--text-primary)';
-            // 🔥 ডাটাবেজ বাটনও সক্রিয় রাখুন (যাতে ক্লিক করে ফিরে যেতে পারে)
             dbBtn.disabled = false;
         }
 
@@ -774,14 +796,11 @@ async function setLiveDataMode() {
             showToast('📡 Switching to Live Data (API)...', 'info');
         }
 
-        // ৩. ইউজার চেক করে ডেটা লোড
         const user = auth?.currentUser;
         if (user) {
-            // লাইভ ডেটা লোডার ফাংশনগুলো কল করুন
             await loadLiveDashboardData();
             await loadLiveStockTable();
             await loadLivePortfolioAnalysis();
-            
             if (typeof showToast === 'function') {
                 showToast('✅ Live mode activated successfully!', 'success');
             }
@@ -796,15 +815,10 @@ async function setLiveDataMode() {
             showToast('❌ Failed to switch: ' + error.message, 'error');
         }
     } finally {
-        // 🔥🔥 সবচেয়ে গুরুত্বপূর্ণ: যেকোনো অবস্থায় বাটন দুটোকে সক্রিয় রাখুন
-        // কারণ HTML-এ disabled অ্যাট্রিবিউট থাকলে বা showDataLoading(true) কল করলে
-        // এখানে এসে আবার সক্রিয় করে দেওয়া হবে।
         const liveBtn = document.getElementById('btn-live-mode');
         const dbBtn = document.getElementById('btn-database-mode');
         if (liveBtn) liveBtn.disabled = false;
         if (dbBtn) dbBtn.disabled = false;
-        
-        // কনসোলে নিশ্চিত করুন
         console.log('✅ Buttons re-enabled in finally block.');
     }
 }
@@ -861,7 +875,6 @@ async function loadLiveDashboardData() {
         }
         
         if (typeof updateDSEXIndicator === 'function') {
-            // DSEX API থেকে আসছে না, তাই ডামি
             const dsexSpan = document.getElementById('dsex-value');
             if (dsexSpan) dsexSpan.innerText = '--';
         }
@@ -981,7 +994,6 @@ function renderLiveStockTable(unifiedData, priceMap) {
     
     tbody.innerHTML = html;
     
-    // ফুটার কার্ড আপডেট
     if (typeof updateFooterCards === 'function') {
         updateFooterCards(grandTotalInvestment, grandTotalCurrentValue, grandTotalUnrealized, 0, grandTotalRemainingQty);
     }
@@ -1099,8 +1111,10 @@ document.addEventListener('DOMContentLoaded', function() {
             if (typeof auth !== 'undefined' && auth) {
                 auth.createUserWithEmailAndPassword(email, password)
                     .then(() => {
-                        alert("অ্যাকাউন্ট তৈরি সফল হয়েছে! এখন লগইন করুন।");
-                        if (toggleAuthText) toggleAuthText.click(); // লগইন মোডে স্যুইচ
+                        if (typeof showToast === 'function') {
+                            showToast('✅ Account created! Please login.', 'success');
+                        }
+                        if (toggleAuthText) toggleAuthText.click();
                     })
                     .catch((error) => {
                         if (authError) {
@@ -1150,6 +1164,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (typeof startAutoRefresh === 'function') startAutoRefresh();
                 if (typeof updateAllPortfolioSelectors === 'function') await updateAllPortfolioSelectors();
                 if (typeof loadPortfolioManagerData === 'function') await loadPortfolioManagerData();
+                
+                // ==========================================
+                // 🔔 ডেইলি সামারি শিডিউলার চালু করুন (ধাপ ৪.২)
+                // ==========================================
+                if (typeof scheduleDailySummary === 'function') {
+                    try {
+                        scheduleDailySummary();
+                        console.log('📅 Daily summary scheduler started');
+                    } catch (e) {
+                        console.warn('Daily summary scheduler error:', e);
+                    }
+                }
+                
                 console.log('✅ Dashboard loaded successfully');
             } else {
                 console.log('👤 User logged out');
@@ -1200,6 +1227,9 @@ window.confirmAndDeletePortfolio = window.confirmAndDeletePortfolio;
 window.setDatabaseMode = setDatabaseMode;
 window.setLiveDataMode = setLiveDataMode;
 window.loadLiveDashboardData = loadLiveDashboardData;
+window.loadLiveStockTable = loadLiveStockTable;
+window.loadLivePortfolioAnalysis = loadLivePortfolioAnalysis;
+
 // ==========================================
 // 📜 ট্রেড হিস্ট্রি ফাংশন
 // ==========================================
@@ -1333,9 +1363,11 @@ window.editTrade = function(id, type) {
                     quantity: parseInt(newQty),
                     buyPrice: parseFloat(newPrice)
                 }).then(() => {
-                    alert("Updated. Refresh to see changes.");
+                    if (typeof showToast === 'function') showToast('✅ Updated successfully!', 'success');
                     loadTradeHistory();
-                }).catch(err => alert(err.message));
+                }).catch(err => {
+                    if (typeof showToast === 'function') showToast('❌ Update failed: ' + err.message, 'error');
+                });
             }
         }
     } else {
@@ -1351,7 +1383,7 @@ window.editTrade = function(id, type) {
                         sellPrice: parseFloat(newPrice),
                         profitOrLoss: (parseFloat(newPrice) - buyPrice) * parseInt(newQty)
                     }).then(() => {
-                        alert("Updated");
+                        if (typeof showToast === 'function') showToast('✅ Updated successfully!', 'success');
                         loadTradeHistory();
                     });
                 });
@@ -1365,9 +1397,11 @@ window.deleteTrade = function(id, type) {
     const collection = type === 'BUY' ? 'portfolios' : 'sales_history';
     if (typeof db !== 'undefined') {
         db.collection(collection).doc(id).delete().then(() => {
-            alert("Deleted");
+            if (typeof showToast === 'function') showToast('🗑️ Deleted successfully!', 'info');
             loadTradeHistory();
-        }).catch(err => alert(err.message));
+        }).catch(err => {
+            if (typeof showToast === 'function') showToast('❌ Delete failed: ' + err.message, 'error');
+        });
     }
 };
 
@@ -1378,4 +1412,4 @@ window.resetTradeFilter = resetTradeFilter;
 window.editTrade = window.editTrade;
 window.deleteTrade = window.deleteTrade;
 
-console.log('✅ ui-helpers.js loaded successfully (Login fixed)');
+console.log('✅ ui-helpers.js loaded successfully (Login fixed, Daily Summary scheduler added)');
