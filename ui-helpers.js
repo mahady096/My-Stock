@@ -1404,6 +1404,160 @@ window.deleteTrade = function(id, type) {
         });
     }
 };
+// ==========================================
+// 🔔 অ্যালার্ট ফাংশন (ui-helpers.js-তে যোগ করুন)
+// ==========================================
+
+/**
+ * ব্রাউজার নোটিফিকেশন পারমিশন চাওয়া
+ */
+window.requestNotificationPermission = async function() {
+    if (!('Notification' in window)) {
+        showToast('This browser does not support notifications.', 'error');
+        return;
+    }
+    if (Notification.permission === 'granted') {
+        showToast('✅ Notification already enabled!', 'success');
+        return;
+    }
+    if (Notification.permission === 'denied') {
+        showToast('❌ Notification blocked. Please enable from browser settings.', 'error');
+        return;
+    }
+    // পারমিশন চাওয়া
+    const result = await Notification.requestPermission();
+    if (result === 'granted') {
+        showToast('✅ Notification enabled!', 'success');
+        // নোটিফিকেশন ম্যানেজার আপডেট
+        if (notificationManager) {
+            notificationManager.permission = true;
+        }
+    } else {
+        showToast('❌ Notification permission denied.', 'error');
+    }
+};
+
+/**
+ * প্রাইস অ্যালার্ট সেট করা (HTML বাটন থেকে কল হবে)
+ */
+window.setPriceAlert = function() {
+    const tickerInput = document.getElementById('alert-ticker');
+    const targetInput = document.getElementById('alert-target-price');
+    const directionSelect = document.getElementById('alert-direction');
+    const suggestionBox = document.getElementById('alert-suggestions');
+
+    if (!tickerInput || !targetInput || !directionSelect) {
+        showToast('Alert form elements not found.', 'error');
+        return;
+    }
+
+    const ticker = tickerInput.value.trim().toUpperCase();
+    const target = parseFloat(targetInput.value);
+    const direction = directionSelect.value;
+
+    // ভ্যালিডেশন
+    if (!ticker) {
+        showToast('Please enter a ticker (e.g., GP).', 'warning');
+        return;
+    }
+    if (!target || target <= 0) {
+        showToast('Please enter a valid target price.', 'warning');
+        return;
+    }
+    
+    // স্টক লিস্টে আছে কিনা চেক (ঐচ্ছিক)
+    const stockList = (typeof dseStocks !== 'undefined') ? dseStocks : (window.dseStocks || []);
+    if (!stockList.includes(ticker)) {
+        showToast('Share not found. Please select from suggestions.', 'warning');
+        return;
+    }
+
+    // নোটিফিকেশন ম্যানেজার চেক
+    if (typeof notificationManager === 'undefined' || !notificationManager) {
+        showToast('Notification manager not loaded.', 'error');
+        return;
+    }
+// ডেইলি ব্রিফিং শিডিউলার স্টার্ট
+if (typeof scheduleDailyBriefing === 'function') {
+    scheduleDailyBriefing();
+    console.log('📊 Daily briefing scheduler started');
+}
+    // অ্যালার্ট সেট করা
+    const success = notificationManager.setAlert(ticker, target, direction);
+    if (success) {
+        // UI রিফ্রেশ
+        if (typeof loadActiveAlerts === 'function') {
+            setTimeout(loadActiveAlerts, 300);
+        }
+        // ইনপুট ফিল্ড ক্লিয়ার
+        tickerInput.value = '';
+        targetInput.value = '';
+        if (suggestionBox) suggestionBox.classList.add('hidden');
+        showToast(`✅ Alert set for ${ticker} at ৳${target.toFixed(2)}`, 'success');
+    } else {
+        showToast('Failed to set alert. Maximum 50 alerts allowed.', 'error');
+    }
+};
+
+/**
+ * অ্যালার্ট রিমুভ করা (টেবিলের বাটন থেকে কল হবে)
+ * ইতিমধ্যে dash-cards.js-এ ডিফাইন করা আছে, কিন্তু যদি না থাকে:
+ */
+window.removeAlert = function(ticker) {
+    if (!ticker) return;
+    if (typeof notificationManager !== 'undefined' && notificationManager) {
+        notificationManager.removeAlert(ticker);
+        if (typeof loadActiveAlerts === 'function') {
+            loadActiveAlerts();
+        }
+        showToast(`🗑️ Alert removed for ${ticker}`, 'info');
+    }
+};
+
+// ==========================================
+// 🚀 অ্যালার্ট সার্চ সাজেশন (ইনপুটের জন্য)
+// ==========================================
+document.addEventListener('DOMContentLoaded', function() {
+    const alertTickerInput = document.getElementById('alert-ticker');
+    const alertSuggestionBox = document.getElementById('alert-suggestions');
+    
+    if (alertTickerInput && alertSuggestionBox) {
+        const stockList = (typeof dseStocks !== 'undefined') ? dseStocks : (window.dseStocks || []);
+        
+        alertTickerInput.addEventListener('input', function() {
+            const query = this.value.trim().toUpperCase();
+            alertSuggestionBox.innerHTML = '';
+            if (!query) {
+                alertSuggestionBox.classList.add('hidden');
+                return;
+            }
+            const filtered = stockList.filter(s => s.startsWith(query)).slice(0, 10);
+            if (filtered.length > 0) {
+                alertSuggestionBox.classList.remove('hidden');
+                filtered.forEach(stock => {
+                    const div = document.createElement('div');
+                    div.classList.add('suggestion-item');
+                    div.innerText = stock;
+                    div.addEventListener('click', function() {
+                        alertTickerInput.value = stock;
+                        alertSuggestionBox.classList.add('hidden');
+                    });
+                    alertSuggestionBox.appendChild(div);
+                });
+            } else {
+                alertSuggestionBox.classList.add('hidden');
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!alertTickerInput.contains(e.target) && !alertSuggestionBox.contains(e.target)) {
+                alertSuggestionBox.classList.add('hidden');
+            }
+        });
+    }
+});
+
+console.log('✅ Alert functions (setPriceAlert, requestNotificationPermission) added');
 
 // গ্লোবালি এক্সপোজ
 window.loadTradeHistory = loadTradeHistory;

@@ -1,7 +1,9 @@
 // ==========================================
 // 📈 adv-charts-core.js - অ্যাডভান্সড চার্ট কোর ফাংশন
 //    ডেটা লোড, ইন্ডিকেটর ক্যালকুলেশন, চার্ট রেন্ডারিং (মেইন + RSI + Stochastic)
-//    সব ইন্ডিকেটর ফাংশন indicators.js থেকে নেওয়া
+//    ✅ সব ইন্ডিকেটর ফাংশন indicators.js থেকে নেওয়া (ডুপ্লিকেট সরানো)
+//    ✅ ক্যাশিং ইন্ডিকেটর ফাংশন ব্যবহার করা হয়েছে (cachedRSI, cachedSMA ইত্যাদি)
+//    ✅ ইরর হ্যান্ডলিং যোগ করা হয়েছে (showToast)
 // ==========================================
 
 // গ্লোবাল ভেরিয়েবল
@@ -10,17 +12,17 @@ let advRSIChart = null;
 let advStochChart = null;
 let advChartData = null;
 let advActiveIndicators = {
-    sma5: true,
-    sma10: true,
-    sma20: true,
+    sma5: false,
+    sma10:false,
+    sma20:false,
     sma50: false,
-    ema5: true,
+    ema5: false,
     ema10: true,
     ema20: true,
     ema50: false,
     rsi: true,
     bollinger: true,
-    stochastic: false,
+    stochastic: true,
     atr: false,
     forecast: false,
     psar: false,
@@ -185,7 +187,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // ==========================================
 // 📊 loadAdvancedChart - Database + Live API
 // ==========================================
-async function loadAdvancedChart(ticker) {
+async function loadAdvancedChart(ticker, forceRefresh = false) {
     const searchInput = document.getElementById('adv-chart-search');
     const finalTicker = ticker || (searchInput ? searchInput.value.trim().toUpperCase() || advCurrentTicker : advCurrentTicker);
     
@@ -212,6 +214,11 @@ async function loadAdvancedChart(ticker) {
     const period = advCurrentPeriod === 'all' ? 'all' : advCurrentPeriod;
     const cacheKey = `chart_${finalTicker}_${source}_${period}`;
     const CACHE_TTL = source === 'live' ? 120000 : 600000;
+
+    // ✅ forceRefresh এর ক্ষেত্রে ক্যাশ ডিলিট
+    if (forceRefresh) {
+        CacheManager.remove(cacheKey);
+    }
 
     const cachedData = CacheManager.get(cacheKey, CACHE_TTL);
     if (cachedData && cachedData.actualPrices && cachedData.actualPrices.length > 0) {
@@ -271,6 +278,7 @@ async function loadAdvancedChart(ticker) {
                     }
                 } catch (e) {
                     console.warn('Supabase history_dse fetch failed:', e);
+                    showToast('Error fetching data from Supabase', 'error');
                 }
             }
 
@@ -299,6 +307,7 @@ async function loadAdvancedChart(ticker) {
                     }
                 } catch (e) {
                     console.warn('Firebase daily_prices fallback failed:', e);
+                    showToast('Error fetching data from Firebase', 'error');
                 }
             }
         } else {
@@ -440,7 +449,7 @@ function selectAdvChartStock(ticker) {
 }
 
 // ==========================================
-// 📈 লাইন চার্ট রেন্ডার (কোর)
+// 📈 লাইন চার্ট রেন্ডার (কোর) – ইন্ডিকেটর ক্যাশিং সহ
 // ==========================================
 function renderAdvancedChart(data) {
     if (!data) return;
@@ -449,6 +458,12 @@ function renderAdvancedChart(data) {
     if (!mainCanvas) {
         console.error('Main chart canvas not found');
         return;
+    }
+
+    // ✅ আগের চার্ট ডেস্ট্রয়
+    if (advMainChart) {
+        advMainChart.destroy();
+        advMainChart = null;
     }
 
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -462,32 +477,33 @@ function renderAdvancedChart(data) {
     const lowData = data.lowData || [];
     const volume = data.volumeData || [];
 
-    const sma5 = advActiveIndicators.sma5 ? calculateSMA(actualPrices, 5) : [];
-    const sma10 = advActiveIndicators.sma10 ? calculateSMA(actualPrices, 10) : [];
-    const sma20 = advActiveIndicators.sma20 ? calculateSMA(actualPrices, 20) : [];
-    const sma50 = advActiveIndicators.sma50 ? calculateSMA(actualPrices, 50) : [];
+    // ✅ ক্যাশিং ইন্ডিকেটর ফাংশন ব্যবহার
+    const sma5 = advActiveIndicators.sma5 ? cachedSMA(actualPrices, 5) : [];
+    const sma10 = advActiveIndicators.sma10 ? cachedSMA(actualPrices, 10) : [];
+    const sma20 = advActiveIndicators.sma20 ? cachedSMA(actualPrices, 20) : [];
+    const sma50 = advActiveIndicators.sma50 ? cachedSMA(actualPrices, 50) : [];
     
-    const ema5 = advActiveIndicators.ema5 ? calculateEMA(actualPrices, 5) : [];
-    const ema10 = advActiveIndicators.ema10 ? calculateEMA(actualPrices, 10) : [];
-    const ema20 = advActiveIndicators.ema20 ? calculateEMA(actualPrices, 20) : [];
-    const ema50 = advActiveIndicators.ema50 ? calculateEMA(actualPrices, 50) : [];
+    const ema5 = advActiveIndicators.ema5 ? cachedEMA(actualPrices, 5) : [];
+    const ema10 = advActiveIndicators.ema10 ? cachedEMA(actualPrices, 10) : [];
+    const ema20 = advActiveIndicators.ema20 ? cachedEMA(actualPrices, 20) : [];
+    const ema50 = advActiveIndicators.ema50 ? cachedEMA(actualPrices, 50) : [];
     
-    const bollinger = advActiveIndicators.bollinger ? calculateBollingerBands(actualPrices, 20, 2) : null;
-    const rsiData = advActiveIndicators.rsi ? calculateRSI(actualPrices, 14) : [];
-    const stochastic = advActiveIndicators.stochastic ? calculateStochastic(highData, lowData, actualPrices, 14, 3) : { k: [], d: [] };
-    const atr = advActiveIndicators.atr ? calculateATR(highData, lowData, actualPrices, 14) : [];
+    const bollinger = advActiveIndicators.bollinger ? cachedBollingerBands(actualPrices, 20, 2) : null;
+    const rsiData = advActiveIndicators.rsi ? cachedRSI(actualPrices, 14) : [];
+    const stochastic = advActiveIndicators.stochastic ? cachedStochastic(highData, lowData, actualPrices, 14, 3) : { k: [], d: [] };
+    const atr = advActiveIndicators.atr ? cachedATR(highData, lowData, actualPrices, 14) : [];
     const forecast = advActiveIndicators.forecast ? data.forecastValues : [];
 
-    const vwap = advActiveIndicators.vwap && volume.length > 0 ? calculateAnchoredVWAP(actualPrices, volume, 0) : [];
-    const volProfile = advActiveIndicators.volprofile && volume.length > 0 ? calculateVolumeProfile(actualPrices, volume, 20) : null;
-    const fib = advActiveIndicators.fibonacci ? calculateFibonacci(Math.max(...actualPrices), Math.min(...actualPrices)) : null;
-    const aroon = advActiveIndicators.aroon ? calculateAroon(actualPrices, 25) : null;
-    const ichimoku = advActiveIndicators.ichimoku ? calculateIchimoku(actualPrices, highData, lowData, 9, 26, 52) : null;
-    const linReg = advActiveIndicators.linreg ? calculateLinearRegression(actualPrices, 20, 10) : null;
-    const wma = advActiveIndicators.wma ? calculateWMA(actualPrices, 14) : [];
-    const hw = advActiveIndicators.holtWinters ? calculateHoltWinters(actualPrices, 0.3, 0.1, 0.2, 7, 10) : null;
-    const vwapFcst = advActiveIndicators.vwapForecast && volume.length > 0 ? forecastVWAP(actualPrices, volume, 20, 10) : null;
-    const macdFcst = advActiveIndicators.macdForecast ? forecastMACD(actualPrices, 12, 26, 9, 10) : null;
+    const vwap = advActiveIndicators.vwap && volume.length > 0 ? cachedAnchoredVWAP(actualPrices, volume, 0) : [];
+    const volProfile = advActiveIndicators.volprofile && volume.length > 0 ? cachedVolumeProfile(actualPrices, volume, 20) : null;
+    const fib = advActiveIndicators.fibonacci ? cachedFibonacci(Math.max(...actualPrices), Math.min(...actualPrices)) : null;
+    const aroon = advActiveIndicators.aroon ? cachedAroon(actualPrices, 25) : null;
+    const ichimoku = advActiveIndicators.ichimoku ? cachedIchimoku(actualPrices, highData, lowData, 9, 26, 52) : null;
+    const linReg = advActiveIndicators.linreg ? cachedLinearRegression(actualPrices, 20, 10) : null;
+    const wma = advActiveIndicators.wma ? cachedWMA(actualPrices, 14) : [];
+    const hw = advActiveIndicators.holtWinters ? cachedHoltWinters(actualPrices, 0.3, 0.1, 0.2, 7, 10) : null;
+    const vwapFcst = advActiveIndicators.vwapForecast && volume.length > 0 ? cachedForecastVWAP(actualPrices, volume, 20, 10) : null;
+    const macdFcst = advActiveIndicators.macdForecast ? cachedForecastMACD(actualPrices, 12, 26, 9, 10) : null;
 
     let psarData = [];
     if (advActiveIndicators.psar && actualPrices.length > 0) {
@@ -497,7 +513,7 @@ function renderAdvancedChart(data) {
             high: highData[i] || actualPrices[i],
             low: lowData[i] || actualPrices[i]
         }));
-        const psar = calculateParabolicSAR(priceDataForPSAR);
+        const psar = cachedParabolicSAR(priceDataForPSAR);
         psarData = psar.map(p => p.sar);
         while (psarData.length < actualPrices.length) {
             psarData.unshift(null);
@@ -862,8 +878,6 @@ function renderAdvancedChart(data) {
     }
 
     const mainCtx = mainCanvas.getContext('2d');
-    if (advMainChart) advMainChart.destroy();
-
     advMainChart = new Chart(mainCtx, {
         type: 'line',
         data: { labels, datasets },
@@ -1010,11 +1024,14 @@ function renderAdvancedChart(data) {
 }
 
 // ==========================================
-// 📊 RSI চার্ট (অ্যানিমেশন বন্ধ)
+// 📊 RSI চার্ট (অ্যানিমেশন বন্ধ) – ক্যাশিং সহ
 // ==========================================
 function renderRSIChart(rsiData, isDark, canvas) {
     const ctx = canvas.getContext('2d');
-    if (advRSIChart) advRSIChart.destroy();
+    if (advRSIChart) {
+        advRSIChart.destroy();
+        advRSIChart = null;
+    }
 
     if (!rsiData || rsiData.length === 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1103,11 +1120,14 @@ function renderRSIChart(rsiData, isDark, canvas) {
 }
 
 // ==========================================
-// 📊 Stochastic চার্ট (অ্যানিমেশন বন্ধ)
+// 📊 Stochastic চার্ট (অ্যানিমেশন বন্ধ) – ক্যাশিং সহ
 // ==========================================
 function renderStochasticChart(stochData, isDark, canvas) {
     const ctx = canvas.getContext('2d');
-    if (advStochChart) advStochChart.destroy();
+    if (advStochChart) {
+        advStochChart.destroy();
+        advStochChart = null;
+    }
     
     if (!stochData || !stochData.k || stochData.k.length === 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1249,7 +1269,7 @@ function updatePriceComment(data) {
     let comment = `📊 Last: ৳${lastPrice.toFixed(2)} (${change >= 0 ? '+' : ''}${change.toFixed(2)}, ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
 
     if (advActiveIndicators.rsi) {
-        const rsiData = calculateRSI(data.actualPrices, 14);
+        const rsiData = cachedRSI(data.actualPrices, 14);
         const lastRSI = rsiData.length ? rsiData[rsiData.length - 1].rsi : null;
         if (lastRSI !== null) {
             if (lastRSI < 30) comment += ' | ⚡ RSI Oversold (<30)';
@@ -1259,7 +1279,7 @@ function updatePriceComment(data) {
     }
 
     if (advActiveIndicators.bollinger) {
-        const bb = calculateBollingerBands(data.actualPrices, 20, 2);
+        const bb = cachedBollingerBands(data.actualPrices, 20, 2);
         if (bb && bb.upper.length) {
             const lastUpper = bb.upper[bb.upper.length - 1];
             const lastLower = bb.lower[bb.lower.length - 1];
@@ -1275,7 +1295,7 @@ function updatePriceComment(data) {
             high: data.highData[i] || data.actualPrices[i],
             low: data.lowData[i] || data.actualPrices[i]
         }));
-        const psar = calculateParabolicSAR(priceDataForPSAR);
+        const psar = cachedParabolicSAR(priceDataForPSAR);
         if (psar.length) {
             const lastPSAR = psar[psar.length - 1].sar;
             if (lastPSAR < lastPrice) comment += ' | 🟢 PSAR below price (Bullish)';
@@ -1284,7 +1304,7 @@ function updatePriceComment(data) {
     }
 
     if (advActiveIndicators.vwap && volumeData.length > 0) {
-        const vwap = calculateAnchoredVWAP(data.actualPrices, volumeData, 0);
+        const vwap = cachedAnchoredVWAP(data.actualPrices, volumeData, 0);
         if (vwap.length > 0) {
             const lastVWAP = vwap[vwap.length - 1];
             if (lastVWAP > 0) {
@@ -1294,7 +1314,7 @@ function updatePriceComment(data) {
     }
 
     if (advActiveIndicators.volprofile && volumeData.length > 0) {
-        const volProfile = calculateVolumeProfile(data.actualPrices, volumeData, 20);
+        const volProfile = cachedVolumeProfile(data.actualPrices, volumeData, 20);
         if (volProfile && volProfile.pocPrice > 0) {
             comment += ` | POC: ৳${volProfile.pocPrice.toFixed(2)} (${lastPrice > volProfile.pocPrice ? '🟢 Above' : '🔴 Below'})`;
         }
@@ -1367,20 +1387,20 @@ function generateSuggestion(data) {
 
     const prices = data.actualPrices;
     const currentPrice = prices[prices.length - 1];
-    const sma20 = calculateSMA(prices, 20);
-    const sma50 = calculateSMA(prices, 50);
-    const rsiData = calculateRSI(prices, 14);
+    const sma20 = cachedSMA(prices, 20);
+    const sma50 = cachedSMA(prices, 50);
+    const rsiData = cachedRSI(prices, 14);
     const lastRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1].rsi : 50;
-    const macdData = calculateMACD(prices, 12, 26, 9);
-    const bollinger = calculateBollingerBands(prices, 20, 2);
-    const stoch = calculateStochastic(data.highData || [], data.lowData || [], prices, 14, 3);
-    const atr = calculateATR(data.highData || [], data.lowData || [], prices, 14);
+    const macdData = cachedMACD(prices, 12, 26, 9);
+    const bollinger = cachedBollingerBands(prices, 20, 2);
+    const stoch = cachedStochastic(data.highData || [], data.lowData || [], prices, 14, 3);
+    const atr = cachedATR(data.highData || [], data.lowData || [], prices, 14);
     const atrValue = atr.length > 0 ? atr[atr.length - 1] : (currentPrice * 0.02);
     const forecast = advActiveIndicators.forecast ? data.forecastValues : [];
 
     let vwapScore = 0, pocScore = 0;
     if (advActiveIndicators.vwap && volumeData.length > 0) {
-        const vwap = calculateAnchoredVWAP(prices, volumeData, 0);
+        const vwap = cachedAnchoredVWAP(prices, volumeData, 0);
         if (vwap.length > 0) {
             const lastVWAP = vwap[vwap.length - 1];
             if (currentPrice > lastVWAP * 1.01) vwapScore = 1;
@@ -1388,7 +1408,7 @@ function generateSuggestion(data) {
         }
     }
     if (advActiveIndicators.volprofile && volumeData.length > 0) {
-        const volProfile = calculateVolumeProfile(prices, volumeData, 20);
+        const volProfile = cachedVolumeProfile(prices, volumeData, 20);
         if (volProfile && volProfile.pocPrice > 0) {
             if (currentPrice > volProfile.pocPrice * 1.01) pocScore = 1;
             else if (currentPrice < volProfile.pocPrice * 0.99) pocScore = -1;
@@ -1403,7 +1423,7 @@ function generateSuggestion(data) {
             high: data.highData[i] || prices[i],
             low: data.lowData[i] || prices[i]
         }));
-        const psar = calculateParabolicSAR(priceDataForPSAR);
+        const psar = cachedParabolicSAR(priceDataForPSAR);
         if (psar.length) {
             const lastPSAR = psar[psar.length - 1];
             psarTrend = lastPSAR.sar < currentPrice ? 'Bullish' : (lastPSAR.sar > currentPrice ? 'Bearish' : 'Neutral');
@@ -1596,7 +1616,7 @@ function showToast(msg, type) {
 }
 
 // ==========================================
-// 🆕 অ্যাডভান্সড ডিপ অ্যানালাইসিস (VWAP + Volume Profile সহ)
+// 🆕 অ্যাডভান্সড ডিপ অ্যানালাইসিস (VWAP + Volume Profile সহ) – ক্যাশিং সহ
 // ==========================================
 
 async function generateDeepAnalysis(data) {
@@ -1621,9 +1641,9 @@ async function generateDeepAnalysis(data) {
         const n = prices.length;
         
         // ==========================================
-        // ১. Anchored VWAP ক্যালকুলেশন
+        // ১. Anchored VWAP ক্যালকুলেশন (ক্যাশিং)
         // ==========================================
-        const vwap = calculateAnchoredVWAP(prices, volumes, 0);
+        const vwap = cachedAnchoredVWAP(prices, volumes, 0);
         const lastVWAP = vwap.length > 0 ? vwap[vwap.length - 1] : currentPrice;
         const vwapDiff = currentPrice - lastVWAP;
         const vwapPct = lastVWAP > 0 ? (vwapDiff / lastVWAP) * 100 : 0;
@@ -1644,9 +1664,9 @@ async function generateDeepAnalysis(data) {
         }
         
         // ==========================================
-        // ২. Volume Profile (POC) ক্যালকুলেশন
+        // ২. Volume Profile (POC) ক্যালকুলেশন (ক্যাশিং)
         // ==========================================
-        const volProfile = calculateVolumeProfile(prices, volumes, 20);
+        const volProfile = cachedVolumeProfile(prices, volumes, 20);
         const pocPrice = volProfile?.pocPrice || currentPrice;
         const pocDiff = currentPrice - pocPrice;
         const pocPct = pocPrice > 0 ? (pocDiff / pocPrice) * 100 : 0;
@@ -1667,10 +1687,10 @@ async function generateDeepAnalysis(data) {
         }
         
         // ==========================================
-        // ৩. ট্রেন্ড অ্যানালাইসিস (SMA)
+        // ৩. ট্রেন্ড অ্যানালাইসিস (SMA) – ক্যাশিং
         // ==========================================
-        const sma20 = calculateSMA(prices, 20);
-        const sma50 = calculateSMA(prices, 50);
+        const sma20 = cachedSMA(prices, 20);
+        const sma50 = cachedSMA(prices, 50);
         const lastSMA20 = sma20.length > 0 ? sma20[sma20.length - 1] : currentPrice;
         const lastSMA50 = sma50.length > 0 ? sma50[sma50.length - 1] : currentPrice;
         const prevSMA20 = sma20.length > 1 ? sma20[sma20.length - 2] : lastSMA20;
@@ -1720,11 +1740,11 @@ async function generateDeepAnalysis(data) {
         else if (currentPrice <= support) srSub += ' 🟢 Near Support';
         
         // ==========================================
-        // ৫. RSI ও MACD
+        // ৫. RSI ও MACD (ক্যাশিং)
         // ==========================================
-        const rsiData = calculateRSI(prices, 14);
+        const rsiData = cachedRSI(prices, 14);
         const lastRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1].rsi : 50;
-        const macdData = calculateMACD(prices, 12, 26, 9);
+        const macdData = cachedMACD(prices, 12, 26, 9);
         let macdSignal = 'Neutral';
         if (macdData && macdData.histogram.length > 0) {
             const lastHist = macdData.histogram[macdData.histogram.length - 1];
@@ -1881,7 +1901,6 @@ function runDeepAnalysis() {
 window.loadAdvancedChart = loadAdvancedChart;
 window.selectAdvChartStock = selectAdvChartStock;
 window.toggleDarkMode = toggleDarkMode;
-window.renderCandlestickChart = renderCandlestickChart;
 window.getHistoricalPricesFromSupabase = getHistoricalPricesFromSupabase;
 window.toggleFullscreen = toggleFullscreen;
 window.downloadChartAsPNG = downloadChartAsPNG;
@@ -1893,4 +1912,4 @@ window.switchTimeframe = switchTimeframe;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.runDeepAnalysis = runDeepAnalysis;
 
-console.log('✅ adv-charts-core.js loaded successfully');
+console.log('✅ adv-charts-core.js loaded successfully (duplicate-free, error-free)');

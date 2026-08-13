@@ -1,7 +1,8 @@
 // ==========================================
-// 📊 dash-signals.js - সিগন্যাল বক্স
-//    dashboard.js থেকে ভাগ করা (ফাইল ৪)
+// 📊 dash-signals.js - ফাইনাল (ফোর্স সেল সিগন্যাল সহ)
 //    Buy/Sell সিগন্যাল ফিল্টার ও লিস্ট
+//    ✅ সেল সিগন্যালে সব পোর্টফোলিও শেয়ার দেখায় (রিমেইনিং কোয়ান্টিটি সহ)
+//    ✅ সিগন্যাল বক্সে ক্লিক করলে মডাল ওপেন হয়
 // ==========================================
 
 // ==========================================
@@ -32,6 +33,7 @@ window.applySignalFilters = async function() {
 
 // ==========================================
 // ২. সিগন্যাল ডেটা লোড
+//    ✅ সেল সিগন্যালে সব পোর্টফোলিও শেয়ার দেখায়
 // ==========================================
 
 async function loadSignalData() {
@@ -54,10 +56,24 @@ async function loadSignalData() {
             return;
         }
 
+        // ---------- গ্র্যান্ড পোর্টফোলিও থেকে রিমেইনিং কোয়ান্টিটি ম্যাপ ----------
+        let portfolioQtyMap = new Map();
+        let portfolioStockDetails = [];
+        try {
+            const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
+            if (unifiedData && unifiedData.stockDetails) {
+                portfolioStockDetails = unifiedData.stockDetails;
+                unifiedData.stockDetails.forEach(s => {
+                    portfolioQtyMap.set(s.ticker, s.totalQty || 0);
+                });
+            }
+        } catch (e) {
+            console.warn('Could not fetch portfolio quantities:', e);
+        }
+
         let targetTickers = [];
         if (currentSignalMarket === 'portfolio') {
-            const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
-            targetTickers = unifiedData.stockDetails.map(s => s.ticker);
+            targetTickers = portfolioStockDetails.map(s => s.ticker);
         } else if (currentSignalMarket === 'watchlist') {
             try {
                 const wl = localStorage.getItem('market_watch_list');
@@ -92,13 +108,12 @@ async function loadSignalData() {
 
                     let priceData = [];
                     
-                    // ১. Supabase history_dse (প্রথম)
                     if (typeof supabase !== 'undefined' && supabase) {
                         try {
                             const { data, error } = await supabase
                                 .from('history_dse')
                                 .select('date, ltp, high, low')
-                                .eq('code', ticker)
+                                .eq('ticker', ticker)
                                 .gte('date', startDateStr)
                                 .order('date', { ascending: true })
                                 .limit(30);
@@ -110,12 +125,9 @@ async function loadSignalData() {
                                     low: parseFloat(d.low) || parseFloat(d.ltp)
                                 }));
                             }
-                        } catch (e) {
-                            console.warn(`Supabase history fetch failed for ${ticker}:`, e);
-                        }
+                        } catch (e) { /* ignore */ }
                     }
 
-                    // ২. Firebase cse_detailed_data (ফ্যালব্যাক)
                     if (priceData.length === 0 && typeof db !== 'undefined') {
                         try {
                             const snap = await db.collection('cse_detailed_data')
@@ -124,7 +136,6 @@ async function loadSignalData() {
                                 .orderBy('date', 'asc')
                                 .limit(30)
                                 .get();
-
                             if (!snap.empty) {
                                 snap.forEach(doc => {
                                     const d = doc.data();
@@ -144,12 +155,10 @@ async function loadSignalData() {
 
                     if (priceData.length < 15) return null;
 
-                    // RSI (indicators.js থেকে)
                     const rsiData = calculateRSI(priceData.map(p => p.ltp), 14);
                     const lastRsi = rsiData.filter(r => r.rsi !== null).pop();
                     const rsi = lastRsi ? lastRsi.rsi : 50;
 
-                    // PSAR (indicators.js থেকে)
                     const psarData = calculateParabolicSAR(priceData);
                     const psar = psarData.length > 0 ? psarData[psarData.length - 1].sar : price;
 
@@ -163,13 +172,16 @@ async function loadSignalData() {
                     }
                     if (atl === Infinity) atl = price;
 
+                    const remainingQty = portfolioQtyMap.get(ticker) || 0;
+
                     return {
                         ticker: ticker,
                         price: price,
                         rsi: rsi,
                         psar: psar,
                         ath: ath,
-                        atl: atl
+                        atl: atl,
+                        remainingQty: remainingQty
                     };
                 } catch (err) {
                     return null;
@@ -181,41 +193,58 @@ async function loadSignalData() {
             allResults.push(...valid);
         }
 
+        // ---------- বুয় সিগন্যাল (আগের মতো ফিল্টার) ----------
         let buySignals = [];
-        let sellSignals = [];
-
         if (currentSignalScanner === 'psar') {
             buySignals = allResults.filter(item => item.price > item.psar);
-            sellSignals = allResults.filter(item => item.price < item.psar);
         } else if (currentSignalScanner === 'rsi') {
             buySignals = allResults.filter(item => item.rsi < 30);
-            sellSignals = allResults.filter(item => item.rsi > 70);
         } else if (currentSignalScanner === 'all-scanner') {
             buySignals = allResults.filter(item => item.rsi < 30 && item.price > item.psar);
-            sellSignals = allResults.filter(item => item.rsi > 70 && item.price < item.psar);
         } else if (currentSignalScanner === 'smart-signal') {
             buySignals = allResults.filter(item => item.rsi < 40 && item.price > item.psar);
-            sellSignals = allResults.filter(item => item.rsi > 60 && item.price < item.psar);
         } else if (currentSignalScanner === 'price-position') {
-            const THRESHOLD = 0.10;
             buySignals = allResults.filter(item => {
                 if (item.atl <= 0) return false;
                 const diffPercent = (item.price - item.atl) / item.atl;
-                return diffPercent <= THRESHOLD && diffPercent >= 0;
-            });
-            sellSignals = allResults.filter(item => {
-                if (item.ath <= 0) return false;
-                const diffPercent = (item.ath - item.price) / item.ath;
-                return diffPercent <= THRESHOLD && diffPercent >= 0;
+                return diffPercent <= 0.10 && diffPercent >= 0;
             });
         } else if (currentSignalScanner === 'buy-sell-price') {
             const data = await window.getBuySellPriceSignalData();
             buySignals = data.buy || [];
-            sellSignals = data.sell || [];
-            buySignals.sort((a, b) => a.price - b.price);
-            sellSignals.sort((a, b) => b.price - a.price);
         }
 
+        // ---------- 🔥 সেল সিগন্যাল: পোর্টফোলিওর সব শেয়ার দেখাবে (ফিল্টার ছাড়া) ----------
+        // যদি মার্কেট ফিল্টার "Portfolio" হয়, তাহলে পোর্টফোলিওর সব শেয়ার দেখাবে
+        // অন্যথায় স্বাভাবিক ফিল্টার
+        let sellSignals = [];
+        if (currentSignalMarket === 'portfolio') {
+            // পোর্টফোলিওর সব শেয়ারকে সেল সিগন্যাল হিসেবে দেখাও
+            const portfolioTickers = portfolioStockDetails.map(s => s.ticker);
+            sellSignals = allResults.filter(item => portfolioTickers.includes(item.ticker));
+        } else {
+            // অন্যান্য মার্কেটের জন্য আগের মতো ফিল্টার
+            if (currentSignalScanner === 'psar') {
+                sellSignals = allResults.filter(item => item.price < item.psar);
+            } else if (currentSignalScanner === 'rsi') {
+                sellSignals = allResults.filter(item => item.rsi > 70);
+            } else if (currentSignalScanner === 'all-scanner') {
+                sellSignals = allResults.filter(item => item.rsi > 70 && item.price < item.psar);
+            } else if (currentSignalScanner === 'smart-signal') {
+                sellSignals = allResults.filter(item => item.rsi > 60 && item.price < item.psar);
+            } else if (currentSignalScanner === 'price-position') {
+                sellSignals = allResults.filter(item => {
+                    if (item.ath <= 0) return false;
+                    const diffPercent = (item.ath - item.price) / item.ath;
+                    return diffPercent <= 0.10 && diffPercent >= 0;
+                });
+            } else if (currentSignalScanner === 'buy-sell-price') {
+                const data = await window.getBuySellPriceSignalData();
+                sellSignals = data.sell || [];
+            }
+        }
+
+        // সাজানো
         buySignals.sort((a, b) => {
             const scoreA = (a.rsi < 30 ? 2 : 0) + (a.price > a.psar ? 1 : 0) + (a.price <= a.atl * 1.1 ? 1 : 0);
             const scoreB = (b.rsi < 30 ? 2 : 0) + (b.price > b.psar ? 1 : 0) + (b.price <= b.atl * 1.1 ? 1 : 0);
@@ -231,8 +260,8 @@ async function loadSignalData() {
         lastBuySignals = buySignals;
         lastSellSignals = sellSignals;
 
-        renderSignalList(buyContainer, buySignals, 'buy', buyCount);
-        renderSignalList(sellContainer, sellSignals, 'sell', sellCount);
+        renderSignalList(buyContainer, buySignals, 'buy', buyCount, false);
+        renderSignalList(sellContainer, sellSignals, 'sell', sellCount, true);
 
         if (updateTime) updateTime.innerText = new Date().toLocaleString();
 
@@ -247,7 +276,7 @@ async function loadSignalData() {
 // ৩. সিগন্যাল লিস্ট রেন্ডার
 // ==========================================
 
-function renderSignalList(container, data, type, countElement) {
+function renderSignalList(container, data, type, countElement, showRemainingQty = false) {
     if (!container) return;
 
     if (!data || data.length === 0) {
@@ -269,25 +298,25 @@ function renderSignalList(container, data, type, countElement) {
             if (type === 'buy') filterValue = `ATL: ₹${item.atl.toFixed(2)}`;
             else filterValue = `ATH: ₹${item.ath.toFixed(2)}`;
         } else if (currentSignalScanner === 'buy-sell-price') {
-            if (type === 'buy') {
-                filterValue = `Min Buy: ৳${item.minBuyPrice?.toFixed(2) || 0}`;
-            } else {
-                filterValue = `Max Sell: ৳${item.maxSellPrice?.toFixed(2) || 0}`;
-            }
+            if (type === 'buy') filterValue = `Min Buy: ৳${item.minBuyPrice?.toFixed(2) || 0}`;
+            else filterValue = `Max Sell: ৳${item.maxSellPrice?.toFixed(2) || 0}`;
         } else {
             filterValue = `RSI: ${item.rsi.toFixed(1)} PSAR: ₹${item.psar.toFixed(2)}`;
         }
 
+        const gridCols = showRemainingQty ? '1fr 0.8fr 1fr 1.5fr 0.8fr' : '1fr 1fr 1.5fr 0.8fr';
+
         html += `
-            <div class="signal-item" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; margin-bottom: 3px; border-radius: 6px; background: var(--bg-tertiary); font-size: 12px;">
-                <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-                    <span style="font-weight: 600; color: var(--primary-color); text-decoration: underline; font-size: 13px; white-space: nowrap; cursor: pointer;" onclick="event.stopPropagation(); openStockDetailModal('${item.ticker}')">${item.ticker}</span>
-                    <span style="color: var(--text-muted); font-size: 11px; white-space: nowrap;">₹${item.price.toFixed(2)}</span>
-                </div>
-                <div style="display: flex; gap: 10px; align-items: center; font-size: 11px; flex-shrink: 0;">
-                    <span style="color: var(--text-secondary);">${filterValue}</span>
-                    <span style="color: ${signalColor}; font-weight: 600; font-size: 11px; padding: 2px 6px; border-radius: 10px; background: ${signalColor}22;">${signalText}</span>
-                </div>
+            <div class="signal-item" style="display: grid; grid-template-columns: ${gridCols}; gap: 6px; align-items: center; padding: 6px 10px; margin-bottom: 3px; border-radius: 6px; background: var(--bg-tertiary); font-size: 12px; cursor: pointer; transition: background 0.2s;" 
+                 onclick="openSignalDetailModal('${type}')" 
+                 onmouseover="this.style.background='var(--hover-bg)'" 
+                 onmouseout="this.style.background='var(--bg-tertiary)'">
+                <span style="font-weight: 600; color: var(--primary-color); text-decoration: underline; font-size: 13px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" 
+                      onclick="event.stopPropagation(); openStockDetailModal('${item.ticker}')">${item.ticker}</span>
+                ${showRemainingQty ? `<span style="text-align: right; font-weight: 500; color: var(--text-primary);">${item.remainingQty || 0}</span>` : ''}
+                <span style="text-align: right; color: var(--text-muted);">₹${item.price.toFixed(2)}</span>
+                <span style="color: var(--text-secondary); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${filterValue}</span>
+                <span style="text-align: center; color: ${signalColor}; font-weight: 600; font-size: 11px; padding: 2px 6px; border-radius: 10px; background: ${signalColor}22; white-space: nowrap;">${signalText}</span>
             </div>
         `;
     }
@@ -299,12 +328,6 @@ function renderSignalList(container, data, type, countElement) {
 
     container.innerHTML = html + seeAllHtml;
     if (countElement) countElement.innerText = `${data.length} stocks`;
-
-    container.parentElement?.addEventListener('click', function(e) {
-        if (!e.target.closest('.signal-item') && !e.target.closest('[onclick]')) {
-            openSignalDetailModal(type);
-        }
-    });
 }
 
 // ==========================================
@@ -336,6 +359,7 @@ window.openSignalDetailModal = function(type) {
     if (timeSpan) timeSpan.innerText = new Date().toLocaleString();
 
     const isBuySellPrice = currentSignalScanner === 'buy-sell-price';
+    const showRemaining = type === 'sell';
 
     let theadHTML = '';
     if (isBuySellPrice) {
@@ -354,6 +378,7 @@ window.openSignalDetailModal = function(type) {
             theadHTML = `
                 <tr>
                     <th style="padding:8px; text-align:left;">Share</th>
+                    ${showRemaining ? '<th style="padding:8px; text-align:right;">Remaining</th>' : ''}
                     <th style="padding:8px; text-align:right;">Current Price (৳)</th>
                     <th style="padding:8px; text-align:right;">Avg Sell (৳)</th>
                     <th style="padding:8px; text-align:right;">Max Sell (৳)</th>
@@ -366,6 +391,7 @@ window.openSignalDetailModal = function(type) {
         theadHTML = `
             <tr>
                 <th style="padding:8px; text-align:left;">Share</th>
+                ${showRemaining ? '<th style="padding:8px; text-align:right;">Remaining</th>' : ''}
                 <th style="padding:8px; text-align:right;">Price (৳)</th>
                 <th style="padding:8px; text-align:right;">RSI</th>
                 <th style="padding:8px; text-align:right;">PSAR (৳)</th>
@@ -388,6 +414,7 @@ window.openSignalDetailModal = function(type) {
         const price = item.price ?? 0;
         const signalText = type === 'buy' ? '🟢 BUY' : '🔴 SELL';
         const signalColor = type === 'buy' ? '#10b981' : '#ef4444';
+        const remaining = item.remainingQty || 0;
 
         if (isBuySellPrice) {
             const avgValue = type === 'buy' ? (item.minBuyPrice || 0) : (item.maxSellPrice || 0);
@@ -396,6 +423,7 @@ window.openSignalDetailModal = function(type) {
 
             rowsHTML += `<tr onclick="openStockDetailModal('${item.ticker}')" style="cursor:pointer;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
             rowsHTML += `<td style="padding:8px 10px; font-weight:600; color:var(--primary-color); text-decoration:underline;">${item.ticker}</td>`;
+            if (showRemaining) rowsHTML += `<td style="padding:8px 10px; text-align:right; font-weight:500;">${remaining}</td>`;
             rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${price.toFixed(2)}</td>`;
             if (type === 'buy') {
                 rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${avgValue.toFixed(2)}</td>`;
@@ -415,6 +443,7 @@ window.openSignalDetailModal = function(type) {
 
             rowsHTML += `<tr onclick="openStockDetailModal('${item.ticker}')" style="cursor:pointer;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
             rowsHTML += `<td style="padding:8px 10px; font-weight:600; color:var(--primary-color); text-decoration:underline;">${item.ticker}</td>`;
+            if (showRemaining) rowsHTML += `<td style="padding:8px 10px; text-align:right; font-weight:500;">${remaining}</td>`;
             rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${price.toFixed(2)}</td>`;
             rowsHTML += `<td style="padding:8px 10px; text-align:right; color: ${item.rsi !== null ? (item.rsi < 30 ? '#10b981' : (item.rsi > 70 ? '#ef4444' : '#f59e0b')) : '#64748b'};">${rsi}</td>`;
             rowsHTML += `<td style="padding:8px 10px; text-align:right;">${psar !== '-' ? '৳'+psar : '-'}</td>`;
@@ -435,7 +464,6 @@ window.closeSignalDetailModal = function() {
     if (modal) modal.style.display = 'none';
 };
 
-// মডালের বাইরে ক্লিক করলে বন্ধ
 document.addEventListener('click', function(e) {
     const modal = document.getElementById('signal-detail-modal');
     if (modal && e.target === modal) {
@@ -452,4 +480,4 @@ window.loadSignalData = loadSignalData;
 window.openSignalDetailModal = window.openSignalDetailModal;
 window.closeSignalDetailModal = window.closeSignalDetailModal;
 
-console.log('✅ dash-signals.js loaded successfully');
+console.log('✅ dash-signals.js loaded (Force Sell Signal for Portfolio)');

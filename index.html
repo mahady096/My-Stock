@@ -573,7 +573,7 @@
                     </div>
                     <!-- Sync Metadata বাটন -->
                     <div style="margin: 15px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                        <button id="btn-sync-metadata" style="
+                        <button id="btn-sync-metadata" onclick="syncAllMetadataWithProgress()" style="
                             background: linear-gradient(135deg, #8b5cf6, #6d28d9);
                             color: white; border: none; padding: 10px 24px;
                             border-radius: 30px; cursor: pointer; font-weight: bold;
@@ -827,6 +827,18 @@
                 cursor: pointer;
                 font-size: 12px;
             ">🔄 Refresh</button>
+          <button onclick="testDailyBriefing()" style="
+            background: #8b5cf6;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            padding: 4px 14px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            📊 Test Briefing
+        </button>
         </div>
     </div>
 

@@ -1733,3 +1733,14 @@ input[type="date"] {
 .mode-btn:hover {
     background: var(--hover-bg);
 }
+.signal-item {
+    transition: background 0.2s;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-bottom: 3px;
+    background: var(--bg-tertiary);
+    font-size: 12px;
+}
+.signal-item:hover {
+    background: var(--hover-bg);
+}

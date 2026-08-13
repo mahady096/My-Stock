@@ -1,7 +1,8 @@
 // ==========================================
-// 📂 portfolio-manager.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন v2.0
+// 📂 portfolio-manager.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন v3.0
 //    Create, Edit, Delete, Access, List View
-//    সব পোর্টফোলিও সিলেক্টর অটো-আপডেট
+//    ✅ রিয়ালাইজড গেইন যোগ করা হয়েছে (ক্যাশের বদলে)
+//    ✅ সব পোর্টফোলিও সিলেক্টর অটো-আপডেট
 // ==========================================
 
 let currentPortfolioMeta = null;
@@ -50,14 +51,47 @@ window.loadPortfolioManagerData = async function() {
         const meta = await getPortfolioMeta(user.uid);
         currentPortfolioMeta = meta;
         
-        // ২. প্রতিটি পোর্টফোলিওর সামারি ক্যালকুলেট
+        // ২. সব সেল হিস্ট্রি একবারে ফেচ (পোর্টফোলিও অনুযায়ী গ্রুপ)
+        let allSales = [];
+        if (typeof supabase !== 'undefined' && supabase) {
+            try {
+                const { data, error } = await supabase
+                    .from('sales_history')
+                    .select('profit_or_loss, portfolio_id')
+                    .eq('user_id', user.uid);
+                if (!error && data) allSales = data;
+            } catch (e) {}
+        }
+        if (allSales.length === 0 && typeof db !== 'undefined') {
+            try {
+                const snap = await db.collection('sales_history')
+                    .where('userId', '==', user.uid)
+                    .get();
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    allSales.push({
+                        profit_or_loss: d.profitOrLoss || 0,
+                        portfolio_id: d.portfolioId || 'main'
+                    });
+                });
+            } catch (e) {}
+        }
+
+        // পোর্টফোলিও আইডি অনুযায়ী রিয়ালাইজড গেইন গ্রুপ
+        const realizedMap = new Map();
+        allSales.forEach(sale => {
+            const pid = sale.portfolio_id || 'main';
+            const pl = parseFloat(sale.profit_or_loss) || 0;
+            realizedMap.set(pid, (realizedMap.get(pid) || 0) + pl);
+        });
+
+        // ৩. প্রতিটি পোর্টফোলিওর সামারি ক্যালকুলেট
         const summaries = {};
         for (const p of meta.portfolios) {
             const data = await unifiedEngine.calculate(user.uid, p.id, true);
             if (data) {
-                // ডিপোজিট
-                const deposit = await getUserDeposit(user.uid) || 0;
-                const cash = deposit - (data.totalInvestment || 0);
+                // রিয়ালাইজড গেইন (গ্রুপ থেকে)
+                const realized = realizedMap.get(p.id) || 0;
                 
                 let dailyGL = 0, dailyPct = 0;
                 let totalGL = 0, totalPct = 0;
@@ -94,7 +128,7 @@ window.loadPortfolioManagerData = async function() {
                     totalInvestment: data.totalInvestment || 0,
                     totalCurrentValue: totalCurrentValue,
                     totalQty: data.totalRemainingQty || 0,
-                    cash: cash,
+                    realized: realized,  // 👈 রিয়ালাইজড গেইন
                     dailyGL: dailyGL,
                     dailyPct: dailyPct,
                     totalGL: totalGL,
@@ -104,11 +138,14 @@ window.loadPortfolioManagerData = async function() {
         }
         portfolioSummaries = summaries;
         
-        // ৩. গ্র্যান্ড টোটাল
+        // ৪. গ্র্যান্ড টোটাল (সব পোর্টফোলিওর সমষ্টি)
         const grandData = await unifiedEngine.calculate(user.uid, null, true);
         if (grandData) {
-            const deposit = await getUserDeposit(user.uid) || 0;
-            const cash = deposit - (grandData.totalInvestment || 0);
+            // গ্র্যান্ড রিয়ালাইজড = সব পোর্টফোলিওর সমষ্টি
+            let grandRealized = 0;
+            for (const p of meta.portfolios) {
+                grandRealized += realizedMap.get(p.id) || 0;
+            }
             let grandDailyGL = 0, grandTotalGL = 0, grandTotalCurrentValue = 0;
             const tickers = grandData.stockDetails.map(s => s.ticker);
             if (tickers.length > 0) {
@@ -137,7 +174,7 @@ window.loadPortfolioManagerData = async function() {
                 totalInvestment: grandData.totalInvestment || 0,
                 totalCurrentValue: grandTotalCurrentValue,
                 totalQty: grandData.totalRemainingQty || 0,
-                cash: cash,
+                realized: grandRealized,  // 👈 গ্র্যান্ড রিয়ালাইজড
                 dailyGL: grandDailyGL,
                 dailyPct: grandData.totalInvestment > 0 ? (grandDailyGL / grandData.totalInvestment) * 100 : 0,
                 totalGL: grandTotalGL,
@@ -188,7 +225,7 @@ window.renderPortfolioCards = function() {
 };
 
 // ==========================================
-// 🏷️ পোর্টফোলিও কার্ড HTML তৈরি
+// 🏷️ পোর্টফোলিও কার্ড HTML তৈরি (রিয়ালাইজড গেইন দেখানো)
 // ==========================================
 function createPortfolioCardHTML(portfolioId, summary) {
     const isMain = portfolioId === 'grand' || summary.type === 'main';
@@ -200,11 +237,11 @@ function createPortfolioCardHTML(portfolioId, summary) {
     const dailyPct = summary.dailyPct || 0;
     const totalGL = summary.totalGL || 0;
     const totalPct = summary.totalPct || 0;
-    const cash = summary.cash || 0;
+    const realized = summary.realized || 0;  // 👈 রিয়ালাইজড গেইন
     
     const dailyColor = dailyGL >= 0 ? '#10b981' : '#ef4444';
     const totalColor = totalGL >= 0 ? '#10b981' : '#ef4444';
-    const cashColor = cash >= 0 ? '#10b981' : '#ef4444';
+    const realizedColor = realized >= 0 ? '#10b981' : '#ef4444';
     
     const name = summary.name || (portfolioId === 'grand' ? '📊 Grand Portfolio' : portfolioId);
     const badgeMain = isMain ? '<span class="card-badge card-badge-main">MAIN</span>' : '';
@@ -237,8 +274,8 @@ function createPortfolioCardHTML(portfolioId, summary) {
                     <div class="stat-value">৳${totalInvestment.toFixed(2)}</div>
                 </div>
                 <div>
-                    <div class="stat-label">Cash</div>
-                    <div class="stat-value" style="color: ${cashColor};">৳${cash.toFixed(2)}</div>
+                    <div class="stat-label">Realized Gain</div>
+                    <div class="stat-value" style="color: ${realizedColor};">${realized >= 0 ? '+' : ''}৳${realized.toFixed(2)}</div>
                 </div>
             </div>
             
@@ -541,4 +578,4 @@ window.updateBuyPortfolioSelect = updateBuyPortfolioSelect;
 window.updateAllPortfolioSelectors = updateAllPortfolioSelectors;
 window.getPortfolioNameFromMeta = getPortfolioNameFromMeta;
 
-console.log('✅ portfolio-manager.js v2.0 loaded successfully');
+console.log('✅ portfolio-manager.js v3.0 loaded successfully (Realized Gain added)');
