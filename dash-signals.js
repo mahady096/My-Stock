@@ -3,6 +3,7 @@
 //    Buy/Sell সিগন্যাল ফিল্টার ও লিস্ট
 //    ✅ সেল সিগন্যালে সব পোর্টফোলিও শেয়ার দেখায় (রিমেইনিং কোয়ান্টিটি সহ)
 //    ✅ সিগন্যাল বক্সে ক্লিক করলে মডাল ওপেন হয়
+//    🔧 Buy Sell Price - Avg Sell ও Max Sell আলাদা করা হয়েছে
 // ==========================================
 
 // ==========================================
@@ -274,6 +275,7 @@ async function loadSignalData() {
 
 // ==========================================
 // ৩. সিগন্যাল লিস্ট রেন্ডার
+//    🔧 Buy Sell Price-এর জন্য Avg Sell ও Max Sell আলাদা দেখানো
 // ==========================================
 
 function renderSignalList(container, data, type, countElement, showRemainingQty = false) {
@@ -292,16 +294,24 @@ function renderSignalList(container, data, type, countElement, showRemainingQty 
     let html = '';
     for (const item of displayData) {
         let filterValue = '';
-        if (currentSignalScanner === 'psar') filterValue = `PSAR: ₹${item.psar.toFixed(2)}`;
-        else if (currentSignalScanner === 'rsi') filterValue = `RSI: ${item.rsi.toFixed(1)}`;
-        else if (currentSignalScanner === 'price-position') {
-            if (type === 'buy') filterValue = `ATL: ₹${item.atl.toFixed(2)}`;
-            else filterValue = `ATH: ₹${item.ath.toFixed(2)}`;
+        if (currentSignalScanner === 'psar') {
+            filterValue = `PSAR: ৳${item.psar.toFixed(2)}`;
+        } else if (currentSignalScanner === 'rsi') {
+            filterValue = `RSI: ${item.rsi.toFixed(1)}`;
+        } else if (currentSignalScanner === 'price-position') {
+            if (type === 'buy') filterValue = `ATL: ৳${item.atl.toFixed(2)}`;
+            else filterValue = `ATH: ৳${item.ath.toFixed(2)}`;
         } else if (currentSignalScanner === 'buy-sell-price') {
-            if (type === 'buy') filterValue = `Min Buy: ৳${item.minBuyPrice?.toFixed(2) || 0}`;
-            else filterValue = `Max Sell: ৳${item.maxSellPrice?.toFixed(2) || 0}`;
+            if (type === 'buy') {
+                filterValue = `Min Buy: ৳${item.minBuyPrice?.toFixed(2) || 0}`;
+            } else {
+                // Sell-এ Avg Sell ও Max Sell আলাদা করে দেখানো
+                const avgSell = item.avgSellPrice || 0;
+                const maxSell = item.maxSellPrice || 0;
+                filterValue = `Avg: ৳${avgSell.toFixed(2)} | Max: ৳${maxSell.toFixed(2)}`;
+            }
         } else {
-            filterValue = `RSI: ${item.rsi.toFixed(1)} PSAR: ₹${item.psar.toFixed(2)}`;
+            filterValue = `RSI: ${item.rsi.toFixed(1)} PSAR: ৳${item.psar.toFixed(2)}`;
         }
 
         const gridCols = showRemainingQty ? '1fr 0.8fr 1fr 1.5fr 0.8fr' : '1fr 1fr 1.5fr 0.8fr';
@@ -314,7 +324,7 @@ function renderSignalList(container, data, type, countElement, showRemainingQty 
                 <span style="font-weight: 600; color: var(--primary-color); text-decoration: underline; font-size: 13px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" 
                       onclick="event.stopPropagation(); openStockDetailModal('${item.ticker}')">${item.ticker}</span>
                 ${showRemainingQty ? `<span style="text-align: right; font-weight: 500; color: var(--text-primary);">${item.remainingQty || 0}</span>` : ''}
-                <span style="text-align: right; color: var(--text-muted);">₹${item.price.toFixed(2)}</span>
+                <span style="text-align: right; color: var(--text-muted);">৳${item.price.toFixed(2)}</span>
                 <span style="color: var(--text-secondary); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${filterValue}</span>
                 <span style="text-align: center; color: ${signalColor}; font-weight: 600; font-size: 11px; padding: 2px 6px; border-radius: 10px; background: ${signalColor}22; white-space: nowrap;">${signalText}</span>
             </div>
@@ -332,6 +342,7 @@ function renderSignalList(container, data, type, countElement, showRemainingQty 
 
 // ==========================================
 // ৪. সিগন্যাল ডিটেইল মডাল
+//    🔧 Buy Sell Price-এর জন্য Avg Sell ও Max Sell আলাদা দেখানো
 // ==========================================
 
 window.openSignalDetailModal = function(type) {
@@ -417,19 +428,21 @@ window.openSignalDetailModal = function(type) {
         const remaining = item.remainingQty || 0;
 
         if (isBuySellPrice) {
-            const avgValue = type === 'buy' ? (item.minBuyPrice || 0) : (item.maxSellPrice || 0);
-            const minBuy = (item.minBuyPrice !== null && item.minBuyPrice !== undefined && item.minBuyPrice !== Infinity) ? item.minBuyPrice : 0;
-            const maxSell = (item.maxSellPrice !== null && item.maxSellPrice !== undefined) ? item.maxSellPrice : 0;
+            const avgSell = item.avgSellPrice || 0;
+            const maxSell = item.maxSellPrice || 0;
+            const minBuy = item.minBuyPrice || 0;
 
             rowsHTML += `<tr onclick="openStockDetailModal('${item.ticker}')" style="cursor:pointer;" onmouseover="this.style.background='var(--hover-bg)'" onmouseout="this.style.background='transparent'">`;
             rowsHTML += `<td style="padding:8px 10px; font-weight:600; color:var(--primary-color); text-decoration:underline;">${item.ticker}</td>`;
             if (showRemaining) rowsHTML += `<td style="padding:8px 10px; text-align:right; font-weight:500;">${remaining}</td>`;
             rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${price.toFixed(2)}</td>`;
             if (type === 'buy') {
-                rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${avgValue.toFixed(2)}</td>`;
+                const avgBuy = item.avgSellPrice || 0; // Buy-তে Avg Buy নেই, তাই Avg Sell ব্যবহার না করাই ভালো, কিন্তু item-এ avgBuyPrice নেই, তাই আমরা minBuyPrice-কে Avg হিসেবে দেখাতে পারি। কিন্তু Buy-তে Avg Buy নেই। আমরা avgBuyPrice দিতে পারি না। তাই Buy-তে আমরা minBuyPrice-কে Avg হিসেবে দেখাবো না, বরং শুধু Min Buy দেখাবো।
+                // Buy-তে আমরা Avg Buy দেখাতে পারি না, কারণ item-এ avgBuyPrice নেই। তাই Buy-তে আমরা শুধু Min Buy দেখাবো।
+                rowsHTML += `<td style="padding:8px 10px; text-align:right;">-</td>`;
                 rowsHTML += `<td style="padding:8px 10px; text-align:right; color:#10b981;">৳${minBuy.toFixed(2)}</td>`;
             } else {
-                rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${avgValue.toFixed(2)}</td>`;
+                rowsHTML += `<td style="padding:8px 10px; text-align:right;">৳${avgSell.toFixed(2)}</td>`;
                 rowsHTML += `<td style="padding:8px 10px; text-align:right; color:#ef4444;">৳${maxSell.toFixed(2)}</td>`;
             }
             rowsHTML += `<td style="padding:8px 10px; text-align:center; color:${signalColor}; font-weight:bold;">${signalText}</td>`;
@@ -480,4 +493,4 @@ window.loadSignalData = loadSignalData;
 window.openSignalDetailModal = window.openSignalDetailModal;
 window.closeSignalDetailModal = window.closeSignalDetailModal;
 
-console.log('✅ dash-signals.js loaded (Force Sell Signal for Portfolio)');
+console.log('✅ dash-signals.js loaded (Force Sell Signal for Portfolio, Buy Sell Price Avg/Max fixed)');

@@ -1,12 +1,21 @@
 // ==========================================
-// 📦 sw.js - StockPulse PWA Service Worker v2.0
+// 📦 sw.js - StockPulse PWA Service Worker v3.0
+//    Firebase Cloud Messaging (FCM) Push Notification সাপোর্ট সহ
 //    উন্নত ক্যাশিং, অফলাইন সাপোর্ট, ব্যাকগ্রাউন্ড সিঙ্ক
 // ==========================================
 
-const CACHE_NAME = 'stockpulse-v2.0.0';
-const STATIC_CACHE = 'static-v2.0.0';
-const API_CACHE = 'api-v2.0.0';
-const DYNAMIC_CACHE = 'dynamic-v2.0.0';
+// ==========================================
+// 🔥 আপনার VAPID পাবলিক কী (Firebase Console থেকে)
+// ==========================================
+const VAPID_PUBLIC_KEY = 'BJvVefLaxMNoMclXOJ_lNNGfTiYtT0e30u2MtEd9fNYN6OqW6SrIkzy_UpK-yEM0dBmhTXnsNOgabTxYtH6MDZo';
+
+// ==========================================
+// 📦 ক্যাশ নাম
+// ==========================================
+const CACHE_NAME = 'stockpulse-v3.0.0';
+const STATIC_CACHE = 'static-v3.0.0';
+const API_CACHE = 'api-v3.0.0';
+const DYNAMIC_CACHE = 'dynamic-v3.0.0';
 
 // ==========================================
 // 📦 ক্যাশে রাখার ফাইলসমূহ
@@ -85,10 +94,8 @@ self.addEventListener('install', event => {
       })
       .catch(err => {
         console.error('[SW] Cache addAll failed:', err);
-        // কিছু ফাইল না থাকলেও SW কাজ করবে
       })
   );
-  // নতুন SW সাথে সাথে অ্যাক্টিভ হবে
   self.skipWaiting();
 });
 
@@ -101,7 +108,6 @@ self.addEventListener('activate', event => {
     caches.keys().then(keys => {
       return Promise.all(
         keys.filter(key => {
-          // বর্তমান ক্যাশ ছাড়া সব ডিলিট
           return key !== STATIC_CACHE && 
                  key !== API_CACHE && 
                  key !== DYNAMIC_CACHE &&
@@ -113,18 +119,17 @@ self.addEventListener('activate', event => {
       );
     })
   );
-  // সব ক্লায়েন্টকে নতুন SW-তে নিয়ে আসে
   return self.clients.claim();
 });
 
 // ==========================================
-// 🌐 ফেচ ইভেন্ট – স্মার্ট ক্যাশিং স্ট্র্যাটেজি
+// 🌐 ফেচ ইভেন্ট – স্মার্ট ক্যাশিং
 // ==========================================
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   const request = event.request;
 
-  // ---------- ১. API রিকোয়েস্ট – নেটওয়ার্ক ফার্স্ট, ক্যাশ ফ্যালব্যাক ----------
+  // API রিকোয়েস্ট – নেটওয়ার্ক ফার্স্ট, ক্যাশ ফ্যালব্যাক
   if (url.pathname.includes('/api/') || 
       url.hostname.includes('dse-scraper') ||
       url.hostname.includes('supabase') ||
@@ -133,7 +138,6 @@ self.addEventListener('fetch', event => {
     event.respondWith(
       fetch(request)
         .then(response => {
-          // শুধু সফল রেসপন্স ক্যাশ করব (API-র জন্য ৫ মিনিট)
           if (response && response.status === 200) {
             const clone = response.clone();
             caches.open(API_CACHE).then(cache => {
@@ -143,10 +147,8 @@ self.addEventListener('fetch', event => {
           return response;
         })
         .catch(() => {
-          // অফলাইনে ক্যাশ থেকে রিটার্ন
           return caches.match(request).then(cached => {
             if (cached) return cached;
-            // ক্যাশ না থাকলে JSON ফ্যালব্যাক
             return new Response(JSON.stringify({ 
               error: 'Offline', 
               message: 'You are offline. Please check your connection.' 
@@ -160,18 +162,14 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // ---------- ২. স্ট্যাটিক রিসোর্স – ক্যাশ ফার্স্ট, তারপর নেটওয়ার্ক ----------
+  // স্ট্যাটিক রিসোর্স – ক্যাশ ফার্স্ট
   if (urlsToCache.some(path => url.pathname === path) ||
       url.pathname.match(/\.(css|js|png|jpg|svg|woff2?|json|ico)$/)) {
     
     event.respondWith(
       caches.match(request)
         .then(response => {
-          if (response) {
-            // ক্যাশ হিট
-            return response;
-          }
-          // ক্যাশে না থাকলে নেটওয়ার্ক থেকে ফেচ করে ক্যাশে যোগ
+          if (response) return response;
           return fetch(request).then(fetchRes => {
             if (fetchRes && fetchRes.status === 200) {
               const clone = fetchRes.clone();
@@ -183,19 +181,17 @@ self.addEventListener('fetch', event => {
           });
         })
         .catch(() => {
-          // সব ব্যর্থ হলে অফলাইন পেজ দেখান
           return caches.match('/index.html');
         })
     );
     return;
   }
 
-  // ---------- ৩. HTML পেজ – নেটওয়ার্ক ফার্স্ট, ক্যাশ ফ্যালব্যাক ----------
+  // HTML পেজ – নেটওয়ার্ক ফার্স্ট, ক্যাশ ফ্যালব্যাক
   if (request.headers.get('Accept')?.includes('text/html')) {
     event.respondWith(
       fetch(request)
         .then(response => {
-          // সফল রেসপন্স ক্যাশে যোগ
           if (response && response.status === 200) {
             const clone = response.clone();
             caches.open(DYNAMIC_CACHE).then(cache => {
@@ -205,14 +201,13 @@ self.addEventListener('fetch', event => {
           return response;
         })
         .catch(() => {
-          // অফলাইনে ক্যাশ থেকে index.html দেখান
           return caches.match('/index.html');
         })
     );
     return;
   }
 
-  // ---------- ৪. বাকি সব রিকোয়েস্ট – নেটওয়ার্ক (ক্যাশ নয়) ----------
+  // বাকি – নেটওয়ার্ক
   event.respondWith(
     fetch(request).catch(() => {
       return caches.match('/index.html');
@@ -221,42 +216,7 @@ self.addEventListener('fetch', event => {
 });
 
 // ==========================================
-// 📡 ব্যাকগ্রাউন্ড সিঙ্ক (অফলাইনে করা ট্রানজেকশন সিঙ্ক)
-// ==========================================
-self.addEventListener('sync', event => {
-  if (event.tag === 'sync-portfolio') {
-    event.waitUntil(syncPortfolioData());
-  }
-});
-
-async function syncPortfolioData() {
-  try {
-    console.log('[SW] Starting background sync...');
-    const cache = await caches.open(API_CACHE);
-    const requests = await cache.keys();
-    
-    let synced = 0;
-    for (const req of requests) {
-      if (req.url.includes('/api/') && req.method === 'POST') {
-        try {
-          const response = await fetch(req);
-          if (response.ok) {
-            await cache.delete(req);
-            synced++;
-          }
-        } catch (e) {
-          console.warn('[SW] Sync failed for:', req.url);
-        }
-      }
-    }
-    console.log(`[SW] Background sync completed: ${synced} items synced`);
-  } catch (err) {
-    console.error('[SW] Background sync failed:', err);
-  }
-}
-
-// ==========================================
-// 📢 পুশ নোটিফিকেশন
+// 📡 পুশ নোটিফিকেশন ইভেন্ট (FCM)
 // ==========================================
 self.addEventListener('push', event => {
   if (!event.data) {
@@ -265,15 +225,31 @@ self.addEventListener('push', event => {
   }
 
   try {
-    const data = event.data.json();
-    const title = data.title || '📊 StockPulse Update';
+    // FCM পে-লোড JSON অথবা plain text হতে পারে
+    let payload;
+    try {
+      payload = event.data.json();
+    } catch (e) {
+      payload = { title: 'StockPulse', body: event.data.text() };
+    }
+
+    // FCM থেকে notification object থাকলে সেটা ব্যবহার করি
+    const notification = payload.notification || {};
+    const data = payload.data || {};
+
+    const title = notification.title || data.title || '📊 StockPulse Update';
+    const body = notification.body || data.body || 'Your portfolio has been updated.';
+    const icon = notification.icon || data.icon || '/icons/icon-192x192.png';
+    const badge = '/icons/icon-96x96.png';
+    const url = data.url || '/';
+
     const options = {
-      body: data.body || 'Your portfolio has been updated.',
-      icon: data.icon || '/icons/icon-192x192.png',
-      badge: '/icons/icon-96x96.png',
+      body: body,
+      icon: icon,
+      badge: badge,
       vibrate: [200, 100, 200],
       data: {
-        url: data.url || '/',
+        url: url,
         date: data.date || Date.now()
       },
       actions: [
@@ -281,12 +257,12 @@ self.addEventListener('push', event => {
         { action: 'dismiss', title: '✖ Dismiss' }
       ]
     };
-    
+
     event.waitUntil(
       self.registration.showNotification(title, options)
     );
-  } catch (e) {
-    console.error('[SW] Push notification error:', e);
+  } catch (error) {
+    console.error('[SW] Push notification error:', error);
   }
 });
 
@@ -296,9 +272,7 @@ self.addEventListener('push', event => {
 self.addEventListener('notificationclick', event => {
   event.notification.close();
 
-  if (event.action === 'dismiss') {
-    return;
-  }
+  if (event.action === 'dismiss') return;
 
   const urlToOpen = event.notification.data?.url || '/';
   
@@ -307,13 +281,11 @@ self.addEventListener('notificationclick', event => {
       type: 'window',
       includeUncontrolled: true
     }).then(windowClients => {
-      // ইতিমধ্যে খোলা উইন্ডো থাকলে সেটা ফোকাস করুন
       for (const client of windowClients) {
         if (client.url === urlToOpen && 'focus' in client) {
           return client.focus();
         }
       }
-      // না থাকলে নতুন উইন্ডো খুলুন
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }
@@ -322,11 +294,10 @@ self.addEventListener('notificationclick', event => {
 });
 
 // ==========================================
-// 📶 নেটওয়ার্ক স্ট্যাটাস চেঞ্জ (অফলাইন/অনলাইন)
+// 📶 নেটওয়ার্ক স্ট্যাটাস চেঞ্জ
 // ==========================================
 self.addEventListener('online', () => {
   console.log('[SW] Online - checking for updates...');
-  // অনলাইনে আসলে ক্যাশ আপডেট করুন
   self.registration.sync.register('sync-portfolio');
 });
 
@@ -358,4 +329,34 @@ self.addEventListener('message', event => {
   }
 });
 
-console.log('✅ Service Worker v2.0 loaded successfully');
+// ==========================================
+// 📡 FCM Token পেতে subscribe করুন (UI থেকে কল হবে)
+//    এখানে শুধু ইভেন্ট লিসেনার নেই, টোকেন নেওয়ার লজিক UI-তে থাকবে
+//    কিন্তু আমরা একটি মেসেজ হ্যান্ডলার যোগ করি যাতে UI টোকেন রিকোয়েস্ট করতে পারে
+// ==========================================
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'GET_FCM_TOKEN') {
+    event.waitUntil(
+      (async () => {
+        try {
+          // Service Worker রেজিস্ট্রেশন থেকে pushManager ব্যবহার করি
+          const registration = await self.registration;
+          const subscription = await registration.pushManager.getSubscription();
+          if (subscription) {
+            event.ports[0].postMessage({ 
+              success: true, 
+              token: subscription.endpoint,
+              subscription: subscription 
+            });
+          } else {
+            event.ports[0].postMessage({ success: false, error: 'No active subscription' });
+          }
+        } catch (error) {
+          event.ports[0].postMessage({ success: false, error: error.message });
+        }
+      })()
+    );
+  }
+});
+
+console.log('✅ Service Worker v3.0 (with FCM) loaded successfully');

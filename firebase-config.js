@@ -1,10 +1,10 @@
 // ==========================================
-// 📁 firebase-config.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন
-//    Firebase initialization, auth, firestore with persistence
-//    🔥 Compat SDK (v9 compat) সঠিকভাবে ব্যবহার করা হয়েছে
+// 📁 firebase-config.js - সম্পূর্ণ কনফিগারেশন (FCM সহ)
+//    Firebase App, Auth, Firestore, Messaging
+//    Push Notification সেটআপের জন্য প্রস্তুত
 // ==========================================
 
-// Firebase কনফিগারেশন
+// Firebase কনফিগারেশন অবজেক্ট (আপনার প্রজেক্টের নিজস্ব ডেটা বসান)
 const firebaseConfig = {
   apiKey: "AIzaSyDdPlBysAhWdbJ8KLhwoQaf2Z5EkiYdOUg",
   authDomain: "my-share-market-495aa.firebaseapp.com",
@@ -15,13 +15,10 @@ const firebaseConfig = {
   measurementId: "G-Z3J503NM5E"
 };
 
-// ==========================================
-// 🔥 Firebase ইতিমধ্যে initialized কিনা চেক করুন
-// ==========================================
+// Firebase ইতিমধ্যে initialized কিনা চেক করুন
 if (typeof firebase === 'undefined') {
   console.error("❌ Firebase library not loaded! Please check network connection.");
 } else {
-  // Firebase ইতিমধ্যে initialized কিনা চেক করুন
   if (!firebase.apps || firebase.apps.length === 0) {
     try {
       firebase.initializeApp(firebaseConfig);
@@ -35,16 +32,29 @@ if (typeof firebase === 'undefined') {
 }
 
 // ==========================================
-// 📦 গ্লোবাল ভেরিয়েবল (auth, db)
+// 📦 গ্লোবাল ভেরিয়েবল (auth, db, messaging)
 // ==========================================
 let auth = null;
 let db = null;
+let messaging = null;
 
 try {
   if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0) {
-    // 🔥 compat SDK ব্যবহার করে auth ও firestore ইনিট
+    // 🔥 compat SDK ব্যবহার করে সার্ভিস ইনিট
     auth = firebase.auth();
     db = firebase.firestore();
+    
+    // 🔔 Messaging ইনিশিয়ালাইজ (শুধুমাত্র ব্রাউজারে)
+    if (typeof window !== 'undefined' && firebase.messaging) {
+      try {
+        messaging = firebase.messaging();
+        console.log("✅ Firebase Messaging initialized");
+      } catch (e) {
+        console.warn("⚠️ Firebase Messaging not supported in this environment:", e.message);
+        messaging = null;
+      }
+    }
+    
     console.log("✅ Firebase Auth & Firestore initialized");
   } else {
     console.warn("⚠️ Firebase not initialized. Auth & Firestore unavailable.");
@@ -57,12 +67,9 @@ try {
 // 💾 Offline Persistence (IndexedDB)
 // ==========================================
 if (db && typeof db.enablePersistence === 'function') {
-  // IndexedDB সাপোর্ট চেক করুন
   if ('indexedDB' in window) {
     db.enablePersistence({ synchronizeTabs: true })
-      .then(() => {
-        console.log('✅ Offline persistence enabled (sync tabs)');
-      })
+      .then(() => console.log('✅ Offline persistence enabled (sync tabs)'))
       .catch((err) => {
         if (err.code === 'failed-precondition') {
           console.warn('⚠️ Multiple tabs open, persistence enabled in first tab only.');
@@ -80,7 +87,7 @@ if (db && typeof db.enablePersistence === 'function') {
 }
 
 // ==========================================
-// 🔐 Auth State Change Listener (গ্লোবাল)
+// 🔐 Auth State Change Listener
 // ==========================================
 if (auth && typeof auth.onAuthStateChanged === 'function') {
   auth.onAuthStateChanged((user) => {
@@ -95,19 +102,58 @@ if (auth && typeof auth.onAuthStateChanged === 'function') {
 }
 
 // ==========================================
-// 🌐 গ্লোবালি এক্সপোজ (window)
+// 🔔 FCM Token পাওয়ার ফাংশন (Push Notification-এর জন্য)
+// ==========================================
+async function getFCMToken() {
+  if (!messaging) {
+    console.warn('⚠️ Firebase Messaging not available');
+    return null;
+  }
+  
+  try {
+    // Notification permission চেক
+    if (Notification.permission !== 'granted') {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        console.warn('⚠️ Notification permission not granted');
+        return null;
+      }
+    }
+    
+    // FCM Token নিন
+    const token = await messaging.getToken({
+      vapidKey: 'BJvVefLaxMNoMclXOJ_lNNGfTiYtT0e30u2MtEd9fNYN6OqW6SrIkzy_UpK-yEM0dBmhTXnsNOgabTxYtH6MDZo'
+    });
+    
+    if (token) {
+      console.log('✅ FCM Token:', token);
+      return token;
+    } else {
+      console.warn('⚠️ No FCM token received');
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Error getting FCM token:', error);
+    return null;
+  }
+}
+
+// ==========================================
+// 🌐 গ্লোবালি এক্সপোজ
 // ==========================================
 if (typeof window !== 'undefined') {
   window.auth = auth;
   window.db = db;
+  window.messaging = messaging;
   window.firebaseConfig = firebaseConfig;
+  window.getFCMToken = getFCMToken;
 }
 
 // ==========================================
 // 📤 এক্সপোর্ট (যদি module system ব্যবহার করা হয়)
 // ==========================================
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { auth, db, firebaseConfig };
+  module.exports = { auth, db, messaging, firebaseConfig, getFCMToken };
 }
 
-console.log('✅ firebase-config.js loaded successfully');
+console.log('✅ firebase-config.js loaded successfully (with Messaging support)');

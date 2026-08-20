@@ -4,12 +4,16 @@
 //    🔥 Database vs Live Data – দুই মোড সাপোর্ট
 //    ✅ লগইন/সাইনআপ ফাংশনালিটি DOMContentLoaded-এর ভেতরে নেওয়া হয়েছে
 //    🔔 ডেইলি সামারি শিডিউলার কল (scheduleDailySummary) যোগ করা হয়েছে
+//    📡 Push Notification সেটআপ (FCM) যোগ করা হয়েছে
+//    ⏰ ব্যাকগ্রাউন্ড প্রাইস অ্যালার্ট চেকার যোগ করা হয়েছে
 // ==========================================
 
 // ==========================================
 // 📌 গ্লোবাল ভেরিয়েবল (core.js থেকে নেওয়া)
 // ==========================================
 // currentDataMode, isManualReloading, autoRefreshEnabled ইত্যাদি core.js-এ ডিফাইন
+
+let priceAlertInterval = null;
 
 // ==========================================
 // ০. থিম ফাংশন (সবার আগে)
@@ -1031,7 +1035,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(updateCommissionDisplay, 500);
 
     // ==========================================
-    // 🔐 লগইন/সাইনআপ ইভেন্ট লিসেনার (এখানে যুক্ত করা হয়েছে)
+    // 🔐 লগইন/সাইনআপ ইভেন্ট লিসেনার
     // ==========================================
     const loginContainer = document.getElementById('login-container');
     const appContainer = document.getElementById('app-container');
@@ -1166,7 +1170,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (typeof loadPortfolioManagerData === 'function') await loadPortfolioManagerData();
                 
                 // ==========================================
-                // 🔔 ডেইলি সামারি শিডিউলার চালু করুন (ধাপ ৪.২)
+                // 🔔 ডেইলি সামারি শিডিউলার চালু করুন
                 // ==========================================
                 if (typeof scheduleDailySummary === 'function') {
                     try {
@@ -1176,6 +1180,20 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.warn('Daily summary scheduler error:', e);
                     }
                 }
+
+                // ==========================================
+                // 📡 FCM Push Notification সেটআপ
+                // ==========================================
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.ready.then(() => {
+                        setTimeout(setupPushNotifications, 2000);
+                    });
+                }
+
+                // ==========================================
+                // ⏰ ব্যাকগ্রাউন্ড প্রাইস অ্যালার্ট চেকার স্টার্ট
+                // ==========================================
+                startPriceAlertChecker();
                 
                 console.log('✅ Dashboard loaded successfully');
             } else {
@@ -1185,6 +1203,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (authError) authError.innerText = '';
                 if (typeof stopAutoRefresh === 'function') stopAutoRefresh();
                 if (typeof CacheManager !== 'undefined' && CacheManager.clearAll) CacheManager.clearAll();
+                
+                // প্রাইস অ্যালার্ট চেকার বন্ধ
+                if (priceAlertInterval) {
+                    clearInterval(priceAlertInterval);
+                    priceAlertInterval = null;
+                }
             }
         });
     } else {
@@ -1201,6 +1225,312 @@ window.addEventListener('beforeunload', () => {
     if (window.stockTableRefreshInterval) clearInterval(window.stockTableRefreshInterval);
     if (window.autoRefreshInterval) clearInterval(window.autoRefreshInterval);
     if (window.firebaseDataManager) window.firebaseDataManager.clearCache();
+    if (priceAlertInterval) {
+        clearInterval(priceAlertInterval);
+        priceAlertInterval = null;
+    }
+});
+
+// ==========================================
+// ১২. 📡 Firebase Cloud Messaging (FCM) সেটআপ
+// ==========================================
+
+// VAPID পাবলিক কী (Firebase Console থেকে নিন)
+const VAPID_PUBLIC_KEY = 'BJvVefLaxMNoMclXOJ_lNNGfTiYtT0e30u2MtEd9fNYN6OqW6SrIkzy_UpK-yEM0dBmhTXnsNOgabTxYtH6MDZo';
+
+async function setupPushNotifications() {
+    try {
+        // ১. Service Worker রেজিস্টার চেক
+        if (!('serviceWorker' in navigator)) {
+            console.warn('Service Worker not supported');
+            return;
+        }
+
+        const registration = await navigator.serviceWorker.ready;
+        
+        // ২. Push Manager থেকে সাবস্ক্রিপশন চেক
+        let subscription = await registration.pushManager.getSubscription();
+        
+        // ৩. যদি সাবস্ক্রিপশন না থাকে, নতুন তৈরি করুন
+        if (!subscription) {
+            const applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+            
+            subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: applicationServerKey
+            });
+            
+            console.log('✅ Push subscription created');
+        } else {
+            console.log('✅ Existing push subscription found');
+        }
+
+        // ৪. টোকেন বের করা (এন্ডপয়েন্ট থেকে)
+        const token = subscription.endpoint;
+        console.log('📡 FCM Token:', token);
+        
+        // ৫. টোকেন সার্ভারে (Firestore/Supabase) সেভ করুন
+        await saveFCMToken(token);
+        
+        return subscription;
+    } catch (error) {
+        console.error('❌ Push setup error:', error);
+    }
+}
+
+// VAPID কী কনভার্ট করার হেলপার
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+        .replace(/\-/g, '+')
+        .replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+}
+
+// টোকেন সেভ করার ফাংশন (Firestore অথবা Supabase)
+async function saveFCMToken(token) {
+    const user = auth?.currentUser;
+    if (!user) return;
+    
+    try {
+        // Firebase Firestore-এ সেভ
+        if (typeof db !== 'undefined') {
+            await db.collection('users').doc(user.uid).set({
+                fcmToken: token,
+                updatedAt: new Date()
+            }, { merge: true });
+            console.log('✅ FCM token saved to Firestore');
+        }
+        
+        // অথবা Supabase-এ সেভ
+        if (typeof supabase !== 'undefined' && supabase) {
+            await supabase
+                .from('users')
+                .upsert({
+                    user_id: user.uid,
+                    fcm_token: token,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'user_id' });
+            console.log('✅ FCM token saved to Supabase');
+        }
+    } catch (err) {
+        console.warn('Failed to save FCM token:', err);
+    }
+}
+
+// ==========================================
+// ১৩. ⏰ ব্যাকগ্রাউন্ড প্রাইস অ্যালার্ট চেকার
+// ==========================================
+
+function startPriceAlertChecker() {
+    // আগের ইন্টারভাল ক্লিয়ার করুন
+    if (priceAlertInterval) {
+        clearInterval(priceAlertInterval);
+        priceAlertInterval = null;
+    }
+    
+    // ইউজার লগইন না থাকলে চেকার চালাবেন না
+    const user = auth?.currentUser;
+    if (!user) {
+        console.log('⏸️ Price alert checker paused (no user)');
+        return;
+    }
+    
+    console.log('⏰ Starting price alert checker (every 5 minutes)');
+    
+    // প্রথমবার ১০ সেকেন্ড পরে চেক করবে (ড্যাশবোর্ড লোডের পর)
+    setTimeout(async () => {
+        await checkPriceAlertsInBackground();
+    }, 10000);
+    
+    // তারপর প্রতি ৫ মিনিট পর পর চেক করবে
+    priceAlertInterval = setInterval(async () => {
+        await checkPriceAlertsInBackground();
+    }, 300000); // ৫ মিনিট
+}
+
+async function checkPriceAlertsInBackground() {
+    const user = auth?.currentUser;
+    if (!user) {
+        // ইউজার লগআউট করলে ইন্টারভাল বন্ধ করুন
+        if (priceAlertInterval) {
+            clearInterval(priceAlertInterval);
+            priceAlertInterval = null;
+        }
+        return;
+    }
+    
+    // নোটিফিকেশন ম্যানেজার না থাকলে বা পারমিশন না থাকলে রিটার্ন
+    if (typeof notificationManager === 'undefined' || !notificationManager || !notificationManager.permission) {
+        return;
+    }
+    
+    try {
+        const unifiedData = await unifiedEngine.calculate(user.uid, null, true);
+        if (!unifiedData || !unifiedData.stockDetails || unifiedData.stockDetails.length === 0) return;
+        
+        const tickers = unifiedData.stockDetails.map(s => s.ticker);
+        const priceMap = await getLatestAndPreviousPrices(tickers);
+        
+        let alertTriggered = false;
+        for (const [ticker, data] of priceMap) {
+            if (data.currentPrice > 0) {
+                notificationManager.checkPriceAlerts(ticker, data.currentPrice);
+                // অ্যালার্ট ট্রিগার হলে ফ্ল্যাগ সেট করুন
+                const alert = notificationManager.getAlertStatus(ticker);
+                if (alert && alert.triggered) {
+                    alertTriggered = true;
+                }
+            }
+        }
+        
+        // অ্যালার্ট ট্রিগার হলে UI রিফ্রেশ (অ্যালার্ট লিস্ট আপডেট)
+        if (alertTriggered && typeof loadActiveAlerts === 'function') {
+            loadActiveAlerts();
+        }
+        
+    } catch (error) {
+        console.warn('Background price alert check error:', error);
+    }
+}
+
+// ==========================================
+// ১৪. 🔔 অ্যালার্ট ফাংশন (ui-helpers.js-তে যোগ করুন)
+// ==========================================
+
+/**
+ * ব্রাউজার নোটিফিকেশন পারমিশন চাওয়া
+ */
+window.requestNotificationPermission = async function() {
+    if (!('Notification' in window)) {
+        showToast('This browser does not support notifications.', 'error');
+        return;
+    }
+    if (Notification.permission === 'granted') {
+        showToast('✅ Notification already enabled!', 'success');
+        return;
+    }
+    if (Notification.permission === 'denied') {
+        showToast('❌ Notification blocked. Please enable from browser settings.', 'error');
+        return;
+    }
+    // পারমিশন চাওয়া
+    const result = await Notification.requestPermission();
+    if (result === 'granted') {
+        showToast('✅ Notification enabled!', 'success');
+        // নোটিফিকেশন ম্যানেজার আপডেট
+        if (notificationManager) {
+            notificationManager.permission = true;
+        }
+    } else {
+        showToast('❌ Notification permission denied.', 'error');
+    }
+};
+
+/**
+ * প্রাইস অ্যালার্ট সেট করা (HTML বাটন থেকে কল হবে)
+ */
+window.setPriceAlert = function() {
+    const tickerInput = document.getElementById('alert-ticker');
+    const targetInput = document.getElementById('alert-target-price');
+    const directionSelect = document.getElementById('alert-direction');
+    const suggestionBox = document.getElementById('alert-suggestions');
+
+    if (!tickerInput || !targetInput || !directionSelect) {
+        showToast('Alert form elements not found.', 'error');
+        return;
+    }
+
+    const ticker = tickerInput.value.trim().toUpperCase();
+    const target = parseFloat(targetInput.value);
+    const direction = directionSelect.value;
+
+    // ভ্যালিডেশন
+    if (!ticker) {
+        showToast('Please enter a ticker (e.g., GP).', 'warning');
+        return;
+    }
+    if (!target || target <= 0) {
+        showToast('Please enter a valid target price.', 'warning');
+        return;
+    }
+    
+    // স্টক লিস্টে আছে কিনা চেক (ঐচ্ছিক)
+    const stockList = (typeof dseStocks !== 'undefined') ? dseStocks : (window.dseStocks || []);
+    if (!stockList.includes(ticker)) {
+        showToast('Share not found. Please select from suggestions.', 'warning');
+        return;
+    }
+
+    // নোটিফিকেশন ম্যানেজার চেক
+    if (typeof notificationManager === 'undefined' || !notificationManager) {
+        showToast('Notification manager not loaded.', 'error');
+        return;
+    }
+
+    // অ্যালার্ট সেট করা
+    const success = notificationManager.setAlert(ticker, target, direction);
+    if (success) {
+        // UI রিফ্রেশ
+        if (typeof loadActiveAlerts === 'function') {
+            setTimeout(loadActiveAlerts, 300);
+        }
+        // ইনপুট ফিল্ড ক্লিয়ার
+        tickerInput.value = '';
+        targetInput.value = '';
+        if (suggestionBox) suggestionBox.classList.add('hidden');
+        showToast(`✅ Alert set for ${ticker} at ৳${target.toFixed(2)}`, 'success');
+    } else {
+        showToast('Failed to set alert. Maximum 50 alerts allowed.', 'error');
+    }
+};
+
+// ==========================================
+// ১৫. 🚀 অ্যালার্ট সার্চ সাজেশন (ইনপুটের জন্য)
+// ==========================================
+document.addEventListener('DOMContentLoaded', function() {
+    const alertTickerInput = document.getElementById('alert-ticker');
+    const alertSuggestionBox = document.getElementById('alert-suggestions');
+    
+    if (alertTickerInput && alertSuggestionBox) {
+        const stockList = (typeof dseStocks !== 'undefined') ? dseStocks : (window.dseStocks || []);
+        
+        alertTickerInput.addEventListener('input', function() {
+            const query = this.value.trim().toUpperCase();
+            alertSuggestionBox.innerHTML = '';
+            if (!query) {
+                alertSuggestionBox.classList.add('hidden');
+                return;
+            }
+            const filtered = stockList.filter(s => s.startsWith(query)).slice(0, 10);
+            if (filtered.length > 0) {
+                alertSuggestionBox.classList.remove('hidden');
+                filtered.forEach(stock => {
+                    const div = document.createElement('div');
+                    div.classList.add('suggestion-item');
+                    div.innerText = stock;
+                    div.addEventListener('click', function() {
+                        alertTickerInput.value = stock;
+                        alertSuggestionBox.classList.add('hidden');
+                    });
+                    alertSuggestionBox.appendChild(div);
+                });
+            } else {
+                alertSuggestionBox.classList.add('hidden');
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!alertTickerInput.contains(e.target) && !alertSuggestionBox.contains(e.target)) {
+                alertSuggestionBox.classList.add('hidden');
+            }
+        });
+    }
 });
 
 // ==========================================
@@ -1229,6 +1559,12 @@ window.setLiveDataMode = setLiveDataMode;
 window.loadLiveDashboardData = loadLiveDashboardData;
 window.loadLiveStockTable = loadLiveStockTable;
 window.loadLivePortfolioAnalysis = loadLivePortfolioAnalysis;
+window.requestNotificationPermission = window.requestNotificationPermission;
+window.setPriceAlert = window.setPriceAlert;
+window.setupPushNotifications = setupPushNotifications;
+window.startPriceAlertChecker = startPriceAlertChecker;
+window.saveFCMToken = saveFCMToken;
+window.urlBase64ToUint8Array = urlBase64ToUint8Array;
 
 // ==========================================
 // 📜 ট্রেড হিস্ট্রি ফাংশন
@@ -1404,160 +1740,6 @@ window.deleteTrade = function(id, type) {
         });
     }
 };
-// ==========================================
-// 🔔 অ্যালার্ট ফাংশন (ui-helpers.js-তে যোগ করুন)
-// ==========================================
-
-/**
- * ব্রাউজার নোটিফিকেশন পারমিশন চাওয়া
- */
-window.requestNotificationPermission = async function() {
-    if (!('Notification' in window)) {
-        showToast('This browser does not support notifications.', 'error');
-        return;
-    }
-    if (Notification.permission === 'granted') {
-        showToast('✅ Notification already enabled!', 'success');
-        return;
-    }
-    if (Notification.permission === 'denied') {
-        showToast('❌ Notification blocked. Please enable from browser settings.', 'error');
-        return;
-    }
-    // পারমিশন চাওয়া
-    const result = await Notification.requestPermission();
-    if (result === 'granted') {
-        showToast('✅ Notification enabled!', 'success');
-        // নোটিফিকেশন ম্যানেজার আপডেট
-        if (notificationManager) {
-            notificationManager.permission = true;
-        }
-    } else {
-        showToast('❌ Notification permission denied.', 'error');
-    }
-};
-
-/**
- * প্রাইস অ্যালার্ট সেট করা (HTML বাটন থেকে কল হবে)
- */
-window.setPriceAlert = function() {
-    const tickerInput = document.getElementById('alert-ticker');
-    const targetInput = document.getElementById('alert-target-price');
-    const directionSelect = document.getElementById('alert-direction');
-    const suggestionBox = document.getElementById('alert-suggestions');
-
-    if (!tickerInput || !targetInput || !directionSelect) {
-        showToast('Alert form elements not found.', 'error');
-        return;
-    }
-
-    const ticker = tickerInput.value.trim().toUpperCase();
-    const target = parseFloat(targetInput.value);
-    const direction = directionSelect.value;
-
-    // ভ্যালিডেশন
-    if (!ticker) {
-        showToast('Please enter a ticker (e.g., GP).', 'warning');
-        return;
-    }
-    if (!target || target <= 0) {
-        showToast('Please enter a valid target price.', 'warning');
-        return;
-    }
-    
-    // স্টক লিস্টে আছে কিনা চেক (ঐচ্ছিক)
-    const stockList = (typeof dseStocks !== 'undefined') ? dseStocks : (window.dseStocks || []);
-    if (!stockList.includes(ticker)) {
-        showToast('Share not found. Please select from suggestions.', 'warning');
-        return;
-    }
-
-    // নোটিফিকেশন ম্যানেজার চেক
-    if (typeof notificationManager === 'undefined' || !notificationManager) {
-        showToast('Notification manager not loaded.', 'error');
-        return;
-    }
-// ডেইলি ব্রিফিং শিডিউলার স্টার্ট
-if (typeof scheduleDailyBriefing === 'function') {
-    scheduleDailyBriefing();
-    console.log('📊 Daily briefing scheduler started');
-}
-    // অ্যালার্ট সেট করা
-    const success = notificationManager.setAlert(ticker, target, direction);
-    if (success) {
-        // UI রিফ্রেশ
-        if (typeof loadActiveAlerts === 'function') {
-            setTimeout(loadActiveAlerts, 300);
-        }
-        // ইনপুট ফিল্ড ক্লিয়ার
-        tickerInput.value = '';
-        targetInput.value = '';
-        if (suggestionBox) suggestionBox.classList.add('hidden');
-        showToast(`✅ Alert set for ${ticker} at ৳${target.toFixed(2)}`, 'success');
-    } else {
-        showToast('Failed to set alert. Maximum 50 alerts allowed.', 'error');
-    }
-};
-
-/**
- * অ্যালার্ট রিমুভ করা (টেবিলের বাটন থেকে কল হবে)
- * ইতিমধ্যে dash-cards.js-এ ডিফাইন করা আছে, কিন্তু যদি না থাকে:
- */
-window.removeAlert = function(ticker) {
-    if (!ticker) return;
-    if (typeof notificationManager !== 'undefined' && notificationManager) {
-        notificationManager.removeAlert(ticker);
-        if (typeof loadActiveAlerts === 'function') {
-            loadActiveAlerts();
-        }
-        showToast(`🗑️ Alert removed for ${ticker}`, 'info');
-    }
-};
-
-// ==========================================
-// 🚀 অ্যালার্ট সার্চ সাজেশন (ইনপুটের জন্য)
-// ==========================================
-document.addEventListener('DOMContentLoaded', function() {
-    const alertTickerInput = document.getElementById('alert-ticker');
-    const alertSuggestionBox = document.getElementById('alert-suggestions');
-    
-    if (alertTickerInput && alertSuggestionBox) {
-        const stockList = (typeof dseStocks !== 'undefined') ? dseStocks : (window.dseStocks || []);
-        
-        alertTickerInput.addEventListener('input', function() {
-            const query = this.value.trim().toUpperCase();
-            alertSuggestionBox.innerHTML = '';
-            if (!query) {
-                alertSuggestionBox.classList.add('hidden');
-                return;
-            }
-            const filtered = stockList.filter(s => s.startsWith(query)).slice(0, 10);
-            if (filtered.length > 0) {
-                alertSuggestionBox.classList.remove('hidden');
-                filtered.forEach(stock => {
-                    const div = document.createElement('div');
-                    div.classList.add('suggestion-item');
-                    div.innerText = stock;
-                    div.addEventListener('click', function() {
-                        alertTickerInput.value = stock;
-                        alertSuggestionBox.classList.add('hidden');
-                    });
-                    alertSuggestionBox.appendChild(div);
-                });
-            } else {
-                alertSuggestionBox.classList.add('hidden');
-            }
-        });
-
-        document.addEventListener('click', function(e) {
-            if (!alertTickerInput.contains(e.target) && !alertSuggestionBox.contains(e.target)) {
-                alertSuggestionBox.classList.add('hidden');
-            }
-        });
-    }
-});
-
-console.log('✅ Alert functions (setPriceAlert, requestNotificationPermission) added');
 
 // গ্লোবালি এক্সপোজ
 window.loadTradeHistory = loadTradeHistory;
@@ -1566,4 +1748,4 @@ window.resetTradeFilter = resetTradeFilter;
 window.editTrade = window.editTrade;
 window.deleteTrade = window.deleteTrade;
 
-console.log('✅ ui-helpers.js loaded successfully (Login fixed, Daily Summary scheduler added)');
+console.log('✅ ui-helpers.js loaded successfully (with Push Notification, Price Alert Checker, Daily Summary scheduler)');

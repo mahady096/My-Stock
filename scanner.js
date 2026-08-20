@@ -1,5 +1,5 @@
 // ==========================================
-// 🔍 scanner.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন v6.0
+// 🔍 scanner.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন v6.1
 //    All Scanner (PSAR + RSI) - Supabase-first + Firebase-fallback
 //    RSI Indicator Section সহ
 //    ⚡ ব্যাচ কোয়েরি দিয়ে পারফরম্যান্স অপটিমাইজড
@@ -11,6 +11,7 @@
 //    ✅ ATH/ATL/RSI/PSAR → history_dse (Supabase first)
 //    ✅ ইন্ডিকেটর ফাংশন indicators.js থেকে নেওয়া
 //    ⚡ requestIdleCallback দিয়ে UI ফ্রিজ কমানো
+//    🔧 Buy Sell Price - Avg Sell ও Max Sell আলাদা করা হয়েছে
 // ==========================================
 
 // ==========================================
@@ -861,6 +862,7 @@ function renderScreenerTable(tab, data) {
 
 // ==========================================
 // 💰 Buy Sell Price – ডেটা জেনারেটর (শুধু ডেটা, UI নয়)
+//    🔧 ফিক্স: Avg Sell ও Max Sell আলাদা করা হয়েছে
 // ==========================================
 window.getBuySellPriceSignalData = async function() {
     const user = auth && auth.currentUser ? auth.currentUser : null;
@@ -872,7 +874,7 @@ window.getBuySellPriceSignalData = async function() {
             return { buy: [], sell: [] };
         }
 
-        // সেল হিস্ট্রি ফেচ
+        // সেল হিস্ট্রি ফেচ (Supabase + Firebase)
         let salesData = [];
         if (typeof supabase !== 'undefined' && supabase) {
             try {
@@ -916,37 +918,52 @@ window.getBuySellPriceSignalData = async function() {
             const ticker = stock.ticker;
             const currentPrice = currentPrices[ticker] || 0;
 
-            // মিন বাই প্রাইস
+            // মিন বাই প্রাইস (সব লটের মধ্যে সর্বনিম্ন)
             let minBuyPrice = Infinity;
             for (const lot of stock.lots) {
                 if (lot.buyPrice < minBuyPrice) minBuyPrice = lot.buyPrice;
             }
             if (minBuyPrice === Infinity) minBuyPrice = 0;
 
-            // ম্যাক্স সেল প্রাইস
+            // Sell হিস্ট্রি থেকে Max ও Avg বের করা
             let maxSellPrice = 0;
+            let totalSellQty = 0;
+            let totalSellValue = 0;
             const tickerSales = salesData.filter(s => s.share_name === ticker);
             for (const sale of tickerSales) {
-                if (sale.sell_price > maxSellPrice) maxSellPrice = sale.sell_price;
+                const sellPrice = parseFloat(sale.sell_price) || 0;
+                const qty = parseFloat(sale.quantity_sold) || 0;
+                if (sellPrice > 0 && qty > 0) {
+                    if (sellPrice > maxSellPrice) maxSellPrice = sellPrice;
+                    totalSellValue += sellPrice * qty;
+                    totalSellQty += qty;
+                }
             }
+            const avgSellPrice = totalSellQty > 0 ? totalSellValue / totalSellQty : 0;
 
+            // Buy Signal: currentPrice < minBuyPrice (ডিসকাউন্ট)
             if (currentPrice > 0 && minBuyPrice > 0 && currentPrice < minBuyPrice) {
                 buySignals.push({
                     ticker: ticker,
                     price: currentPrice,
                     minBuyPrice: minBuyPrice,
                     maxSellPrice: maxSellPrice,
+                    avgSellPrice: avgSellPrice,  // নতুন
                     rsi: null,
                     psar: null,
                     ath: null,
                     atl: null
                 });
-            } else if (currentPrice > 0 && maxSellPrice > 0 && currentPrice > maxSellPrice) {
+            }
+
+            // Sell Signal: currentPrice > maxSellPrice (যদি sell history থাকে)
+            if (currentPrice > 0 && maxSellPrice > 0 && currentPrice > maxSellPrice) {
                 sellSignals.push({
                     ticker: ticker,
                     price: currentPrice,
                     minBuyPrice: minBuyPrice,
                     maxSellPrice: maxSellPrice,
+                    avgSellPrice: avgSellPrice,  // নতুন
                     rsi: null,
                     psar: null,
                     ath: null,
@@ -979,4 +996,4 @@ window.loadScreenerData = loadScreenerData;
 window.clearAllScannerCache = clearAllScannerCache;
 window.getBuySellPriceSignalData = window.getBuySellPriceSignalData;
 
-console.log('✅ scanner.js v6.0 (Supabase-first + Firebase-fallback + requestIdleCallback) loaded successfully');
+console.log('✅ scanner.js v6.1 (Buy Sell Price - Avg/Max Sell fixed) loaded successfully');

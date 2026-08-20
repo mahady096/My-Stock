@@ -886,5 +886,32 @@ if (typeof module !== 'undefined' && module.exports) {
         clearIndicatorCache
     };
 }
+// ==========================================
+// 📡 API এন্ডপয়েন্ট – ডেইলি সাজেশন
+//    (Vercel/Netlify Serverless Function-এর জন্য)
+// ==========================================
 
+async function getDailySuggestionAPI(req, res) {
+    const user = auth?.currentUser;
+    if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
+    try {
+        const suggestion = await generateDailyBriefingData(user.uid);
+        return res.status(200).json({
+            success: true,
+            data: suggestion,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        return res.status(500).json({ error: error.message });
+    }
+}
+
+// ডেইলি ব্রিফিং ডেটা জেনারেট (শুধু ডেটা, নোটিফিকেশন ছাড়া)
+async function generateDailyBriefingData(userId) {
+    // আগের generateDailyBriefing()-এর লজিক ব্যবহার করুন
+    // কিন্তু নোটিফিকেশন পাঠাবেন না, শুধু ডেটা রিটার্ন করবেন
+}
 console.log('✅ indicators.js loaded successfully (All indicators + Forecasting + Volume-based)');
