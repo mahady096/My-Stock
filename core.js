@@ -369,7 +369,7 @@ async function getUnifiedPrice(ticker, forceRefresh = false) {
     // ১. sessionStorage ক্যাশ চেক (forceRefresh false হলে)
     // -----------------------------------------------------
     if (!forceRefresh) {
-        const cached = CacheManager.get(CACHE_KEY, TTL);
+        const cached =await CacheManager.get(CACHE_KEY, TTL);
         if (cached !== null && typeof cached === 'object' && cached.price > 0) {
             // মেমোরি ক্যাশও আপডেট করে রাখি (যাতে বারবার sessionStorage না পড়তে হয়)
             unifiedPriceCache.set(ticker, { 
@@ -488,7 +488,7 @@ async function getUnifiedPrice(ticker, forceRefresh = false) {
             timestamp: now 
         });
         // sessionStorage ক্যাশ
-        CacheManager.set(CACHE_KEY, { price }, TTL);
+        await CacheManager.set(CACHE_KEY, { price }, TTL);
     }
 
     return price;

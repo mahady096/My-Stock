@@ -23,7 +23,7 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null, port
 
     const cacheKey = `timeline_${user.uid}_${start}_${end}_${portfolioId || 'all'}`;
     try {
-        const cached = sessionStorage.getItem(cacheKey);
+        const cached = await CacheManager.get(cacheKey, 1800000);
         if (cached) {
             const parsed = JSON.parse(cached);
             if (Date.now() - parsed.timestamp < 1800000) {
@@ -258,10 +258,7 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null, port
         });
 
         try {
-            sessionStorage.setItem(cacheKey, JSON.stringify({
-                timestamp: Date.now(),
-                data: filteredResult
-            }));
+            await CacheManager.set(cacheKey, filteredResult, 1800000);
         } catch (e) {}
 
         console.log(`✅ Returning ${filteredResult.length} entries`);

@@ -220,7 +220,7 @@ async function loadAdvancedChart(ticker, forceRefresh = false) {
         CacheManager.remove(cacheKey);
     }
 
-    const cachedData = CacheManager.get(cacheKey, CACHE_TTL);
+    const cachedData = await CacheManager.get(cacheKey, CACHE_TTL);
     if (cachedData && cachedData.actualPrices && cachedData.actualPrices.length > 0) {
         console.log(`📊 Chart data loaded from cache for ${finalTicker} (${source})`);
         advChartData = cachedData;
