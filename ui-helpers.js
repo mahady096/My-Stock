@@ -1150,35 +1150,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (user) {
                 console.log(`✅ User logged in: ${user.email || user.uid}`);
                 
-                // ==========================================
-                // 🔥 STEP: Firebase Token → Supabase JWT (RLS-এর জন্য)
-                // ==========================================
-                try {
-                    const idToken = await user.getIdToken();
-                    const response = await fetch(
-                        'https://dpdicusxlrdydajkcgev.supabase.co/functions/v1/auth-hook',
-                        {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ firebase_token: idToken })
-                        }
-                    );
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.token && window.supabase) {
-                            await window.supabase.auth.setSession({
-                                access_token: data.token,
-                                refresh_token: ''
-                            });
-                            console.log('✅ Supabase RLS session ready!');
-                        }
-                    } else {
-                        console.warn('⚠️ Auth hook failed');
-                    }
-                } catch (err) {
-                    console.warn('⚠️ Token exchange error:', err);
-                }
+                // Token Exchange কোড সরানো হয়েছে - RLS বন্ধ রাখা হয়েছে
 
                 if (loginContainer) loginContainer.classList.add('hidden');
                 if (appContainer) appContainer.classList.remove('hidden');

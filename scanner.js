@@ -140,7 +140,7 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
                     try {
                         const { data, error } = await supabase
                             .from('cse_market_data')
-                            .select('code, ltp, high, low, category')
+                            .select('ticker, ltp, high, low, category')
                             .in('code', chunk)
                             .order('date', { ascending: false });
                         if (!error && data) {
@@ -214,7 +214,7 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
                     try {
                         const { data, error } = await supabase
                             .from('history_dse')
-                            .select('code, date, ltp, high, low')
+                            .select('ticker, date, ltp, high, low')
                             .in('ticker', chunk)
                             .gte('date', startDateStr)
                             .order('date', { ascending: true });

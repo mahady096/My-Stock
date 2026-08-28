@@ -48,7 +48,7 @@
     }
 
     window.supabase = supabase.createClient(supabaseUrl, supabaseAnonKey, {
-        auth: { persistSession: true },
+        auth: { persistSession: false },
         realtime: { autoConnect: false }
     });
 

@@ -34,7 +34,7 @@ window.loadPriceHistoryChart = async function(ticker, startDate = null, endDate 
             let query = supabase
                 .from('history_dse')
                 .select('date, ltp, high, low')
-                .eq('code', ticker)
+                .eq('ticker', ticker)
                 .gte('date', startDateStr)
                 .order('date', { ascending: true });
             if (endDateStr) {
@@ -255,7 +255,7 @@ window.loadRSIChart = async function(ticker, startDate = null, endDate = null) {
             let query = supabase
                 .from('history_dse')
                 .select('date, ltp')
-                .eq('code', ticker)
+                .eq('ticker', ticker)
                 .gte('date', startDateStr)
                 .order('date', { ascending: true });
             if (endDateStr) {
@@ -428,7 +428,7 @@ window.loadGainAnalysisChart = async function(ticker, startDate = null, endDate 
                 let query = supabase
                     .from('history_dse')
                     .select('date, ltp')
-                    .eq('code', ticker)
+                    .eq('ticker', ticker)
                     .gte('date', startDateStr)
                     .order('date', { ascending: true });
                 if (endDateStr) {
@@ -715,7 +715,7 @@ window.loadModalPerformanceTable = async function(ticker) {
                 const { data, error } = await supabase
                     .from('history_dse')
                     .select('ltp')
-                    .eq('code', ticker)
+                    .eq('ticker', ticker)
                     .eq('date', targetDateStr)
                     .limit(1);
                 if (!error && data && data.length > 0) {

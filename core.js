@@ -1736,7 +1736,46 @@ async function fetchStockByTicker(ticker) {
         return [];
     }
 }
+// ==========================================
+// 🔥 Supabase Direct Fetch হেলপার
+// ==========================================
+let cachedSupabaseToken = null;
 
+async function getSupabaseToken() {
+    if (cachedSupabaseToken) return cachedSupabaseToken;
+    const user = auth.currentUser;
+    if (!user) throw new Error('No user logged in');
+    const idToken = await user.getIdToken();
+    const res = await fetch('https://dpdicusxlrdydajkcgev.supabase.co/functions/v1/auth-hook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firebase_token: idToken })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Token exchange failed');
+    cachedSupabaseToken = data.token;
+    return cachedSupabaseToken;
+}
+
+async function supabaseFetch(path, options = {}) {
+    const token = await getSupabaseToken();
+    const anonKey = 'sb_publishable_vIexTeuEoBjiFoA0F2w2Ag_3GUn_SMX';
+    const url = `https://dpdicusxlrdydajkcgev.supabase.co/rest/v1${path}`;
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            'apikey': anonKey,
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            ...(options.headers || {})
+        }
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.json();
+}
 /**
  * ঐতিহাসিক ডেটা ফেচ করুন
  */
@@ -1801,5 +1840,6 @@ window.renamePortfolio = renamePortfolio;
 window.getPortfolioName = getPortfolioName;
 window.getHistoricalPricesFromSupabase = getHistoricalPricesFromSupabase;
 window.getLatestDSEXFromSupabase = getLatestDSEXFromSupabase;
-
+window.getSupabaseToken = getSupabaseToken;
+window.supabaseFetch = supabaseFetch;
 console.log('✅ core.js loaded successfully (All functions defined and exposed globally)');
