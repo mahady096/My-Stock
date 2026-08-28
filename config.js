@@ -33,7 +33,7 @@ const APP_CONFIG = {
     // ডিফল্ট ভ্যালু
     DEFAULTS: {
         COMMISSION_PERCENT: 0,
-        DATA_MODE: 'firebase',
+        DATA_MODE: 'database',
         SIGNAL_THRESHOLD: 50
     },
 

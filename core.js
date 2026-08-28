@@ -27,7 +27,7 @@ const CONFIG = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG) ? APP_CONFIG : 
     },
     DEFAULTS: {
         COMMISSION_PERCENT: 0,
-        DATA_MODE: 'firebase'
+        DATA_MODE: 'database'
     },
     CALC: {
         PARABOLIC_SAR_STEP: 0.02,
@@ -1045,23 +1045,19 @@ async function getLatestDSEXFromSupabase() {
 // ==========================================
 class UnifiedCalculationEngine {
     constructor() {
-        this.cachedResult = null;
-        this.cacheTime = 0;
+        this.cache = new Map();
         this.cacheTTL = 300000;
     }
 
-    // UnifiedCalculationEngine.calculate() - সম্পূর্ণ মেথড
+    // UnifiedCalculationEngine.calculate() - user/portfolio isolated cache
 async calculate(userId, portfolioId = null, forceRefresh = false) {
     if (!userId) return null;
     const now = Date.now();
-    // ক্যাশ কী (পোর্টফোলিও আইডি অনুযায়ী আলাদা)
     const cacheKey = `calc_${userId}_${portfolioId || 'all'}`;
-    if (!forceRefresh && this.cachedResult && (now - this.cacheTime) < this.cacheTTL) {
-        // চেক করুন ক্যাশ করা ডেটা একই পোর্টফোলিওর জন্য কিনা
-        if (this.cachedResult._portfolioId === (portfolioId || 'all')) {
-            console.log('📦 Using cached unified calculation');
-            return this.cachedResult;
-        }
+    const cached = this.cache.get(cacheKey);
+    if (!forceRefresh && cached && (now - cached.timestamp) < this.cacheTTL) {
+        console.log('📦 Using cached unified calculation');
+        return cached.data;
     }
     console.log('🔄 Calculating portfolio... (portfolioId:', portfolioId || 'all', ')');
 
@@ -1245,8 +1241,7 @@ async calculate(userId, portfolioId = null, forceRefresh = false) {
             calculatedAt: now,
             method: 'FIFO with Commission'
         };
-        this.cachedResult = result;
-        this.cacheTime = now;
+        this.cache.set(cacheKey, { data: result, timestamp: now });
         return result;
 
     } catch (error) {
@@ -1256,8 +1251,7 @@ async calculate(userId, portfolioId = null, forceRefresh = false) {
 }
 
     resetCache() {
-        this.cachedResult = null;
-        this.cacheTime = 0;
+        this.cache.clear();
         console.log('🔄 Unified calculation cache reset');
     }
 }
@@ -1322,6 +1316,7 @@ async function saveSalesToBoth(userId, data) {
                 commission: data.commission || 0,
                 commission_percent: data.commissionPercent || 0,
                 net_received: data.netReceived || 0,
+                portfolio_id: data.portfolioId || 'main',
                 date: data.date || new Date().toISOString().split('T')[0],
                 created_at: new Date().toISOString()
             });
@@ -1341,6 +1336,7 @@ async function saveSalesToBoth(userId, data) {
                 commission: data.commission || 0,
                 commissionPercent: data.commissionPercent || 0,
                 netReceived: data.netReceived || 0,
+                portfolioId: data.portfolioId || 'main',
                 date: data.date ? new Date(data.date) : new Date(),
                 createdAt: new Date()
             });
@@ -1362,6 +1358,7 @@ async function saveDividendToBoth(userId, data) {
                 share_name: data.shareName,
                 stock_percent: data.stockPercent || 0,
                 cash_amount: data.cashAmount || 0,
+                portfolio_id: data.portfolioId || 'main',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             });
@@ -1376,6 +1373,7 @@ async function saveDividendToBoth(userId, data) {
                 shareName: data.shareName,
                 stockPercent: data.stockPercent || 0,
                 cashAmount: data.cashAmount || 0,
+                portfolioId: data.portfolioId || 'main',
                 createdAt: new Date(),
                 updatedAt: new Date()
             });
@@ -1534,8 +1532,30 @@ async function getPERatio(ticker) {
 // 🧹 গ্লোবাল ক্যাশ ক্লিনার
 // ==========================================
 function resetUnifiedCache() {
-    if (window.unifiedEngine) window.unifiedEngine.resetCache();
-    else console.warn('unifiedEngine not found');
+    // Clear the unified calculation result.
+    try {
+        if (typeof unifiedEngine !== 'undefined' && unifiedEngine && unifiedEngine.cache) {
+            unifiedEngine.cache.clear();
+        }
+    } catch (e) {
+        console.warn('Unified cache reset failed:', e);
+    }
+
+    // Also clear the DataService cache when available so reads after
+    // a successful write never return stale portfolio data.
+    try {
+        if (typeof window.clearDataServiceCache === 'function') {
+            window.clearDataServiceCache();
+        }
+    } catch (e) {
+        console.warn('DataService cache clear failed:', e);
+    }
+
+    try {
+        window.dispatchEvent(new CustomEvent('stockpulse:data-changed', {
+            detail: { reason: 'unified cache reset', timestamp: Date.now() }
+        }));
+    } catch (e) {}
 }
 
 function debounce(func, wait = 300) {

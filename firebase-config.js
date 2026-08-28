@@ -2,6 +2,8 @@
 // 📁 firebase-config.js - সম্পূর্ণ কনফিগারেশন (FCM সহ)
 //    Firebase App, Auth, Firestore, Messaging
 //    Push Notification সেটআপের জন্য প্রস্তুত
+//
+// ✅ সিকিউরিটি ফিক্স: FCM টোকেন আর কনসোলে লগ হয় না
 // ==========================================
 
 // Firebase কনফিগারেশন অবজেক্ট (আপনার প্রজেক্টের নিজস্ব ডেটা বসান)
@@ -32,7 +34,7 @@ if (typeof firebase === 'undefined') {
 }
 
 // ==========================================
-// 📦 গ্লোবাল ভেরিয়েবল (auth, db, messaging)
+// 📦 গ্লোবাল ভেরিয়েবল (auth, db, messaging)
 // ==========================================
 let auth = null;
 let db = null;
@@ -44,7 +46,7 @@ try {
     auth = firebase.auth();
     db = firebase.firestore();
     
-    // 🔔 Messaging ইনিশিয়ালাইজ (শুধুমাত্র ব্রাউজারে)
+    // 🔔 Messaging ইনিশিয়ালাইজ (শুধুমাত্র ব্রাউজারে)
     if (typeof window !== 'undefined' && firebase.messaging) {
       try {
         messaging = firebase.messaging();
@@ -102,7 +104,7 @@ if (auth && typeof auth.onAuthStateChanged === 'function') {
 }
 
 // ==========================================
-// 🔔 FCM Token পাওয়ার ফাংশন (Push Notification-এর জন্য)
+// 🔔 FCM Token পাওয়ার ফাংশন (Push Notification-এর জন্য)
 // ==========================================
 async function getFCMToken() {
   if (!messaging) {
@@ -126,7 +128,7 @@ async function getFCMToken() {
     });
     
     if (token) {
-      console.log('✅ FCM Token:', token);
+      // 🔒 সিকিউরিটি ফিক্স: টোকেন কনসোলে লগ হয় না
       return token;
     } else {
       console.warn('⚠️ No FCM token received');
@@ -150,7 +152,7 @@ if (typeof window !== 'undefined') {
 }
 
 // ==========================================
-// 📤 এক্সপোর্ট (যদি module system ব্যবহার করা হয়)
+// 📤 এক্সপোর্ট (যদি module system ব্যবহার করা হয়)
 // ==========================================
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { auth, db, messaging, firebaseConfig, getFCMToken };

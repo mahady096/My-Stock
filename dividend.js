@@ -2,9 +2,29 @@
 // 💰 dividend.js - Dividend Analysis
 //    portfolio.js থেকে ভাগ করা (ফাইল ৪)
 //    ডিভিডেন্ড অ্যাড/এডিট/ডিলিট
+//
+//    ✅ ফিক্স v2:
+//    - deleteDividendRecord: Supabase-এ .eq('user_id', ...) যোগ করা হয়েছে
+//      (IDOR প্রতিরোধ — RLS-এর উপর একতরফা নির্ভর না করা)
+//    - Firebase delete/update-এর আগে ownership ভেরিফাই (doc পড়ে userId চেক)
+//    - saveDividendData (edit): একই ownership চেক
+//    - html টেবিলে docId/ticker escape করা (defense-in-depth)
 // ==========================================
 
 let currentEditingDividendId = null;
+
+// ==========================================
+// 🛡️ HTML attribute-এ নিরাপদে বসানোর জন্য escape হেল্পার
+// ==========================================
+function escapeHtmlDiv(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
 
 async function loadDividendData(portfolioId = null) {
     const user = auth && auth.currentUser ? auth.currentUser : null;
@@ -115,13 +135,17 @@ async function loadDividendData(portfolioId = null) {
                 unrealizedGain = (currentPrice - avgBuyPrice) * remainingQty;
             }
 
-            html += `<tr onclick="openDividendEditModal('${docId}','${ticker}',${stockPercent},${cashAmount})">
-                <td><b>${ticker}</b></td>
+            // ✅ escape — docId/ticker onclick attribute-এ বসার আগে
+            const safeDocId = escapeHtmlDiv(docId);
+            const safeTicker = escapeHtmlDiv(ticker);
+
+            html += `<tr onclick="openDividendEditModal('${safeDocId}','${safeTicker}',${stockPercent},${cashAmount})">
+                <td><b>${safeTicker}</b></td>
                 <td>${stockPercent}%</td>
                 <td>৳${cashAmount.toFixed(2)}</td>
                 <td>${remainingQty > 0 ? `৳${totalDividendGain.toFixed(2)}` : '-'}</td>
                 <td>${remainingQty > 0 ? `৳${unrealizedGain.toFixed(2)}` : '-'}</td>
-                <td><button onclick="deleteDividendRecord('${docId}', event)">Delete</button></td>
+                <td><button onclick="deleteDividendRecord('${safeDocId}', event)">Delete</button></td>
             </tr>`;
         }
         tableBody.innerHTML = html;
@@ -131,18 +155,55 @@ async function loadDividendData(portfolioId = null) {
     }
 }
 
+// ==========================================
+// 🗑️ Delete — ✅ ফিক্স: user_id ownership চেক (IDOR প্রতিরোধ)
+// ==========================================
 window.deleteDividendRecord = async function(docId, event) {
     event.stopPropagation();
     if (!confirm('Delete?')) return;
+
+    const user = auth && auth.currentUser ? auth.currentUser : null;
+    if (!user) {
+        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        return;
+    }
+
     try {
+        let deleted = false;
+
+        // ---------- Supabase: user_id ফিল্টার সহ delete ----------
         if (typeof supabase !== 'undefined' && supabase) {
-            await supabase.from('dividend_records').delete().eq('id', docId);
+            const { error, data } = await supabase
+                .from('dividend_records')
+                .delete()
+                .eq('id', docId)
+                .eq('user_id', user.uid)   // ✅ শুধু নিজের রেকর্ড ডিলিট হবে
+                .select();
+            if (!error && data && data.length > 0) deleted = true;
         }
+
+        // ---------- Firebase: delete-এর আগে ownership ভেরিফাই ----------
         if (typeof db !== 'undefined') {
-            await db.collection('dividend_records').doc(docId).delete();
+            try {
+                const docRef = db.collection('dividend_records').doc(docId);
+                const docSnap = await docRef.get();
+                if (docSnap.exists && docSnap.data().userId === user.uid) {
+                    await docRef.delete();
+                    deleted = true;
+                } else if (docSnap.exists) {
+                    console.warn('⚠️ Ownership mismatch — delete blocked client-side');
+                }
+            } catch (e) {
+                console.warn('Firebase delete check failed', e);
+            }
         }
-        loadDividendData();
-        if (typeof showToast === 'function') showToast('🗑️ Deleted successfully!', 'info');
+
+        if (deleted) {
+            loadDividendData();
+            if (typeof showToast === 'function') showToast('🗑️ Deleted successfully!', 'info');
+        } else {
+            if (typeof showToast === 'function') showToast('❌ Delete failed or record not found', 'error');
+        }
     } catch (e) {
         console.error(e);
         if (typeof showToast === 'function') showToast('Delete failed', 'error');
@@ -166,15 +227,18 @@ window.openDividendEditModal = function(docId, ticker, stockPercent, cashAmount)
     if (suggestionBox) suggestionBox.classList.add('hidden');
 };
 
+// ==========================================
+// 💾 Save/Update — ✅ ফিক্স: edit path-এ user_id ownership চেক
+// ==========================================
 async function saveDividendData(ticker, stockPercent, cashAmount, editId = null, portfolioId = null) {
     const user = auth && auth.currentUser ? auth.currentUser : null;
-    if (!user) { 
-        if (typeof showToast === 'function') showToast('Please login first', 'error'); 
-        return false; 
+    if (!user) {
+        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        return false;
     }
-    if (!ticker) { 
-        if (typeof showToast === 'function') showToast('Select share', 'warning'); 
-        return false; 
+    if (!ticker) {
+        if (typeof showToast === 'function') showToast('Select share', 'warning');
+        return false;
     }
 
     try {
@@ -186,8 +250,11 @@ async function saveDividendData(ticker, stockPercent, cashAmount, editId = null,
         };
 
         if (editId) {
+            let updated = false;
+
+            // ---------- Supabase: user_id ফিল্টার সহ update ----------
             if (typeof supabase !== 'undefined' && supabase) {
-                await supabase
+                const { error, data: updData } = await supabase
                     .from('dividend_records')
                     .update({
                         stock_percent: Number(stockPercent),
@@ -195,19 +262,41 @@ async function saveDividendData(ticker, stockPercent, cashAmount, editId = null,
                         portfolio_id: portfolioId || 'main',
                         updated_at: new Date().toISOString()
                     })
-                    .eq('id', editId);
+                    .eq('id', editId)
+                    .eq('user_id', user.uid)   // ✅ শুধু নিজের রেকর্ড আপডেট হবে
+                    .select();
+                if (!error && updData && updData.length > 0) updated = true;
             }
+
+            // ---------- Firebase: update-এর আগে ownership ভেরিফাই ----------
             if (typeof db !== 'undefined') {
-                await db.collection('dividend_records').doc(editId).update({
-                    stockPercent: Number(stockPercent),
-                    cashAmount: Number(cashAmount),
-                    portfolioId: portfolioId || 'main',
-                    updatedAt: new Date()
-                });
+                try {
+                    const docRef = db.collection('dividend_records').doc(editId);
+                    const docSnap = await docRef.get();
+                    if (docSnap.exists && docSnap.data().userId === user.uid) {
+                        await docRef.update({
+                            stockPercent: Number(stockPercent),
+                            cashAmount: Number(cashAmount),
+                            portfolioId: portfolioId || 'main',
+                            updatedAt: new Date()
+                        });
+                        updated = true;
+                    } else if (docSnap.exists) {
+                        console.warn('⚠️ Ownership mismatch — update blocked client-side');
+                    }
+                } catch (e) {
+                    console.warn('Firebase update check failed', e);
+                }
+            }
+
+            if (!updated) {
+                if (typeof showToast === 'function') showToast('❌ Update failed or record not found', 'error');
+                return false;
             }
         } else {
             await saveDividendToBoth(user.uid, data);
-        }
+        
+        if (typeof window.invalidateAppDataCache === 'function') window.invalidateAppDataCache('dividend saved');}
         await loadDividendData(portfolioId);
         if (typeof showToast === 'function') showToast('✅ Dividend saved successfully!', 'success');
         return true;
@@ -256,9 +345,9 @@ async function saveDividendData(ticker, stockPercent, cashAmount, editId = null,
             const stockPercent = document.getElementById('div-stock-percent')?.value || 0;
             const cashAmount = document.getElementById('div-cash-amount')?.value || 0;
             const portfolioId = document.getElementById('dividend-portfolio-select')?.value || 'main';
-            if (!ticker) { 
-                if (typeof showToast === 'function') showToast('Select share', 'warning'); 
-                return; 
+            if (!ticker) {
+                if (typeof showToast === 'function') showToast('Select share', 'warning');
+                return;
             }
             const success = await saveDividendData(ticker, stockPercent, cashAmount, currentEditingDividendId, portfolioId);
             if (success) {
@@ -290,4 +379,4 @@ async function saveDividendData(ticker, stockPercent, cashAmount, editId = null,
 window.loadDividendData = loadDividendData;
 window.saveDividendData = saveDividendData;
 
-console.log('✅ dividend.js loaded successfully');
+console.log('✅ dividend.js v2 loaded (IDOR fix: user_id ownership check on delete/update)');

@@ -1149,6 +1149,37 @@ document.addEventListener('DOMContentLoaded', function() {
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 console.log(`✅ User logged in: ${user.email || user.uid}`);
+                
+                // ==========================================
+                // 🔥 STEP 3: Firebase Token → Supabase JWT (RLS-এর জন্য)
+                // ==========================================
+                try {
+                    const idToken = await user.getIdToken();
+                    const response = await fetch(
+                        'https://dpdicusxlrdydajkcgev.supabase.co/functions/v1/auth-hook',
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ firebase_token: idToken })
+                        }
+                    );
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.token && window.supabase) {
+                            await window.supabase.auth.setSession({
+                                access_token: data.token,
+                                refresh_token: ''
+                            });
+                            console.log('✅ Supabase RLS session ready!');
+                        }
+                    } else {
+                        console.warn('⚠️ Auth hook failed');
+                    }
+                } catch (err) {
+                    console.warn('⚠️ Token exchange error:', err);
+                }
+
                 if (loginContainer) loginContainer.classList.add('hidden');
                 if (appContainer) appContainer.classList.remove('hidden');
                 if (authError) authError.innerText = '';
@@ -1267,7 +1298,6 @@ async function setupPushNotifications() {
 
         // ৪. টোকেন বের করা (এন্ডপয়েন্ট থেকে)
         const token = subscription.endpoint;
-        console.log('📡 FCM Token:', token);
         
         // ৫. টোকেন সার্ভারে (Firestore/Supabase) সেভ করুন
         await saveFCMToken(token);
@@ -1663,6 +1693,17 @@ function resetTradeFilter() {
     applyTradeFilter();
 }
 
+// ✅ HTML attribute-এ নিরাপদে বসানোর হেল্পার (defense-in-depth)
+function escapeHtmlUI(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 function renderTradeTable(transactions) {
     const tbody = document.getElementById('trade-history-tbody');
     if (!tbody) return;
@@ -1674,70 +1715,128 @@ function renderTradeTable(transactions) {
     for (const tx of transactions) {
         const dateStr = tx.date.toLocaleDateString('bn-BD');
         const typeClass = tx.type === 'BUY' ? 'up' : 'error';
+        const safeId = escapeHtmlUI(tx.id);
+        const safeType = escapeHtmlUI(tx.type);
         html += `<tr>
             <td style="padding: 8px;">${dateStr}</td>
-            <td style="padding: 8px;">${tx.shareName}</td>
+            <td style="padding: 8px;">${escapeHtmlUI(tx.shareName)}</td>
             <td style="padding: 8px;">${tx.quantity}</td>
             <td style="padding: 8px;">৳${tx.price.toFixed(2)}</td>
             <td style="padding: 8px;" class="${typeClass}">${tx.type}</td>
             <td style="padding: 8px;">
-                <button onclick="editTrade('${tx.id}', '${tx.type}')" style="background:#0284c7; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">✏️</button>
-                <button onclick="deleteTrade('${tx.id}', '${tx.type}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">🗑️</button>
+                <button onclick="editTrade('${safeId}', '${safeType}')" style="background:#0284c7; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">✏️</button>
+                <button onclick="deleteTrade('${safeId}', '${safeType}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">🗑️</button>
             </td>
         </tr>`;
     }
     tbody.innerHTML = html;
 }
 
-window.editTrade = function(id, type) {
+// ✅ ফিক্স v2:
+// - isNaN() ভ্যালিডেশন (আগে শুধু truthy-string চেক হতো, "abc" টাইপ করলেও NaN সেভ হয়ে যেত)
+// - Firebase-এ update-এর আগে ownership ভেরিফাই (userId চেক) — IDOR প্রতিরোধ,
+//   কারণ এই কালেকশনগুলোতে RLS নেই (Firestore Security Rules-এর উপর নির্ভরশীল)
+window.editTrade = async function(id, type) {
+    const user = auth && auth.currentUser ? auth.currentUser : null;
+    if (!user) {
+        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        return;
+    }
+    if (typeof db === 'undefined') {
+        if (typeof showToast === 'function') showToast('Database not available', 'error');
+        return;
+    }
+
     if (type === 'BUY') {
-        const newQty = prompt("Enter new quantity:");
-        const newPrice = prompt("Enter new price:");
-        if (newQty && newPrice) {
-            if (typeof db !== 'undefined') {
-                db.collection('portfolios').doc(id).update({
-                    quantity: parseInt(newQty),
-                    buyPrice: parseFloat(newPrice)
-                }).then(() => {
-                    if (typeof showToast === 'function') showToast('✅ Updated successfully!', 'success');
-                    loadTradeHistory();
-                }).catch(err => {
-                    if (typeof showToast === 'function') showToast('❌ Update failed: ' + err.message, 'error');
-                });
+        const newQtyRaw = prompt("Enter new quantity:");
+        if (newQtyRaw === null) return; // Cancel
+        const newPriceRaw = prompt("Enter new price:");
+        if (newPriceRaw === null) return; // Cancel
+
+        const newQty = parseInt(newQtyRaw);
+        const newPrice = parseFloat(newPriceRaw);
+        if (isNaN(newQty) || newQty <= 0 || isNaN(newPrice) || newPrice <= 0) {
+            if (typeof showToast === 'function') showToast('❌ Please enter valid quantity and price (numbers > 0).', 'error');
+            return;
+        }
+
+        try {
+            const docRef = db.collection('portfolios').doc(id);
+            const docSnap = await docRef.get();
+            if (!docSnap.exists || docSnap.data().userId !== user.uid) {
+                if (typeof showToast === 'function') showToast('❌ Record not found or access denied', 'error');
+                return;
             }
+            await docRef.update({
+                quantity: newQty,
+                buyPrice: newPrice
+            });
+            if (typeof showToast === 'function') showToast('✅ Updated successfully!', 'success');
+            loadTradeHistory();
+        } catch (err) {
+            if (typeof showToast === 'function') showToast('❌ Update failed: ' + err.message, 'error');
         }
     } else {
-        const newQty = prompt("Enter new quantity sold:");
-        const newPrice = prompt("Enter new sell price:");
-        if (newQty && newPrice) {
-            if (typeof db !== 'undefined') {
-                const docRef = db.collection('sales_history').doc(id);
-                docRef.get().then(doc => {
-                    const buyPrice = doc.data().buyPrice;
-                    docRef.update({
-                        quantitySold: parseInt(newQty),
-                        sellPrice: parseFloat(newPrice),
-                        profitOrLoss: (parseFloat(newPrice) - buyPrice) * parseInt(newQty)
-                    }).then(() => {
-                        if (typeof showToast === 'function') showToast('✅ Updated successfully!', 'success');
-                        loadTradeHistory();
-                    });
-                });
+        const newQtyRaw = prompt("Enter new quantity sold:");
+        if (newQtyRaw === null) return; // Cancel
+        const newPriceRaw = prompt("Enter new sell price:");
+        if (newPriceRaw === null) return; // Cancel
+
+        const newQty = parseInt(newQtyRaw);
+        const newPrice = parseFloat(newPriceRaw);
+        if (isNaN(newQty) || newQty <= 0 || isNaN(newPrice) || newPrice <= 0) {
+            if (typeof showToast === 'function') showToast('❌ Please enter valid quantity and price (numbers > 0).', 'error');
+            return;
+        }
+
+        try {
+            const docRef = db.collection('sales_history').doc(id);
+            const docSnap = await docRef.get();
+            if (!docSnap.exists || docSnap.data().userId !== user.uid) {
+                if (typeof showToast === 'function') showToast('❌ Record not found or access denied', 'error');
+                return;
             }
+            const buyPrice = docSnap.data().buyPrice || 0;
+            await docRef.update({
+                quantitySold: newQty,
+                sellPrice: newPrice,
+                profitOrLoss: (newPrice - buyPrice) * newQty
+            });
+            if (typeof showToast === 'function') showToast('✅ Updated successfully!', 'success');
+            loadTradeHistory();
+        } catch (err) {
+            if (typeof showToast === 'function') showToast('❌ Update failed: ' + err.message, 'error');
         }
     }
 };
 
-window.deleteTrade = function(id, type) {
+// ✅ ফিক্স v2: delete-এর আগে ownership ভেরিফাই (IDOR প্রতিরোধ)
+window.deleteTrade = async function(id, type) {
     if (!confirm("Are you sure you want to delete this transaction?")) return;
+
+    const user = auth && auth.currentUser ? auth.currentUser : null;
+    if (!user) {
+        if (typeof showToast === 'function') showToast('Please login first', 'error');
+        return;
+    }
+    if (typeof db === 'undefined') {
+        if (typeof showToast === 'function') showToast('Database not available', 'error');
+        return;
+    }
+
     const collection = type === 'BUY' ? 'portfolios' : 'sales_history';
-    if (typeof db !== 'undefined') {
-        db.collection(collection).doc(id).delete().then(() => {
-            if (typeof showToast === 'function') showToast('🗑️ Deleted successfully!', 'info');
-            loadTradeHistory();
-        }).catch(err => {
-            if (typeof showToast === 'function') showToast('❌ Delete failed: ' + err.message, 'error');
-        });
+    try {
+        const docRef = db.collection(collection).doc(id);
+        const docSnap = await docRef.get();
+        if (!docSnap.exists || docSnap.data().userId !== user.uid) {
+            if (typeof showToast === 'function') showToast('❌ Record not found or access denied', 'error');
+            return;
+        }
+        await docRef.delete();
+        if (typeof showToast === 'function') showToast('🗑️ Deleted successfully!', 'info');
+        loadTradeHistory();
+    } catch (err) {
+        if (typeof showToast === 'function') showToast('❌ Delete failed: ' + err.message, 'error');
     }
 };
 
@@ -1748,4 +1847,4 @@ window.resetTradeFilter = resetTradeFilter;
 window.editTrade = window.editTrade;
 window.deleteTrade = window.deleteTrade;
 
-console.log('✅ ui-helpers.js loaded successfully (with Push Notification, Price Alert Checker, Daily Summary scheduler)');
+console.log('✅ ui-helpers.js v2 loaded (with Push Notification, Price Alert Checker, Daily Summary scheduler + IDOR/validation fix on editTrade/deleteTrade)');

@@ -1,13 +1,31 @@
 // ==========================================
-// 📂 portfolio-manager.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন v3.0
+// 📂 portfolio-manager.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন v3.1
 //    Create, Edit, Delete, Access, List View
-//    ✅ রিয়ালাইজড গেইন যোগ করা হয়েছে (ক্যাশের বদলে)
+//    ✅ রিয়ালাইজড গেইন যোগ করা হয়েছে (ক্যাশের বদলে)
 //    ✅ সব পোর্টফোলিও সিলেক্টর অটো-আপডেট
+//    ✅ ফিক্স v3.1: পোর্টফোলিও নাম রেন্ডার করার সময় HTML-escape
+//       (Stored XSS প্রতিরোধ — নাম ইউজারের নিজের ইনপুট থেকে আসে)
 // ==========================================
 
 let currentPortfolioMeta = null;
 let portfolioSummaries = {};
 let currentSelectedPortfolio = 'main';
+
+// ==========================================
+// 🛡️ HTML Escape হেল্পার
+//    যেকোনো ইউজার-সাপ্লায়েড টেক্সট innerHTML-এ বসানোর আগে
+//    এই ফাংশন দিয়ে পাস করাতে হবে — <img onerror=...> জাতীয়
+//    stored XSS ঠেকাতে।
+// ==========================================
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
 
 // ==========================================
 // 🚀 পোর্টফোলিও ম্যানেজার ওপেন
@@ -18,13 +36,13 @@ window.openPortfolioManager = async function() {
         console.warn('⚠️ portfolio-manager-modal not found');
         return;
     }
-    
+
     const user = auth.currentUser;
     if (!user) {
         if (typeof showToast === 'function') showToast('Please login first', 'error');
         return;
     }
-    
+
     modal.style.display = 'flex';
     await loadPortfolioManagerData();
 };
@@ -40,18 +58,18 @@ window.closePortfolioManager = function() {
 window.loadPortfolioManagerData = async function() {
     const user = auth.currentUser;
     if (!user) return;
-    
+
     const grid = document.getElementById('portfolio-cards-grid');
     if (!grid) return;
-    
+
     grid.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">⏳ Loading portfolios...</div>';
-    
+
     try {
         // ১. মেটাডেটা লোড
         const meta = await getPortfolioMeta(user.uid);
         currentPortfolioMeta = meta;
-        
-        // ২. সব সেল হিস্ট্রি একবারে ফেচ (পোর্টফোলিও অনুযায়ী গ্রুপ)
+
+        // ২. সব সেল হিস্ট্রি একবারে ফেচ (পোর্টফোলিও অনুযায়ী গ্রুপ)
         let allSales = [];
         if (typeof supabase !== 'undefined' && supabase) {
             try {
@@ -77,7 +95,7 @@ window.loadPortfolioManagerData = async function() {
             } catch (e) {}
         }
 
-        // পোর্টফোলিও আইডি অনুযায়ী রিয়ালাইজড গেইন গ্রুপ
+        // পোর্টফোলিও আইডি অনুযায়ী রিয়ালাইজড গেইন গ্রুপ
         const realizedMap = new Map();
         allSales.forEach(sale => {
             const pid = sale.portfolio_id || 'main';
@@ -90,13 +108,13 @@ window.loadPortfolioManagerData = async function() {
         for (const p of meta.portfolios) {
             const data = await unifiedEngine.calculate(user.uid, p.id, true);
             if (data) {
-                // রিয়ালাইজড গেইন (গ্রুপ থেকে)
+                // রিয়ালাইজড গেইন (গ্রুপ থেকে)
                 const realized = realizedMap.get(p.id) || 0;
-                
+
                 let dailyGL = 0, dailyPct = 0;
                 let totalGL = 0, totalPct = 0;
                 let totalCurrentValue = 0;
-                
+
                 const tickers = data.stockDetails.map(s => s.ticker);
                 if (tickers.length > 0) {
                     const priceMap = await getLatestAndPreviousPrices(tickers);
@@ -120,7 +138,7 @@ window.loadPortfolioManagerData = async function() {
                 } else {
                     totalCurrentValue = data.totalInvestment || 0;
                 }
-                
+
                 summaries[p.id] = {
                     name: p.name,
                     type: p.type,
@@ -128,7 +146,7 @@ window.loadPortfolioManagerData = async function() {
                     totalInvestment: data.totalInvestment || 0,
                     totalCurrentValue: totalCurrentValue,
                     totalQty: data.totalRemainingQty || 0,
-                    realized: realized,  // 👈 রিয়ালাইজড গেইন
+                    realized: realized,  // 👈 রিয়ালাইজড গেইন
                     dailyGL: dailyGL,
                     dailyPct: dailyPct,
                     totalGL: totalGL,
@@ -137,11 +155,11 @@ window.loadPortfolioManagerData = async function() {
             }
         }
         portfolioSummaries = summaries;
-        
+
         // ৪. গ্র্যান্ড টোটাল (সব পোর্টফোলিওর সমষ্টি)
         const grandData = await unifiedEngine.calculate(user.uid, null, true);
         if (grandData) {
-            // গ্র্যান্ড রিয়ালাইজড = সব পোর্টফোলিওর সমষ্টি
+            // গ্র্যান্ড রিয়ালাইজড = সব পোর্টফোলিওর সমষ্টি
             let grandRealized = 0;
             for (const p of meta.portfolios) {
                 grandRealized += realizedMap.get(p.id) || 0;
@@ -174,22 +192,22 @@ window.loadPortfolioManagerData = async function() {
                 totalInvestment: grandData.totalInvestment || 0,
                 totalCurrentValue: grandTotalCurrentValue,
                 totalQty: grandData.totalRemainingQty || 0,
-                realized: grandRealized,  // 👈 গ্র্যান্ড রিয়ালাইজড
+                realized: grandRealized,  // 👈 গ্র্যান্ড রিয়ালাইজড
                 dailyGL: grandDailyGL,
                 dailyPct: grandData.totalInvestment > 0 ? (grandDailyGL / grandData.totalInvestment) * 100 : 0,
                 totalGL: grandTotalGL,
                 totalPct: grandData.totalInvestment > 0 ? (grandTotalGL / grandData.totalInvestment) * 100 : 0,
             };
         }
-        
+
         renderPortfolioCards();
         updateAllPortfolioSelectors();
         updateSidebarPortfolioList();
         updateBuyPortfolioSelect();
-        
+
     } catch (error) {
         console.error('Error loading portfolio manager:', error);
-        grid.innerHTML = `<div style="text-align: center; padding: 40px; color: red;">❌ Error loading portfolios: ${error.message}</div>`;
+        grid.innerHTML = `<div style="text-align: center; padding: 40px; color: red;">❌ Error loading portfolios: ${escapeHtml(error.message)}</div>`;
     }
 };
 
@@ -199,20 +217,20 @@ window.loadPortfolioManagerData = async function() {
 window.renderPortfolioCards = function() {
     const grid = document.getElementById('portfolio-cards-grid');
     if (!grid) return;
-    
+
     if (!currentPortfolioMeta || !currentPortfolioMeta.portfolios) {
         grid.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">No portfolios found.</div>';
         return;
     }
-    
+
     let html = '';
-    
+
     // গ্র্যান্ড পোর্টফোলিও
     const grand = portfolioSummaries['grand'];
     if (grand) {
         html += createPortfolioCardHTML('grand', grand);
     }
-    
+
     // বাকি পোর্টফোলিও
     for (const p of currentPortfolioMeta.portfolios) {
         const summary = portfolioSummaries[p.id];
@@ -220,43 +238,48 @@ window.renderPortfolioCards = function() {
             html += createPortfolioCardHTML(p.id, summary);
         }
     }
-    
+
     grid.innerHTML = html;
 };
 
 // ==========================================
-// 🏷️ পোর্টফোলিও কার্ড HTML তৈরি (রিয়ালাইজড গেইন দেখানো)
+// 🏷️ পোর্টফোলিও কার্ড HTML তৈরি (রিয়ালাইজড গেইন দেখানো)
+//    ✅ ফিক্স: summary.name escape করে বসানো হচ্ছে (XSS প্রতিরোধ)
 // ==========================================
 function createPortfolioCardHTML(portfolioId, summary) {
     const isMain = portfolioId === 'grand' || summary.type === 'main';
     const isActive = summary.totalQty > 0;
-    
+
     const totalInvestment = summary.totalInvestment || 0;
     const totalCurrentValue = summary.totalCurrentValue || 0;
     const dailyGL = summary.dailyGL || 0;
     const dailyPct = summary.dailyPct || 0;
     const totalGL = summary.totalGL || 0;
     const totalPct = summary.totalPct || 0;
-    const realized = summary.realized || 0;  // 👈 রিয়ালাইজড গেইন
-    
+    const realized = summary.realized || 0;  // 👈 রিয়ালাইজড গেইন
+
     const dailyColor = dailyGL >= 0 ? '#10b981' : '#ef4444';
     const totalColor = totalGL >= 0 ? '#10b981' : '#ef4444';
     const realizedColor = realized >= 0 ? '#10b981' : '#ef4444';
-    
-    const name = summary.name || (portfolioId === 'grand' ? '📊 Grand Portfolio' : portfolioId);
+
+    // ✅ escapeHtml() — user-supplied পোর্টফোলিও নাম নিরাপদে রেন্ডার
+    const name = escapeHtml(summary.name || (portfolioId === 'grand' ? '📊 Grand Portfolio' : portfolioId));
     const badgeMain = isMain ? '<span class="card-badge card-badge-main">MAIN</span>' : '';
-    const badgeStatus = isActive 
-        ? '<span class="card-badge card-badge-active">🟢 Active</span>' 
+    const badgeStatus = isActive
+        ? '<span class="card-badge card-badge-active">🟢 Active</span>'
         : '<span class="card-badge card-badge-empty">⚪ Empty</span>';
-    
-    const deleteBtn = !isMain ? 
-        `<button class="btn-delete" onclick="deletePortfolioHandler('${portfolioId}')" ${isActive ? 'disabled title="Cannot delete: portfolio has shares"' : ''}>
+
+    // portfolioId নিজে সিস্টেম-জেনারেটেড (UUID জাতীয়), তাও escape করে দিচ্ছি — defense in depth
+    const safePortfolioId = escapeHtml(portfolioId);
+
+    const deleteBtn = !isMain ?
+        `<button class="btn-delete" onclick="deletePortfolioHandler('${safePortfolioId}')" ${isActive ? 'disabled title="Cannot delete: portfolio has shares"' : ''}>
             🗑️ DELETE
         </button>` : '';
-    
-    const editBtn = !isMain ? 
-        `<button class="btn-edit" onclick="editPortfolioHandler('${portfolioId}')">✏️ EDIT</button>` : '';
-    
+
+    const editBtn = !isMain ?
+        `<button class="btn-edit" onclick="editPortfolioHandler('${safePortfolioId}')">✏️ EDIT</button>` : '';
+
     return `
         <div class="portfolio-card" style="${isMain ? 'border-left: 4px solid var(--primary-color);' : ''}">
             <div class="card-header">
@@ -267,7 +290,7 @@ function createPortfolioCardHTML(portfolioId, summary) {
                 </div>
                 <span style="font-size: 12px; color: var(--text-muted);">${summary.totalQty || 0} shares</span>
             </div>
-            
+
             <div class="card-stats">
                 <div>
                     <div class="stat-label">Port Size</div>
@@ -278,7 +301,7 @@ function createPortfolioCardHTML(portfolioId, summary) {
                     <div class="stat-value" style="color: ${realizedColor};">${realized >= 0 ? '+' : ''}৳${realized.toFixed(2)}</div>
                 </div>
             </div>
-            
+
             <div class="card-pl-grid">
                 <div>
                     <div class="pl-label">Value/Cost</div>
@@ -296,11 +319,11 @@ function createPortfolioCardHTML(portfolioId, summary) {
                     <div style="font-size: 10px; color: var(--text-muted);">${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(2)}%</div>
                 </div>
             </div>
-            
+
             <div class="card-actions">
                 ${deleteBtn}
                 ${editBtn}
-                <button class="btn-access" onclick="accessPortfolioHandler('${portfolioId}')">🔍 ACCESS</button>
+                <button class="btn-access" onclick="accessPortfolioHandler('${safePortfolioId}')">🔍 ACCESS</button>
             </div>
         </div>
     `;
@@ -317,6 +340,7 @@ window.deletePortfolioHandler = async function(portfolioId) {
         return;
     }
     const name = getPortfolioNameFromMeta(portfolioId);
+    // ⚠️ confirm() plain text দেখায়, HTML রেন্ডার করে না — তাই এখানে escape লাগবে না
     if (!confirm(`Are you sure you want to delete portfolio "${name}"? This action cannot be undone.`)) {
         return;
     }
@@ -346,7 +370,13 @@ window.editPortfolioHandler = function(portfolioId) {
 async function renamePortfolioHandler(portfolioId, newName) {
     const user = auth.currentUser;
     if (!user) return;
-    const success = await renamePortfolio(user.uid, portfolioId, newName);
+    // ✅ defense-in-depth: নাম সেভ করার আগে সাধারণ HTML ক্যারেক্টার আটকানো
+    const sanitizedName = sanitizePortfolioName(newName);
+    if (!sanitizedName) {
+        if (typeof showToast === 'function') showToast('❌ Invalid portfolio name', 'error');
+        return;
+    }
+    const success = await renamePortfolio(user.uid, portfolioId, sanitizedName);
     if (success) {
         if (typeof showToast === 'function') showToast('✅ Portfolio renamed successfully', 'success');
         await loadPortfolioManagerData();
@@ -371,7 +401,8 @@ window.accessPortfolioHandler = function(portfolioId) {
         loadPortfolioAnalysisTable(user.uid, portfolioId === 'grand' ? null : portfolioId, true);
         const name = portfolioId === 'grand' ? 'Grand Portfolio' : getPortfolioNameFromMeta(portfolioId);
         const header = document.querySelector('#sec-portfolio-analysis h3');
-        if (header) header.innerHTML = `📊 ${name} - Analysis`;
+        // ✅ ফিক্স: escapeHtml() — নাম header-এ innerHTML দিয়ে বসছিল আগে
+        if (header) header.innerHTML = `📊 ${escapeHtml(name)} - Analysis`;
     }
 };
 
@@ -385,6 +416,21 @@ function getPortfolioNameFromMeta(portfolioId) {
 }
 
 // ==========================================
+// 🧼 পোর্টফোলিও নাম sanitize (সেভ করার আগে)
+//    defense-in-depth: রেন্ডার-টাইম escape ছাড়াও ইনপুট-টাইমে
+//    HTML ট্যাগ জাতীয় ক্যারেক্টার আটকে দেওয়া হচ্ছে
+// ==========================================
+function sanitizePortfolioName(name) {
+    if (!name) return '';
+    let cleaned = String(name).trim();
+    // < > ক্যারেক্টার সরিয়ে ফেলা হচ্ছে যাতে কোনোভাবেই ট্যাগ তৈরি না হতে পারে
+    cleaned = cleaned.replace(/[<>]/g, '');
+    // অতিরিক্ত লম্বা নাম আটকানো (UI ভেঙে যাওয়া ঠেকাতে)
+    if (cleaned.length > 50) cleaned = cleaned.substring(0, 50);
+    return cleaned.trim();
+}
+
+// ==========================================
 // 🔄 সব পোর্টফোলিও সিলেক্টর আপডেট (সব ট্যাবের জন্য)
 // ==========================================
 window.updateAllPortfolioSelectors = function() {
@@ -392,29 +438,29 @@ window.updateAllPortfolioSelectors = function() {
     selectors.forEach(select => {
         const currentValue = select.value;
         select.innerHTML = '';
-        
+
         // গ্র্যান্ড পোর্টফোলিও
         const grandOption = document.createElement('option');
         grandOption.value = 'grand';
-        grandOption.textContent = '📊 Grand Portfolio';
+        grandOption.textContent = '📊 Grand Portfolio'; // ✅ textContent — নিরাপদ, escape দরকার নেই
         select.appendChild(grandOption);
-        
+
         // মেইন পোর্টফোলিও
         const mainOption = document.createElement('option');
         mainOption.value = 'main';
-        mainOption.textContent = '📊 Main Portfolio';
+        mainOption.textContent = '📊 Main Portfolio'; // ✅ textContent — নিরাপদ
         select.appendChild(mainOption);
-        
+
         // ইউজারের তৈরি পোর্টফোলিও
         if (currentPortfolioMeta && currentPortfolioMeta.portfolios) {
             currentPortfolioMeta.portfolios.forEach(p => {
                 const opt = document.createElement('option');
                 opt.value = p.id;
-                opt.textContent = p.name;
+                opt.textContent = p.name; // ✅ textContent — DOM API নিজেই escape করে, XSS-প্রুফ
                 select.appendChild(opt);
             });
         }
-        
+
         // আগের সিলেক্টেড ভ্যালু রিস্টোর
         if (currentValue) select.value = currentValue;
     });
@@ -422,6 +468,7 @@ window.updateAllPortfolioSelectors = function() {
 
 // ==========================================
 // 📂 সাইডবার পোর্টফোলিও লিস্ট আপডেট
+//    ✅ ফিক্স: p.name এখন escapeHtml() দিয়ে বসছে
 // ==========================================
 window.updateSidebarPortfolioList = function() {
     const subList = document.getElementById('portfolio-sub-list');
@@ -433,10 +480,12 @@ window.updateSidebarPortfolioList = function() {
     let html = '';
     for (const p of currentPortfolioMeta.portfolios) {
         const isActive = currentSelectedPortfolio === p.id;
+        const safeId = escapeHtml(p.id);
+        const safeName = escapeHtml(p.name);
         html += `
-            <li onclick="switchToPortfolio('${p.id}')" style="padding: 6px 16px; border-radius: 4px; transition: background 0.2s; cursor: pointer; ${isActive ? 'background: var(--sidebar-active); color: white;' : ''}"
+            <li onclick="switchToPortfolio('${safeId}')" style="padding: 6px 16px; border-radius: 4px; transition: background 0.2s; cursor: pointer; ${isActive ? 'background: var(--sidebar-active); color: white;' : ''}"
                 onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='${isActive ? 'var(--sidebar-active)' : 'transparent'}'">
-                ${p.name}
+                ${safeName}
             </li>
         `;
     }
@@ -445,6 +494,7 @@ window.updateSidebarPortfolioList = function() {
 
 // ==========================================
 // 🛒 Buy ফর্মের পোর্টফোলিও সিলেক্টর আপডেট
+//    ✅ ফিক্স: p.name এখন escapeHtml() দিয়ে বসছে
 // ==========================================
 window.updateBuyPortfolioSelect = function() {
     const select = document.getElementById('buy-portfolio-select');
@@ -454,10 +504,12 @@ window.updateBuyPortfolioSelect = function() {
         return;
     }
     let html = '';
-    // Buy-তে গ্র্যান্ড সিলেক্ট করা যায় না, তাই শুধু সাব পোর্টফোলিও
+    // Buy-তে গ্র্যান্ড সিলেক্ট করা যায় না, তাই শুধু সাব পোর্টফোলিও
     for (const p of currentPortfolioMeta.portfolios) {
         const selected = (currentSelectedPortfolio === p.id) ? 'selected' : '';
-        html += `<option value="${p.id}" ${selected}>${p.name}</option>`;
+        const safeId = escapeHtml(p.id);
+        const safeName = escapeHtml(p.name);
+        html += `<option value="${safeId}" ${selected}>${safeName}</option>`;
     }
     select.innerHTML = html;
 };
@@ -470,7 +522,7 @@ window.switchToPortfolio = function(portfolioId) {
     updateSidebarPortfolioList();
     updateBuyPortfolioSelect();
     updateAllPortfolioSelectors();
-    
+
     const user = auth.currentUser;
     if (user) {
         // ড্যাশবোর্ড রিলোড
@@ -503,6 +555,7 @@ async function loadDashboardDataForPortfolio(portfolioId) {
 
 // ==========================================
 // ➕ নতুন পোর্টফোলিও তৈরি
+//    ✅ ফিক্স: sanitizePortfolioName() দিয়ে ইনপুট ক্লিন করা হচ্ছে সেভ করার আগেই
 // ==========================================
 window.createNewPortfolioFromSidebar = function() {
     openPortfolioManager();
@@ -514,11 +567,21 @@ window.createNewPortfolio = async function() {
     const input = document.getElementById('new-portfolio-name-input');
     const status = document.getElementById('new-portfolio-status');
     if (!input) return;
-    const name = input.value.trim();
-    if (!name) {
+
+    const rawName = input.value.trim();
+    if (!rawName) {
         if (status) status.innerText = '⚠️ Please enter a name';
         return;
     }
+
+    // ✅ defense-in-depth sanitization — সেভ করার আগেই < > সরানো
+    const name = sanitizePortfolioName(rawName);
+    if (!name) {
+        if (status) status.innerText = '⚠️ Invalid portfolio name';
+        if (typeof showToast === 'function') showToast('❌ Invalid portfolio name', 'error');
+        return;
+    }
+
     const user = auth.currentUser;
     if (!user) {
         if (typeof showToast === 'function') showToast('Please login first', 'error');
@@ -578,4 +641,4 @@ window.updateBuyPortfolioSelect = updateBuyPortfolioSelect;
 window.updateAllPortfolioSelectors = updateAllPortfolioSelectors;
 window.getPortfolioNameFromMeta = getPortfolioNameFromMeta;
 
-console.log('✅ portfolio-manager.js v3.0 loaded successfully (Realized Gain added)');
+console.log('✅ portfolio-manager.js v3.1 loaded successfully (Realized Gain + XSS fix)');

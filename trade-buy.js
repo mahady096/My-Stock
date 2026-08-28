@@ -1,7 +1,14 @@
 // ==========================================
 // 📥 trade-buy.js - Buy ফাংশনালিটি
 //    portfolio.js থেকে ভাগ করা
-//    Supabase + Firebase ডুয়াল রাইট
+//    Supabase + Firebase ডুয়াল রাইট
+//
+//    ✅ ফিক্স v2:
+//    - Cache wildcard বাগ: CacheManager.remove('chart_X_*') কাজ করত না
+//      → CacheManager.clearByPattern('chart_X') ব্যবহার করা হচ্ছে
+//    - ডুপ্লিকেট initBuyTabs সরানো (trade-history.js-এ একই ফাংশন আছে,
+//      ওটাই এখন single source of truth — ডাবল ইভেন্ট লিসেনার এড়াতে)
+//    - quantity/price-এ isNaN() ভ্যালিডেশন যোগ
 // ==========================================
 
 (function() {
@@ -82,41 +89,49 @@
     }
 
     // ==========================================
-    // ৩. Buy বাটন – ডুয়াল রাইট
+    // ৩. Buy বাটন – ডুয়াল রাইট
     // ==========================================
     if (btnBuy) {
         const newBtnBuy = btnBuy.cloneNode(true);
         btnBuy.parentNode.replaceChild(newBtnBuy, btnBuy);
         newBtnBuy.addEventListener('click', async () => {
             const shareName = tickerInput ? tickerInput.value.trim().toUpperCase() : '';
-            const quantity = qtyInput ? qtyInput.value : '';
-            const price = priceInput ? priceInput.value : '';
+            const quantityRaw = qtyInput ? qtyInput.value : '';
+            const priceRaw = priceInput ? priceInput.value : '';
             const portfolioId = buyPortfolioSelect ? buyPortfolioSelect.value : 'main';
             const user = auth && auth.currentUser ? auth.currentUser : null;
-            
-            if (!user) { 
-                if (typeof showToast === 'function') showToast("Please login first", "error"); 
-                return; 
+
+            if (!user) {
+                if (typeof showToast === 'function') showToast("Please login first", "error");
+                return;
             }
-            if (!shareName || !quantity || !price) { 
-                if (typeof showToast === 'function') showToast("Please fill all fields correctly", "warning"); 
-                return; 
+            if (!shareName || !quantityRaw || !priceRaw) {
+                if (typeof showToast === 'function') showToast("Please fill all fields correctly", "warning");
+                return;
+            }
+
+            // ✅ ফিক্স: সংখ্যা ভ্যালিড কিনা যাচাই (NaN হলে আটকে দেওয়া)
+            const quantity = Number(quantityRaw);
+            const price = Number(priceRaw);
+            if (isNaN(quantity) || quantity <= 0 || isNaN(price) || price <= 0) {
+                if (typeof showToast === 'function') showToast("Please enter valid quantity and price (numbers > 0).", "warning");
+                return;
             }
 
             let selectedDate = tradeDateInput ? tradeDateInput.value : getBangladeshDateString();
             if (!selectedDate) selectedDate = getBangladeshDateString();
             const transactionDate = getUTCFromLocalDate(selectedDate);
-            if (isNaN(transactionDate.getTime())) { 
-                if (typeof showToast === 'function') showToast("Invalid date!", "error"); 
-                return; 
+            if (isNaN(transactionDate.getTime())) {
+                if (typeof showToast === 'function') showToast("Invalid date!", "error");
+                return;
             }
 
-            const totalAmount = Number(quantity) * Number(price);
+            const totalAmount = quantity * price;
             const commissionPercent = commissionManager.getPercent();
             const commissionAmount = commissionManager.calculateCommission(totalAmount);
             const totalWithCommission = totalAmount + commissionAmount;
 
-            let confirmMsg = `Buy Order Summary:\n📊 Share: ${shareName}\n📦 Quantity: ${quantity}\n💰 Price: ৳${Number(price).toFixed(2)}\n📈 Total Amount: ৳${totalAmount.toFixed(2)}`;
+            let confirmMsg = `Buy Order Summary:\n📊 Share: ${shareName}\n📦 Quantity: ${quantity}\n💰 Price: ৳${price.toFixed(2)}\n📈 Total Amount: ৳${totalAmount.toFixed(2)}`;
             if (commissionPercent > 0) {
                 confirmMsg += `\n💸 Commission (${commissionPercent}%): ৳${commissionAmount.toFixed(2)}\n───────────────────────────────\n💵 Net Payable: ৳${totalWithCommission.toFixed(2)}`;
             } else {
@@ -127,22 +142,26 @@
             try {
                 const result = await savePortfolioToBoth(user.uid, {
                     shareName: shareName,
-                    quantity: Number(quantity),
-                    buyPrice: Number(price),
+                    quantity: quantity,
+                    buyPrice: price,
                     commission: commissionAmount,
                     commissionPercent: commissionPercent,
                     date: transactionDate.toISOString().split('T')[0],
                     portfolioId: portfolioId
                 });
 
-                if (result.supabaseSuccess || result.firebaseSuccess) {
+                if (result.supabaseSuccess) {
+                    if (!result.firebaseSuccess && typeof showToast === 'function') {
+                        showToast('⚠️ Supabase saved successfully, but Firebase mirror failed.', 'warning');
+                    }
                     // ক্যাশ রিসেট
                     resetUnifiedCache();
                     resetUnifiedPriceCache();
                     CacheManager.remove(`price_${shareName}`);
                     CacheManager.remove(`price_detail_${shareName}`);
-                    CacheManager.remove(`chart_${shareName}_*`);
-                    
+                    // ✅ ফিক্স: wildcard '*' লিটারাল ক্যারেক্টার হিসেবে যেত, কোনো কী ম্যাচ করত না
+                    CacheManager.clearByPattern(`chart_${shareName}`);
+
                     // UI রিফ্রেশ
                     if (typeof loadDashboardData === 'function') {
                         loadDashboardData(portfolioId, true);
@@ -153,9 +172,9 @@
                     if (typeof loadUnifiedStockTable === 'function') {
                         loadUnifiedStockTable(user.uid);
                     }
-                    
+
                     if (typeof showToast === 'function') showToast(`✅ ${shareName} purchased successfully!`, 'success');
-                    
+
                     // ফর্ম রিসেট
                     if (tickerInput) tickerInput.value = "";
                     if (qtyInput) qtyInput.value = "";
@@ -172,57 +191,15 @@
     }
 
     // ==========================================
-    // ৪. Buy ট্যাব ইনিশিয়ালাইজেশন
+    // ৪. Buy ট্যাব ইনিশিয়ালাইজেশন
+    //    ✅ ফিক্স: এই ফাংশন এখান থেকে সরানো হয়েছে।
+    //    trade-history.js-এ হুবহু একই ফাংশন আছে এবং সেটা নিজের
+    //    DOMContentLoaded-এ কল হয় — দুই জায়গায় থাকলে
+    //    window.initBuyTabs ওভাররাইট হয়ে যেত এবং ভবিষ্যতে
+    //    দুই ফাইল ভিন্ন অর্ডারে লোড হলে ডাবল ইভেন্ট লিসেনার
+    //    অ্যাটাচ হওয়ার ঝুঁকি ছিল। এখন single source of truth
+    //    হলো trade-history.js।
     // ==========================================
-    window.initBuyTabs = function() {
-        const tabsContainer = document.querySelector('.buy-tabs');
-        const buyPanel = document.getElementById('buy-tab-content');
-        const historyPanel = document.getElementById('buy-history-tab-content');
 
-        if (!tabsContainer || !buyPanel || !historyPanel) {
-            console.warn('Buy tabs elements not found');
-            return;
-        }
-
-        tabsContainer.addEventListener('click', function(e) {
-            const tabBtn = e.target.closest('.buy-tab-btn');
-            if (!tabBtn) return;
-            const target = tabBtn.getAttribute('data-tab');
-            if (!target) return;
-
-            const allTabs = tabsContainer.querySelectorAll('.buy-tab-btn');
-            allTabs.forEach(t => {
-                t.classList.remove('active');
-                t.style.background = 'transparent';
-                t.style.color = 'var(--text-primary)';
-                t.style.border = '1px solid var(--border-color)';
-                t.style.borderBottom = 'none';
-            });
-
-            tabBtn.classList.add('active');
-            tabBtn.style.background = 'var(--primary-color)';
-            tabBtn.style.color = 'white';
-            tabBtn.style.border = 'none';
-
-            buyPanel.style.display = 'none';
-            historyPanel.style.display = 'none';
-
-            if (target === 'buy') {
-                buyPanel.style.display = 'block';
-            } else if (target === 'history') {
-                historyPanel.style.display = 'block';
-                const searchInput = document.getElementById('buy-history-search');
-                if (searchInput) {
-                    searchInput.value = '';
-                    if (typeof loadBuyHistory === 'function') {
-                        loadBuyHistory('');
-                    }
-                }
-            }
-        });
-
-        console.log('✅ Buy tabs initialized');
-    };
-
-    console.log('✅ trade-buy.js loaded successfully');
+    console.log('✅ trade-buy.js v2 loaded (cache fix, duplicate initBuyTabs removed)');
 })();

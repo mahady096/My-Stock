@@ -2,9 +2,27 @@
 // 📜 trade-history.js - Buy & Sell History
 //    portfolio.js থেকে ভাগ করা
 //    Buy History, Sell History, Edit/Delete
+//
+//    ✅ ফিক্স v2:
+//    - editBuyRecord: isNaN() ভ্যালিডেশন + user_id ownership চেক
+//    - deleteBuyRecord: user_id ownership চেক (IDOR প্রতিরোধ)
+//    - টেবিল রো-তে docId/ticker escape করা (defense-in-depth)
 // ==========================================
 
 (function() {
+    // ==========================================
+    // 🛡️ HTML attribute-এ নিরাপদে বসানোর হেল্পার
+    // ==========================================
+    function escapeHtmlTH(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
     // ==========================================
     // ১. Buy History
     // ==========================================
@@ -38,7 +56,7 @@
 
         try {
             let buyData = [];
-            
+
             // Supabase
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
@@ -106,15 +124,17 @@
                 totalQty += qty;
                 totalCost += total;
 
+                const safeId = escapeHtmlTH(item.id);
+
                 html += `<tr>
                     <td style="padding: 8px;">${dateStr}</td>
-                    <td style="padding: 8px; font-weight: bold;">${item.share_name}</td>
+                    <td style="padding: 8px; font-weight: bold;">${escapeHtmlTH(item.share_name)}</td>
                     <td style="padding: 8px;">${qty}</td>
                     <td style="padding: 8px;">৳${price.toFixed(2)}</td>
                     <td style="padding: 8px;">৳${total.toFixed(2)}</td>
                     <td style="padding: 8px;">
-                        <button onclick="editBuyRecord('${item.id}')" style="background:#0284c7; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">✏️</button>
-                        <button onclick="deleteBuyRecord('${item.id}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">🗑️</button>
+                        <button onclick="editBuyRecord('${safeId}')" style="background:#0284c7; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">✏️</button>
+                        <button onclick="deleteBuyRecord('${safeId}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">🗑️</button>
                     </td>
                 </tr>`;
             });
@@ -134,50 +154,130 @@
         }
     };
 
+    // ==========================================
     // Buy রেকর্ড এডিট
+    // ✅ ফিক্স: isNaN() ভ্যালিডেশন + user_id ownership চেক
+    // ==========================================
     window.editBuyRecord = async function(docId) {
-        const newQty = prompt("Enter new quantity:");
-        const newPrice = prompt("Enter new price:");
-        if (newQty && newPrice) {
-            try {
-                if (typeof supabase !== 'undefined' && supabase) {
-                    await supabase
-                        .from('portfolios')
-                        .update({ quantity: parseInt(newQty), buy_price: parseFloat(newPrice) })
-                        .eq('id', docId);
+        const newQtyRaw = prompt("Enter new quantity:");
+        if (newQtyRaw === null) return; // ইউজার Cancel চেপেছে
+        const newPriceRaw = prompt("Enter new price:");
+        if (newPriceRaw === null) return;
+
+        const newQty = parseInt(newQtyRaw);
+        const newPrice = parseFloat(newPriceRaw);
+
+        // ✅ ফিক্স: আগে শুধু truthy string চেক হতো, এখন সত্যিকারের সংখ্যা কিনা যাচাই হচ্ছে
+        if (isNaN(newQty) || newQty <= 0 || isNaN(newPrice) || newPrice <= 0) {
+            if (typeof showToast === 'function') showToast('❌ Please enter valid quantity and price (numbers > 0).', 'error');
+            return;
+        }
+
+        const user = auth && auth.currentUser ? auth.currentUser : null;
+        if (!user) {
+            if (typeof showToast === 'function') showToast('Please login first', 'error');
+            return;
+        }
+
+        try {
+            let updated = false;
+
+            // ---------- Supabase: user_id ফিল্টার সহ update ----------
+            if (typeof supabase !== 'undefined' && supabase) {
+                const { error, data } = await supabase
+                    .from('portfolios')
+                    .update({ quantity: newQty, buy_price: newPrice })
+                    .eq('id', docId)
+                    .eq('user_id', user.uid)   // ✅ শুধু নিজের রেকর্ড আপডেট হবে
+                    .select();
+                if (!error && data && data.length > 0) updated = true;
+            }
+
+            // ---------- Firebase: update-এর আগে ownership ভেরিফাই ----------
+            if (typeof db !== 'undefined') {
+                try {
+                    const docRef = db.collection('portfolios').doc(docId);
+                    const docSnap = await docRef.get();
+                    if (docSnap.exists && docSnap.data().userId === user.uid) {
+                        await docRef.update({
+                            quantity: newQty,
+                            buyPrice: newPrice
+                        });
+                        updated = true;
+                    } else if (docSnap.exists) {
+                        console.warn('⚠️ Ownership mismatch — update blocked client-side');
+                    }
+                } catch (e) {
+                    console.warn('Firebase update check failed', e);
                 }
-                if (typeof db !== 'undefined') {
-                    await db.collection('portfolios').doc(docId).update({
-                        quantity: parseInt(newQty),
-                        buyPrice: parseFloat(newPrice)
-                    });
-                }
+            }
+
+            if (updated) {
                 if (typeof showToast === 'function') showToast('✅ Updated successfully!', 'success');
                 const searchInput = document.getElementById('buy-history-search');
                 if (searchInput) loadBuyHistory(searchInput.value);
                 resetUnifiedCache();
                 resetUnifiedPriceCache();
-            } catch (err) {
-                if (typeof showToast === 'function') showToast('❌ Update failed: ' + err.message, 'error');
+            } else {
+                if (typeof showToast === 'function') showToast('❌ Update failed or record not found', 'error');
             }
+        } catch (err) {
+            if (typeof showToast === 'function') showToast('❌ Update failed: ' + err.message, 'error');
         }
     };
 
+    // ==========================================
     // Buy রেকর্ড ডিলিট
+    // ✅ ফিক্স: user_id ownership চেক (IDOR প্রতিরোধ)
+    // ==========================================
     window.deleteBuyRecord = async function(docId) {
         if (!confirm('Are you sure you want to delete this buy record?')) return;
+
+        const user = auth && auth.currentUser ? auth.currentUser : null;
+        if (!user) {
+            if (typeof showToast === 'function') showToast('Please login first', 'error');
+            return;
+        }
+
         try {
+            let deleted = false;
+
+            // ---------- Supabase: user_id ফিল্টার সহ delete ----------
             if (typeof supabase !== 'undefined' && supabase) {
-                await supabase.from('portfolios').delete().eq('id', docId);
+                const { error, data } = await supabase
+                    .from('portfolios')
+                    .delete()
+                    .eq('id', docId)
+                    .eq('user_id', user.uid)   // ✅ শুধু নিজের রেকর্ড ডিলিট হবে
+                    .select();
+                if (!error && data && data.length > 0) deleted = true;
             }
+
+            // ---------- Firebase: delete-এর আগে ownership ভেরিফাই ----------
             if (typeof db !== 'undefined') {
-                await db.collection('portfolios').doc(docId).delete();
+                try {
+                    const docRef = db.collection('portfolios').doc(docId);
+                    const docSnap = await docRef.get();
+                    if (docSnap.exists && docSnap.data().userId === user.uid) {
+                        await docRef.delete();
+                        deleted = true;
+                    } else if (docSnap.exists) {
+                        console.warn('⚠️ Ownership mismatch — delete blocked client-side');
+                    }
+                } catch (e) {
+                    console.warn('Firebase delete check failed', e);
+                }
             }
-            if (typeof showToast === 'function') showToast('✅ Deleted successfully!', 'success');
-            const searchInput = document.getElementById('buy-history-search');
-            if (searchInput) loadBuyHistory(searchInput.value);
-            resetUnifiedCache();
-            resetUnifiedPriceCache();
+
+            if (deleted) {
+                if (typeof showToast === 'function') showToast('✅ Deleted successfully!', 'success');
+                const searchInput = document.getElementById('buy-history-search');
+                if (searchInput) loadBuyHistory(searchInput.value);
+                resetUnifiedCache();
+                resetUnifiedPriceCache();
+            } else {
+                if (typeof showToast === 'function') showToast('❌ Delete failed or record not found', 'error');
+            }
         } catch (err) {
             if (typeof showToast === 'function') showToast('❌ Delete failed: ' + err.message, 'error');
         }
@@ -239,7 +339,7 @@
     }
 
     // ==========================================
-    // ২. Sell History (ইতিমধ্যে trade-sell.js-এ আছে, কিন্তু এখানে ডুপ্লিকেট এড়াতে আমরা রেফারেন্স রাখছি)
+    // ২. Sell History (ইতিমধ্যে trade-sell.js-এ আছে, কিন্তু এখানে ডুপ্লিকেট এড়াতে আমরা রেফারেন্স রাখছি)
     //    আসলে Sell History ফাংশন trade-sell.js-এ ডিফাইন করা আছে, তাই এখানে শুধু রেফারেন্স দিচ্ছি
     // ==========================================
     // Sell History ফাংশন trade-sell.js থেকে কল হবে
@@ -304,7 +404,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         if (typeof initBuyTabs === 'function') initBuyTabs();
         if (typeof initBuyHistorySearch === 'function') initBuyHistorySearch();
-        
+
         // Buy History Portfolio Selector
         const buyHistoryPortfolioSelect = document.getElementById('buy-history-portfolio-select');
         if (buyHistoryPortfolioSelect) {
@@ -326,5 +426,5 @@
     window.initBuyTabs = initBuyTabs;
     window.initBuyHistorySearch = initBuyHistorySearch;
 
-    console.log('✅ trade-history.js loaded successfully');
+    console.log('✅ trade-history.js v2 loaded (IDOR fix + isNaN validation on edit)');
 })();

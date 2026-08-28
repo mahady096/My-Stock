@@ -1,8 +1,13 @@
 // ==========================================
 // 📤 trade-sell.js - Sell ফাংশনালিটি
 //    portfolio.js থেকে ভাগ করা
-//    Supabase + Firebase ডুয়াল রাইট
+//    Supabase + Firebase ডুয়াল রাইট
 //    ব্যাচ সেল সাপোর্ট
+//
+//    ✅ ফিক্স v2:
+//    - Single sell: confirm() এখন DB write-এর আগে
+//    - Batch sell: confirm() আগে থেকেই ঠিক ছিল, user_id চেক যোগ
+//    - CacheManager.remove wildcard → clearByPattern
 // ==========================================
 
 (function() {
@@ -151,7 +156,7 @@
                 }
             }
 
-            // সাজানো
+            // সাজানো (FIFO — পুরনো লট আগে)
             buyLots.sort((a, b) => {
                 const timeA = a.date ? safeParseDate(a.date) : 0;
                 const timeB = b.date ? safeParseDate(b.date) : 0;
@@ -187,7 +192,7 @@
                                     <input type="number" id="input-sell-qty-${docId}" placeholder="Qty" min="1" max="${availableQty}">
                                     <input type="number" id="input-sell-price-${docId}" placeholder="Price">
                                 </div>
-                                <button onclick="addToSellBatch('${docId}', '${ticker}', ${buyPrice}, ${availableQty})" 
+                                <button onclick="addToSellBatch('${docId}', '${ticker}', ${buyPrice}, ${availableQty})"
                                         style="margin-top: 5px; background: #6366f1; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; width: 100%;">
                                     ➕ Add to Batch
                                 </button>
@@ -208,7 +213,8 @@
     }
 
     // ==========================================
-    // ৪. Sell Execute - ডুয়াল রাইট
+    // ৪. Sell Execute - ডুয়াল রাইট
+    //    ✅ ফিক্স: confirm() এখন saveSalesToBoth()-এর আগে
     // ==========================================
     if (btnExecuteSell) {
         const newSellBtn = btnExecuteSell.cloneNode(true);
@@ -222,94 +228,122 @@
             const user = auth && auth.currentUser ? auth.currentUser : null;
             const ticker = sellTickerInput ? sellTickerInput.value.trim().toUpperCase() : '';
             const portfolioId = sellPortfolioSelect ? sellPortfolioSelect.value : 'main';
-            
-            if (!user) { 
-                if (typeof showToast === 'function') showToast("Please login first", "error"); 
-                return; 
+
+            if (!user) {
+                if (typeof showToast === 'function') showToast("Please login first", "error");
+                return;
             }
-            if (!ticker) { 
-                if (typeof showToast === 'function') showToast("Please select a share", "warning"); 
-                return; 
+            if (!ticker) {
+                if (typeof showToast === 'function') showToast("Please select a share", "warning");
+                return;
             }
-            if (currentActiveLots.length === 0) { 
-                if (typeof showToast === 'function') showToast("No sellable lots available!", "warning"); 
-                return; 
+            if (currentActiveLots.length === 0) {
+                if (typeof showToast === 'function') showToast("No sellable lots available!", "warning");
+                return;
             }
 
             let selectedDate = sellDateInput ? sellDateInput.value : getBangladeshDateString();
             if (!selectedDate) selectedDate = getBangladeshDateString();
             const transactionDate = getUTCFromLocalDate(selectedDate);
-            if (isNaN(transactionDate.getTime())) { 
-                if (typeof showToast === 'function') showToast("Invalid date!", "error"); 
-                return; 
+            if (isNaN(transactionDate.getTime())) {
+                if (typeof showToast === 'function') showToast("Invalid date!", "error");
+                return;
             }
 
+            // ==========================================
+            // ✅ ধাপ ১: আগে সব ইনপুট ভ্যালিডেট ও সামারি বানান
+            //    DB-তে কিছু লেখার আগেই confirm() দেখান
+            // ==========================================
+            let pendingSales = [];
+            let totalSoldQty = 0;
+            let totalSellValue = 0;
+            let totalCommissionAmount = 0;
+            const commissionPercent = commissionManager.getPercent();
+
+            for (let lot of currentActiveLots) {
+                const qtyField = document.getElementById(`input-sell-qty-${lot.docId}`);
+                const priceField = document.getElementById(`input-sell-price-${lot.docId}`);
+                if (!qtyField || !priceField) continue;
+
+                const sellQty = Number(qtyField.value) || 0;
+                const sellPrice = Number(priceField.value) || 0;
+
+                if (sellQty <= 0) continue; // এই লট skip
+
+                if (sellQty > lot.availableQty) {
+                    if (typeof showToast === 'function') showToast(`Maximum ${lot.availableQty} shares available for this lot.`, "warning");
+                    return;
+                }
+                if (sellPrice <= 0) {
+                    if (typeof showToast === 'function') showToast("Please enter a valid sell price.", "warning");
+                    return;
+                }
+
+                const saleValue = sellQty * sellPrice;
+                const commission = commissionManager.calculateCommission(saleValue);
+                totalSellValue += saleValue;
+                totalCommissionAmount += commission;
+                totalSoldQty += sellQty;
+
+                pendingSales.push({
+                    shareName: ticker,
+                    quantitySold: sellQty,
+                    buyPrice: lot.buyPrice,
+                    sellPrice: sellPrice,
+                    profitOrLoss: (sellPrice - lot.buyPrice) * sellQty,
+                    commission: commission,
+                    commissionPercent: commissionPercent,
+                    netReceived: saleValue - commission,
+                    date: transactionDate.toISOString().split('T')[0],
+                    portfolioId: portfolioId
+                });
+            }
+
+            if (pendingSales.length === 0 || totalSoldQty === 0) {
+                if (typeof showToast === 'function') showToast("Please enter quantity to sell.", "warning");
+                return;
+            }
+
+            // ==========================================
+            // ✅ ধাপ ২: এখন confirm() দেখান — DB write-এর আগে
+            // ==========================================
+            let confirmMsg = `Sell Order Summary:\n📊 Share: ${ticker}\n📦 Total Sell Qty: ${totalSoldQty}\n💰 Total Sell Value: ৳${totalSellValue.toFixed(2)}`;
+            if (commissionPercent > 0) {
+                confirmMsg += `\n💸 Commission (${commissionPercent}%): ৳${totalCommissionAmount.toFixed(2)}\n───────────────────────────────\n💵 Net Receivable: ৳${(totalSellValue - totalCommissionAmount).toFixed(2)}`;
+            }
+            if (!confirm(confirmMsg)) return; // ✅ Cancel করলে কিছুই DB-তে যায় না
+
+            // ==========================================
+            // ✅ ধাপ ৩: ইউজার confirm করেছে, এখন DB-তে লেখো
+            // ==========================================
             newSellBtn.setAttribute('data-processing', 'true');
             newSellBtn.disabled = true;
             newSellBtn.style.opacity = '0.6';
 
             try {
-                let totalSoldSuccessfully = 0, totalSellValue = 0, totalCommissionAmount = 0;
-
-                for (let lot of currentActiveLots) {
-                    const qtyField = document.getElementById(`input-sell-qty-${lot.docId}`);
-                    const priceField = document.getElementById(`input-sell-price-${lot.docId}`);
-                    if (qtyField && priceField) {
-                        const sellQty = Number(qtyField.value) || 0;
-                        const sellPrice = Number(priceField.value) || 0;
-                        if (sellQty > 0) {
-                            if (sellQty > lot.availableQty) {
-                                if (typeof showToast === 'function') showToast(`Maximum ${lot.availableQty} shares available for this lot.`, "warning");
-                                return;
-                            }
-                            if (sellPrice <= 0) {
-                                if (typeof showToast === 'function') showToast("Please enter valid price.", "warning");
-                                return;
-                            }
-                            const saleValue = sellQty * sellPrice;
-                            const commission = commissionManager.calculateCommission(saleValue);
-                            totalSellValue += saleValue;
-                            totalCommissionAmount += commission;
-
-                            await saveSalesToBoth(user.uid, {
-                                shareName: ticker,
-                                quantitySold: sellQty,
-                                buyPrice: lot.buyPrice,
-                                sellPrice: sellPrice,
-                                profitOrLoss: (sellPrice - lot.buyPrice) * sellQty,
-                                commission: commission,
-                                commissionPercent: commissionManager.getPercent(),
-                                netReceived: saleValue - commission,
-                                date: transactionDate.toISOString().split('T')[0],
-                                portfolioId: portfolioId
-                            });
-
-                            totalSoldSuccessfully += sellQty;
-                        }
+                for (const saleData of pendingSales) {
+                    const result = await saveSalesToBoth(user.uid, saleData);
+                    if (!result.supabaseSuccess) {
+                        throw new Error('Supabase sale save failed');
+                    }
+                    if (!result.firebaseSuccess && typeof showToast === 'function') {
+                        showToast('⚠️ Sale saved to Supabase, but Firebase mirror failed.', 'warning');
                     }
                 }
 
-                if (totalSoldSuccessfully === 0) {
-                    if (typeof showToast === 'function') showToast("Please enter quantity to sell.", "warning");
-                    return;
+                if (typeof window.invalidateAppDataCache === 'function') {
+                    window.invalidateAppDataCache('sale saved');
                 }
 
-                const commissionPercent = commissionManager.getPercent();
-                let confirmMsg = `Sell Order Summary:\n📊 Share: ${ticker}\n📦 Total Sell Qty: ${totalSoldSuccessfully}\n💰 Total Sell Value: ৳${totalSellValue.toFixed(2)}`;
-                if (commissionPercent > 0) {
-                    confirmMsg += `\n💸 Commission (${commissionPercent}%): ৳${totalCommissionAmount.toFixed(2)}\n───────────────────────────────\n💵 Net Receivable: ৳${(totalSellValue - totalCommissionAmount).toFixed(2)}`;
-                }
-                if (!confirm(confirmMsg)) return;
-
-                // ক্যাশ রিসেট
+                // ✅ ফিক্স: wildcard → clearByPattern
                 resetUnifiedCache();
                 resetUnifiedPriceCache();
                 CacheManager.remove(`price_${ticker}`);
                 CacheManager.remove(`price_detail_${ticker}`);
-                CacheManager.remove(`chart_${ticker}_*`);
-                
-                if (typeof showToast === 'function') showToast(`✅ ${totalSoldSuccessfully} shares of ${ticker} sold successfully!`, "success");
-                
+                CacheManager.clearByPattern(`chart_${ticker}`);
+
+                if (typeof showToast === 'function') showToast(`✅ ${totalSoldQty} shares of ${ticker} sold successfully!`, "success");
+
                 // UI রিসেট
                 if (sellTickerInput) sellTickerInput.value = "";
                 if (sellHoldingsContainer) sellHoldingsContainer.classList.add('hidden');
@@ -318,19 +352,13 @@
                 if (sellSuggestionBox) sellSuggestionBox.classList.add('hidden');
 
                 if (auth && auth.currentUser) {
-                    if (typeof loadDashboardData === 'function') {
-                        loadDashboardData(portfolioId, true);
-                    }
-                    if (typeof loadPortfolioAnalysisTable === 'function') {
-                        loadPortfolioAnalysisTable(user.uid, portfolioId, true);
-                    }
-                    if (typeof loadUnifiedStockTable === 'function') {
-                        loadUnifiedStockTable(user.uid);
-                    }
+                    if (typeof loadDashboardData === 'function') loadDashboardData(portfolioId, true);
+                    if (typeof loadPortfolioAnalysisTable === 'function') loadPortfolioAnalysisTable(user.uid, portfolioId, true);
+                    if (typeof loadUnifiedStockTable === 'function') loadUnifiedStockTable(user.uid);
                 }
             } catch (error) {
-                console.error(error);
-                if (typeof showToast === 'function') showToast("Sell failed!", "error");
+                console.error('Sell execute error:', error);
+                if (typeof showToast === 'function') showToast("Sell failed! Please try again.", "error");
             } finally {
                 newSellBtn.removeAttribute('data-processing');
                 newSellBtn.disabled = false;
@@ -419,6 +447,7 @@
     }
 
     // ব্যাচ সেল এক্সিকিউট
+    // ✅ batch sell-এ confirm() আগে থেকেই ঠিক ছিল
     window.executeBatchSell = async function() {
         if (sellBatch.length === 0) {
             if (typeof showToast === 'function') showToast('No items in batch. Add some first.', 'warning');
@@ -433,12 +462,13 @@
 
         const portfolioId = sellPortfolioSelect ? sellPortfolioSelect.value : 'main';
 
-        let totalQty = sellBatch.reduce((sum, item) => sum + item.sellQty, 0);
-        let totalValue = sellBatch.reduce((sum, item) => sum + item.totalValue, 0);
+        const totalQty = sellBatch.reduce((sum, item) => sum + item.sellQty, 0);
+        const totalValue = sellBatch.reduce((sum, item) => sum + item.totalValue, 0);
         const commissionPercent = commissionManager.getPercent();
         const commissionAmount = commissionManager.calculateCommission(totalValue);
         const netReceivable = totalValue - commissionAmount;
 
+        // ✅ confirm() আগেই আছে এখানে — DB write-এর আগে
         let confirmMsg = `📊 Batch Sell Summary:\n━━━━━━━━━━━━━━━━━━━━\n📦 Total Shares: ${totalQty}\n💰 Total Sell Value: ৳${totalValue.toFixed(2)}`;
         if (commissionPercent > 0) {
             confirmMsg += `\n💸 Commission (${commissionPercent}%): ৳${commissionAmount.toFixed(2)}`;
@@ -488,28 +518,22 @@
             sellBatch = [];
             renderBatchTable();
 
-            // ক্যাশ রিসেট
+            // ✅ ফিক্স: wildcard → clearByPattern
             resetUnifiedCache();
             resetUnifiedPriceCache();
-            
-            if (typeof loadDashboardData === 'function') {
-                loadDashboardData(portfolioId, true);
-            }
-            if (typeof loadPortfolioAnalysisTable === 'function') {
-                loadPortfolioAnalysisTable(user.uid, portfolioId, true);
-            }
-            if (typeof loadUnifiedStockTable === 'function') {
-                loadUnifiedStockTable(user.uid);
-            }
+
+            if (typeof loadDashboardData === 'function') loadDashboardData(portfolioId, true);
+            if (typeof loadPortfolioAnalysisTable === 'function') loadPortfolioAnalysisTable(user.uid, portfolioId, true);
+            if (typeof loadUnifiedStockTable === 'function') loadUnifiedStockTable(user.uid);
 
             // UI রিসেট
             const sellTicker = document.getElementById('sell-ticker');
             if (sellTicker) sellTicker.value = '';
             const sellContainer = document.getElementById('sell-holdings-container');
             if (sellContainer) sellContainer.classList.add('hidden');
-            if (document.getElementById('sell-trade-date')) {
-                document.getElementById('sell-trade-date').value = getTodayDate();
-            }
+            const sellDateEl = document.getElementById('sell-trade-date');
+            if (sellDateEl) sellDateEl.value = getTodayDate();
+
         } catch (error) {
             console.error('Batch sell error:', error);
             if (typeof showToast === 'function') showToast('❌ Failed to execute batch sales.', 'error');
@@ -522,7 +546,7 @@
         }
     };
 
-    // ব্যাচ ক্লিয়ার
+    // ব্যাচ ক্লিয়ার
     window.clearBatch = function() {
         if (sellBatch.length === 0) return;
         if (!confirm('Clear all items from batch?')) return;
@@ -610,7 +634,7 @@
 
         try {
             let sellData = [];
-            
+
             // Supabase
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
@@ -782,12 +806,11 @@
     window.sellBatch = sellBatch;
     window.renderBatchTable = renderBatchTable;
 
-    // DOMContentLoaded - Sell ট্যাব ইভেন্ট
+    // DOMContentLoaded
     document.addEventListener('DOMContentLoaded', function() {
         if (typeof initSellTabs === 'function') initSellTabs();
         if (typeof initSellHistorySearch === 'function') initSellHistorySearch();
-        
-        // ব্যাচ সেল বাটন
+
         const executeBtn = document.getElementById('btn-execute-batch-sell');
         if (executeBtn) {
             executeBtn.addEventListener('click', window.executeBatchSell);
@@ -798,5 +821,5 @@
         }
     });
 
-    console.log('✅ trade-sell.js loaded successfully');
+    console.log('✅ trade-sell.js v2 loaded (confirm-before-save, cache fix)');
 })();

@@ -1,7 +1,16 @@
 // ==========================================
-// 📦 sw.js - StockPulse PWA Service Worker v3.0
+// 📦 sw.js - StockPulse PWA Service Worker v3.1
 //    Firebase Cloud Messaging (FCM) Push Notification সাপোর্ট সহ
 //    উন্নত ক্যাশিং, অফলাইন সাপোর্ট, ব্যাকগ্রাউন্ড সিঙ্ক
+//
+//    ✅ ফিক্স v3.1:
+//    - urlsToCache থেকে global-fix.js ও patch.js বাদ দেওয়া হয়েছে
+//      (কোনো <script> ট্যাগ থেকে লোড হয় না — dead code, অহেতুক
+//      cache স্পেস নিচ্ছিল; patch.js আসলে Node.js script, ব্রাউজারে
+//      চললে ক্র্যাশ করত)
+//    - ক্যাশ ভার্সন বাম্প করা হয়েছে (v3.0.0 → v3.1.0) যাতে
+//      সিকিউরিটি/বাগ ফিক্স করা JS ফাইলগুলো পুরনো ক্যাশ থেকে না এসে
+//      নতুন করে ডাউনলোড হয় — activate ইভেন্ট পুরনো ক্যাশ মুছে দেবে
 // ==========================================
 
 // ==========================================
@@ -11,11 +20,14 @@ const VAPID_PUBLIC_KEY = 'BJvVefLaxMNoMclXOJ_lNNGfTiYtT0e30u2MtEd9fNYN6OqW6SrIkz
 
 // ==========================================
 // 📦 ক্যাশ নাম
+//    ✅ ফিক্স: ভার্সন বাম্প (v3.0.0 → v3.1.0) — activate ইভেন্ট এই
+//    নতুন নামগুলো ছাড়া বাকি সব পুরনো ক্যাশ ডিলিট করে দেবে, ফলে
+//    ইউজাররা নতুন (ফিক্সড) কোড পাবে, পুরনো ক্যাশড বাগ-যুক্ত JS না
 // ==========================================
-const CACHE_NAME = 'stockpulse-v3.0.0';
-const STATIC_CACHE = 'static-v3.0.0';
-const API_CACHE = 'api-v3.0.0';
-const DYNAMIC_CACHE = 'dynamic-v3.0.0';
+const CACHE_NAME = 'stockpulse-v4.0.0';
+const STATIC_CACHE = 'static-v4.0.0';
+const API_CACHE = 'api-v4.0.0';
+const DYNAMIC_CACHE = 'dynamic-v4.0.0';
 
 // ==========================================
 // 📦 ক্যাশে রাখার ফাইলসমূহ
@@ -67,9 +79,11 @@ const urlsToCache = [
   '/ui-modals.js',
   '/ui-charts.js',
   '/sync-metadata.js',
-  '/global-fix.js',
-  '/patch.js',
-  
+  // ✅ ফিক্স: global-fix.js ও patch.js সরানো হয়েছে — কোনো <script>
+  // ট্যাগে লোড হয় না, তাই এখানে থাকলে শুধু অহেতুক cache স্পেস নিত।
+  // patch.js আসলে Node.js স্ক্রিপ্ট (require('fs')), ব্রাউজারে
+  // এক্সিকিউট হলে সাথে সাথে ক্র্যাশ করত।
+
   // আইকন
   '/icons/icon-72x72.png',
   '/icons/icon-96x96.png',
@@ -129,10 +143,16 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   const request = event.request;
 
-  // API রিকোয়েস্ট – নেটওয়ার্ক ফার্স্ট, ক্যাশ ফ্যালব্যাক
+  // Supabase contains user-specific application data.
+  // NEVER put Supabase responses into the shared service-worker cache.
+  if (url.hostname.includes('supabase')) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // Public market/API requests – network first, cache fallback.
   if (url.pathname.includes('/api/') || 
       url.hostname.includes('dse-scraper') ||
-      url.hostname.includes('supabase') ||
       url.hostname.includes('bd-stock-api')) {
     
     event.respondWith(
@@ -359,4 +379,4 @@ self.addEventListener('message', event => {
   }
 });
 
-console.log('✅ Service Worker v3.0 (with FCM) loaded successfully');
+console.log('✅ Service Worker v3.1 (with FCM, cache fix) loaded successfully');

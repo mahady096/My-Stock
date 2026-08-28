@@ -2,9 +2,28 @@
 // 🔍 trade-analysis.js - Analysis & Statement
 //    portfolio.js থেকে ভাগ করা
 //    Analysis Stat, Statement, Ledger Modal
+//
+//    ✅ ফিক্স v2:
+//    - saveEditedRecord (BUY/SELL): Supabase-এ .eq('user_id', ...) যোগ
+//      + Firebase-এ update-এর আগে ownership ভেরিফাই
+//    - deleteRecord (BUY/SELL): একই IDOR ফিক্স
+//    - ledger modal-এর onclick attribute-এ ticker/id escape করা
 // ==========================================
 
 (function() {
+    // ==========================================
+    // 🛡️ HTML attribute-এ নিরাপদে বসানোর হেল্পার
+    // ==========================================
+    function escapeHtmlTA(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
     // ==========================================
     // ১. Analysis Stat - সাজেশন ও জেনারেট
     // ==========================================
@@ -83,6 +102,8 @@
             let grandRemainingQty = 0;
             let grandTotalBuyCost = 0;
 
+            const safeTicker = escapeHtmlTA(ticker);
+
             for (const lot of stockData.lots) {
                 const lotDate = safeParseDate(lot.date);
                 const formattedDate = lotDate ? lotDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A';
@@ -95,7 +116,7 @@
                 grandRemainingQty += remainingQty;
                 grandTotalBuyCost += totalCost;
 
-                rowsHtml += `<tr onclick="openLedgerModal('${ticker}')">
+                rowsHtml += `<tr onclick="openLedgerModal('${safeTicker}')">
                     <td>${formattedDate}</td>
                     <td>${lot.qty}</td>
                     <td>৳${buyPrice.toFixed(2)}</td>
@@ -334,19 +355,22 @@
                 } catch (e) { /* ignore */ }
             }
 
+            const safeTicker = escapeHtmlTA(ticker);
             let html = `<table><thead><tr><th>Type</th><th>Qty</th><th>Price</th><th>Actions</th></tr></thead><tbody>`;
             let hasData = false;
             buyData.forEach(item => {
                 hasData = true;
                 const qty = item.quantity || 0;
                 const price = item.buyPrice || item.buy_price || 0;
-                html += `<tr><td>BUY</td><td>${qty}</td><td>৳${price.toFixed(2)}</td><td><button onclick="showEditForm('${item.id}','BUY',${qty},${price})">Edit</button> <button onclick="deleteRecord('${item.id}','BUY','${ticker}')">Delete</button></td></tr>`;
+                const safeId = escapeHtmlTA(item.id);
+                html += `<tr><td>BUY</td><td>${qty}</td><td>৳${price.toFixed(2)}</td><td><button onclick="showEditForm('${safeId}','BUY',${qty},${price})">Edit</button> <button onclick="deleteRecord('${safeId}','BUY','${safeTicker}')">Delete</button></td></tr>`;
             });
             sellData.forEach(item => {
                 hasData = true;
                 const qty = item.quantitySold || item.quantity_sold || 0;
                 const price = item.sellPrice || item.sell_price || 0;
-                html += `<tr><td>SELL</td><td>${qty}</td><td>৳${price.toFixed(2)}</td><td><button onclick="showEditForm('${item.id}','SELL',${qty},${price})">Edit</button> <button onclick="deleteRecord('${item.id}','SELL','${ticker}')">Delete</button></td></tr>`;
+                const safeId = escapeHtmlTA(item.id);
+                html += `<tr><td>SELL</td><td>${qty}</td><td>৳${price.toFixed(2)}</td><td><button onclick="showEditForm('${safeId}','SELL',${qty},${price})">Edit</button> <button onclick="deleteRecord('${safeId}','SELL','${safeTicker}')">Delete</button></td></tr>`;
             });
             html += `</tbody></table>`;
             if (listContainer) listContainer.innerHTML = hasData ? html : "<p>No records found.</p>";
@@ -372,60 +396,116 @@
         document.getElementById('edit-input-price').value = price;
     };
 
+    // ==========================================
     // Edited রেকর্ড সেভ
+    // ✅ ফিক্স: user_id ownership চেক (Supabase + Firebase, BUY ও SELL দুটোতেই)
+    // ==========================================
     window.saveEditedRecord = async function() {
         const id = document.getElementById('edit-doc-id').value;
         const type = document.getElementById('edit-doc-type').value;
         const qty = Number(document.getElementById('edit-input-qty').value);
         const price = Number(document.getElementById('edit-input-price').value);
         const ticker = document.getElementById('modal-ticker-title')?.innerText || '';
-        if (!qty || qty <= 0 || !price || price <= 0) {
+
+        if (!qty || isNaN(qty) || qty <= 0 || !price || isNaN(price) || price <= 0) {
             if (typeof showToast === 'function') showToast("Please enter valid quantity and price.", "warning");
             return;
         }
 
+        const user = auth && auth.currentUser ? auth.currentUser : null;
+        if (!user) {
+            if (typeof showToast === 'function') showToast("Please login first", "error");
+            return;
+        }
+
         try {
+            let updated = false;
+
             if (type === 'BUY') {
+                // ---------- Supabase: user_id ফিল্টার সহ update ----------
                 if (typeof supabase !== 'undefined' && supabase) {
-                    await supabase
+                    const { error, data } = await supabase
                         .from('portfolios')
                         .update({ quantity: qty, buy_price: price })
-                        .eq('id', id);
+                        .eq('id', id)
+                        .eq('user_id', user.uid)   // ✅ শুধু নিজের রেকর্ড আপডেট হবে
+                        .select();
+                    if (!error && data && data.length > 0) updated = true;
                 }
+                // ---------- Firebase: ownership ভেরিফাই করে তারপর update ----------
                 if (typeof db !== 'undefined') {
-                    await db.collection("portfolios").doc(id).update({ quantity: qty, buyPrice: price });
+                    try {
+                        const docRef = db.collection("portfolios").doc(id);
+                        const docSnap = await docRef.get();
+                        if (docSnap.exists && docSnap.data().userId === user.uid) {
+                            await docRef.update({ quantity: qty, buyPrice: price });
+                            updated = true;
+                        } else if (docSnap.exists) {
+                            console.warn('⚠️ Ownership mismatch — update blocked client-side');
+                        }
+                    } catch (e) {
+                        console.warn('Firebase BUY update check failed', e);
+                    }
                 }
-                resetUnifiedCache();
-                resetUnifiedPriceCache();
-                if (typeof showToast === 'function') showToast("✅ Record updated!", "success");
+                if (updated) {
+                    resetUnifiedCache();
+                    resetUnifiedPriceCache();
+                    if (typeof showToast === 'function') showToast("✅ Record updated!", "success");
+                }
             } else {
+                // ---------- Supabase: user_id ফিল্টার সহ update (SELL) ----------
                 if (typeof supabase !== 'undefined' && supabase) {
-                    const { data } = await supabase
+                    const { data: ownedRow } = await supabase
                         .from('sales_history')
                         .select('buy_price')
                         .eq('id', id)
+                        .eq('user_id', user.uid)   // ✅ ownership ভেরিফাই করে তবেই buy_price পড়া হচ্ছে
                         .single();
-                    const originalBuyPrice = data?.buy_price || 0;
-                    await supabase
-                        .from('sales_history')
-                        .update({
-                            quantity_sold: qty,
-                            sell_price: price,
-                            profit_or_loss: (price - originalBuyPrice) * qty
-                        })
-                        .eq('id', id);
+                    if (ownedRow) {
+                        const originalBuyPrice = ownedRow.buy_price || 0;
+                        const { error, data } = await supabase
+                            .from('sales_history')
+                            .update({
+                                quantity_sold: qty,
+                                sell_price: price,
+                                profit_or_loss: (price - originalBuyPrice) * qty
+                            })
+                            .eq('id', id)
+                            .eq('user_id', user.uid)   // ✅ শুধু নিজের রেকর্ড আপডেট হবে
+                            .select();
+                        if (!error && data && data.length > 0) updated = true;
+                    }
                 }
+                // ---------- Firebase: ownership ভেরিফাই করে তারপর update ----------
                 if (typeof db !== 'undefined') {
-                    const docSnap = await db.collection("sales_history").doc(id).get();
-                    const originalBuyPrice = docSnap.data()?.buyPrice || 0;
-                    await db.collection("sales_history").doc(id).update({
-                        quantitySold: qty,
-                        sellPrice: price,
-                        profitOrLoss: (price - originalBuyPrice) * qty
-                    });
+                    try {
+                        const docRef = db.collection("sales_history").doc(id);
+                        const docSnap = await docRef.get();
+                        if (docSnap.exists && docSnap.data().userId === user.uid) {
+                            const originalBuyPrice = docSnap.data()?.buyPrice || 0;
+                            await docRef.update({
+                                quantitySold: qty,
+                                sellPrice: price,
+                                profitOrLoss: (price - originalBuyPrice) * qty
+                            });
+                            updated = true;
+                        } else if (docSnap.exists) {
+                            console.warn('⚠️ Ownership mismatch — update blocked client-side');
+                        }
+                    } catch (e) {
+                        console.warn('Firebase SELL update check failed', e);
+                    }
                 }
-                if (typeof showToast === 'function') showToast("✅ Record updated!", "success");
+                if (updated) {
+                    if (typeof showToast === 'function') showToast("✅ Record updated!", "success");
+                }
             }
+
+            if (!updated) {
+                if (typeof showToast === 'function') showToast("❌ Update failed or record not found", "error");
+                return;
+            }
+
             closeLedgerModal();
             if (auth && auth.currentUser) {
                 if (typeof loadUnifiedStockTable === 'function') loadUnifiedStockTable(auth.currentUser.uid);
@@ -440,35 +520,67 @@
         }
     };
 
+    // ==========================================
     // রেকর্ড ডিলিট
+    // ✅ ফিক্স: user_id ownership চেক (Supabase + Firebase, BUY ও SELL দুটোতেই)
+    // ==========================================
     window.deleteRecord = async function(id, type, ticker) {
         if (!confirm(`Are you sure you want to delete this ${type} record?`)) return;
+
+        const user = auth && auth.currentUser ? auth.currentUser : null;
+        if (!user) {
+            if (typeof showToast === 'function') showToast("Please login first", "error");
+            return;
+        }
+
         try {
-            if (type === 'BUY') {
-                if (typeof supabase !== 'undefined' && supabase) {
-                    await supabase.from('portfolios').delete().eq('id', id);
-                }
-                if (typeof db !== 'undefined') {
-                    await db.collection("portfolios").doc(id).delete();
-                }
-                resetUnifiedCache();
-                resetUnifiedPriceCache();
-            } else {
-                if (typeof supabase !== 'undefined' && supabase) {
-                    await supabase.from('sales_history').delete().eq('id', id);
-                }
-                if (typeof db !== 'undefined') {
-                    await db.collection("sales_history").doc(id).delete();
+            let deleted = false;
+            const tableName = type === 'BUY' ? 'portfolios' : 'sales_history';
+
+            // ---------- Supabase: user_id ফিল্টার সহ delete ----------
+            if (typeof supabase !== 'undefined' && supabase) {
+                const { error, data } = await supabase
+                    .from(tableName)
+                    .delete()
+                    .eq('id', id)
+                    .eq('user_id', user.uid)   // ✅ শুধু নিজের রেকর্ড ডিলিট হবে
+                    .select();
+                if (!error && data && data.length > 0) deleted = true;
+            }
+
+            // ---------- Firebase: delete-এর আগে ownership ভেরিফাই ----------
+            if (typeof db !== 'undefined') {
+                try {
+                    const docRef = db.collection(tableName).doc(id);
+                    const docSnap = await docRef.get();
+                    if (docSnap.exists && docSnap.data().userId === user.uid) {
+                        await docRef.delete();
+                        deleted = true;
+                    } else if (docSnap.exists) {
+                        console.warn('⚠️ Ownership mismatch — delete blocked client-side');
+                    }
+                } catch (e) {
+                    console.warn('Firebase delete check failed', e);
                 }
             }
-            if (typeof showToast === 'function') showToast("🗑️ Deleted successfully!", "info");
-            closeLedgerModal();
-            if (auth && auth.currentUser) {
-                if (typeof loadUnifiedStockTable === 'function') loadUnifiedStockTable(auth.currentUser.uid);
-                if (typeof generateAnalysisStatement === 'function') generateAnalysisStatement(ticker);
-                if (typeof loadPortfolioAnalysisTable === 'function') {
-                    loadPortfolioAnalysisTable(auth.currentUser.uid, null, true);
+
+            if (type === 'BUY' && deleted) {
+                resetUnifiedCache();
+                resetUnifiedPriceCache();
+            }
+
+            if (deleted) {
+                if (typeof showToast === 'function') showToast("🗑️ Deleted successfully!", "info");
+                closeLedgerModal();
+                if (auth && auth.currentUser) {
+                    if (typeof loadUnifiedStockTable === 'function') loadUnifiedStockTable(auth.currentUser.uid);
+                    if (typeof generateAnalysisStatement === 'function') generateAnalysisStatement(ticker);
+                    if (typeof loadPortfolioAnalysisTable === 'function') {
+                        loadPortfolioAnalysisTable(auth.currentUser.uid, null, true);
+                    }
                 }
+            } else {
+                if (typeof showToast === 'function') showToast("❌ Delete failed or record not found", "error");
             }
         } catch (error) {
             console.error(error);
@@ -500,5 +612,5 @@
         }
     });
 
-    console.log('✅ trade-analysis.js loaded successfully');
+    console.log('✅ trade-analysis.js v2 loaded (IDOR fix: user_id ownership check on edit/delete)');
 })();
