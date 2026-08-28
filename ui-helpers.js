@@ -1151,7 +1151,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log(`✅ User logged in: ${user.email || user.uid}`);
                 
                 // ==========================================
-                // 🔥 STEP 3: Firebase Token → Supabase JWT (RLS-এর জন্য)
+                // 🔥 STEP: Firebase Token → Supabase JWT (RLS-এর জন্য)
                 // ==========================================
                 try {
                     const idToken = await user.getIdToken();
