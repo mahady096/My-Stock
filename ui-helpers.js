@@ -107,7 +107,59 @@ function watchSystemTheme() {
 }
 
 // ==========================================
-// ১. টোস্ট
+// ১. Production confirmation modal
+// ==========================================
+window.showConfirmModal = function({ title = 'Confirm', icon = '🧾', body = '', confirmText = 'Confirm', danger = false } = {}) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('app-confirm-modal');
+        const titleEl = document.getElementById('app-confirm-title');
+        const iconEl = document.getElementById('app-confirm-icon');
+        const bodyEl = document.getElementById('app-confirm-body');
+        const okBtn = document.getElementById('app-confirm-ok');
+        const cancelBtn = document.getElementById('app-confirm-cancel');
+        if (!modal || !titleEl || !bodyEl || !okBtn || !cancelBtn) {
+            resolve(window.confirm(title));
+            return;
+        }
+        iconEl.textContent = icon;
+        titleEl.textContent = title;
+        bodyEl.innerHTML = body;
+        okBtn.textContent = confirmText;
+        okBtn.classList.toggle('danger', !!danger);
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            modal.style.display = 'none';
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onBackdrop);
+            document.removeEventListener('keydown', onKey);
+            resolve(value);
+        };
+        const onOk = () => finish(true);
+        const onCancel = () => finish(false);
+        const onBackdrop = (e) => { if (e.target === modal) finish(false); };
+        const onKey = (e) => {
+            if (e.key === 'Escape') finish(false);
+            if (e.key === 'Enter') finish(true);
+        };
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+        setTimeout(() => okBtn.focus(), 0);
+    });
+};
+
+// ==========================================
+// ২. টোস্ট
 // ==========================================
 
 window.showToast = function(message, type = 'info') {
@@ -1150,7 +1202,14 @@ document.addEventListener('DOMContentLoaded', function() {
             if (user) {
                 console.log(`✅ User logged in: ${user.email || user.uid}`);
                 
-                // Token Exchange কোড সরানো হয়েছে - RLS বন্ধ রাখা হয়েছে
+                // Firebase identity → Supabase JWT. Dashboard queries wait for this to finish.
+                try {
+                    await syncSupabaseAuth(false);
+                } catch (e) {
+                    console.error('❌ Supabase authentication failed:', e);
+                    if (authError) authError.innerText = 'ডেটা সার্ভিসে সংযোগ করা যাচ্ছে না। আবার চেষ্টা করুন।';
+                    return;
+                }
 
                 if (loginContainer) loginContainer.classList.add('hidden');
                 if (appContainer) appContainer.classList.remove('hidden');
@@ -1206,6 +1265,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (authError) authError.innerText = '';
                 if (typeof stopAutoRefresh === 'function') stopAutoRefresh();
                 if (typeof CacheManager !== 'undefined' && CacheManager.clearAll) CacheManager.clearAll();
+                cachedSupabaseToken = null;
+                if (typeof window.clearSupabaseAuth === 'function') window.clearSupabaseAuth();
                 
                 // প্রাইস অ্যালার্ট চেকার বন্ধ
                 if (priceAlertInterval) {
@@ -1214,6 +1275,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         });
+        // Firebase may refresh its ID token without changing the auth state.
+        // Re-exchange it so Supabase continues receiving a valid JWT.
+        if (typeof auth.onIdTokenChanged === 'function') {
+            auth.onIdTokenChanged(async (tokenUser) => {
+                if (tokenUser) {
+                    try {
+                        await syncSupabaseAuth(true);
+                    } catch (e) {
+                        console.warn('⚠️ Supabase token refresh failed:', e);
+                    }
+                } else if (typeof window.clearSupabaseAuth === 'function') {
+                    window.clearSupabaseAuth();
+                }
+            });
+        }
     } else {
         console.warn('⚠️ Auth not available, state listener skipped.');
     }

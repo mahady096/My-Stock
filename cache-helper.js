@@ -37,7 +37,11 @@ const CacheManager = {
                 return this._getFromSession(key, ttl);
             }
 
-            // ২. বড় ডেটা → IndexedDB (অ্যাসিঙ্ক)
+            // ২. বড় ডেটা → IndexedDB; if localForage is unavailable, fall back safely.
+            if (typeof localforage === 'undefined') {
+                console.warn('IndexedDB cache unavailable; falling back to sessionStorage.');
+                return this._getFromSession(key, ttl);
+            }
             return await this._getFromIndexedDB(key, ttl);
         } catch (e) {
             console.warn('Cache read error:', e);
@@ -51,6 +55,10 @@ const CacheManager = {
     async set(key, value, ttl = null) {
         try {
             if (!this._isBigKey(key)) {
+                return this._setToSession(key, value, ttl);
+            }
+            if (typeof localforage === 'undefined') {
+                console.warn('IndexedDB cache unavailable; falling back to sessionStorage.');
                 return this._setToSession(key, value, ttl);
             }
             return await this._setToIndexedDB(key, value, ttl);

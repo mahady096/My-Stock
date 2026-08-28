@@ -1,7 +1,7 @@
 {
-  "name": "Share Market Portfolio",
+  "name": "StockPulse — DSE Portfolio & Market Tracker",
   "short_name": "StockPulse",
-  "description": "DSE Share Market Portfolio Management System",
+  "description": "DSE portfolio tracking, market watch and technical analysis.",
   "start_url": "/?source=pwa",
   "display": "standalone",
   "theme_color": "#667eea",

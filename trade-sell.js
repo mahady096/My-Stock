@@ -307,11 +307,26 @@
             // ==========================================
             // ✅ ধাপ ২: এখন confirm() দেখান — DB write-এর আগে
             // ==========================================
-            let confirmMsg = `Sell Order Summary:\n📊 Share: ${ticker}\n📦 Total Sell Qty: ${totalSoldQty}\n💰 Total Sell Value: ৳${totalSellValue.toFixed(2)}`;
-            if (commissionPercent > 0) {
-                confirmMsg += `\n💸 Commission (${commissionPercent}%): ৳${totalCommissionAmount.toFixed(2)}\n───────────────────────────────\n💵 Net Receivable: ৳${(totalSellValue - totalCommissionAmount).toFixed(2)}`;
-            }
-            if (!confirm(confirmMsg)) return; // ✅ Cancel করলে কিছুই DB-তে যায় না
+            const netReceivable = totalSellValue - totalCommissionAmount;
+            const confirmBody = `
+                <div class="confirm-summary-grid">
+                    <span>Stock</span><strong>${ticker}</strong>
+                    <span>Quantity</span><strong>${totalSoldQty}</strong>
+                    <span>Gross value</span><strong>৳${totalSellValue.toFixed(2)}</strong>
+                    <span>Commission</span><strong>৳${totalCommissionAmount.toFixed(2)} (${commissionPercent}%)</strong>
+                    <span class="total-label">Net receivable</span><strong class="total-value">৳${netReceivable.toFixed(2)}</strong>
+                </div>`;
+            if (typeof window.showConfirmModal === 'function') {
+                const confirmed = await window.showConfirmModal({
+                    title: 'Confirm Sell',
+                    icon: '💸',
+                    body: confirmBody,
+                    confirmText: 'Confirm Sell'
+                });
+                if (!confirmed) return;
+            } else if (!window.confirm(`Sell ${totalSoldQty} ${ticker}?`)) {
+                return;
+            } // Cancel করলে কিছুই DB-তে যায় না
 
             // ==========================================
             // ✅ ধাপ ৩: ইউজার confirm করেছে, এখন DB-তে লেখো

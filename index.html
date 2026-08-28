@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Share Market Portfolio</title>
+    <title>StockPulse — DSE Portfolio & Market Tracker</title>
     
     <!-- PWA manifest file link -->
     <link rel="manifest" href="/manifest.json">
@@ -418,30 +418,33 @@
                 <button class="close-btn" onclick="toggleLeftSidebar()">×</button>
             </div>
             <ul>
-                <li class="active" onclick="switchTab('dashboard')">Dashboard</li>
-                <li onclick="switchTab('buy')">Buy Share</li>
-                <li onclick="switchTab('sell')">Sell Share</li> 
-                <li onclick="switchTab('table')">Stock Table</li>
+                <li class="active" onclick="switchTab('dashboard')">🏠 Dashboard</li>
+                <li class="nav-section-label">Portfolio</li>
+                <li onclick="switchTab('buy')">➕ Buy</li>
+                <li onclick="switchTab('sell')">➖ Sell</li>
+                <li onclick="switchTab('table')">💼 Holdings</li>
                 <li onclick="switchTab('trade-history')">📜 Trade History</li>
-                <li onclick="switchTab('analysis')">Analysis Stat</li>
-                <li onclick="switchTab('statement')">Statement</li>
-                <li onclick="switchTab('portfolio-analysis')">Portfolio Analysis</li>
-                <li onclick="switchTab('suggestion')">💡 Buy/Sell Suggestion</li>
-                <li onclick="switchTab('dividend')">💰 Dividend Analysis</li>
-                <li onclick="switchTab('history')">📊 Value History</li>
+                <li onclick="switchTab('portfolio-analysis')">📊 Portfolio Performance</li>
+                <li class="nav-section-label">Reports & Income</li>
+                <li onclick="switchTab('analysis')">📋 Share Ledger</li>
+                <li onclick="switchTab('statement')">🧾 Statement</li>
+                <li onclick="switchTab('dividend')">💰 Dividends</li>
+                <li onclick="switchTab('history')">📈 Value History</li>
+                <li class="nav-section-label">Research</li>
+                <li onclick="switchTab('suggestion')">💡 Buy/Sell Signals</li>
                 <li onclick="toggleScreenerDropdown()" style="cursor: pointer;">
-                    <span>📊 Screener</span>
+                    <span>🔎 Stock Screener</span>
                     <span id="screener-arrow" style="float: right;">▶</span>
                 </li>
                 <ul id="screener-dropdown" style="display: none; padding-left: 20px; list-style: none;">
                     <li onclick="switchTab('screener'); setTimeout(() => loadScreenerData('buy'), 200);" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
                         onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
-                        📈 Parabolic SAR
+                        📈 Trend (PSAR)
                     </li>
                     <li onclick="switchTab('rsi-indicator')" style="padding: 8px 16px; font-size: 13px;">📊 RSI Indicator</li>
                     <li onclick="switchTab('all-scanner')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
                         onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
-                        📊 All Scanner
+                        🧪 Combined Scanner
                     </li>
                     <li onclick="switchTab('smart-signals')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
                         onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
@@ -449,11 +452,11 @@
                     </li>
                     <li onclick="switchTab('market-watch')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
                         onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
-                        📊 Market Watch
+                        ⭐ Market Watch
                     </li>
                 </ul>
                 <li onclick="togglePortfolioDropdown()" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
-                    <span>📂 Portfolios</span>
+                    <span>📂 Manage Portfolios</span>
                     <span id="portfolio-arrow" style="font-size: 12px;">▶</span>
                 </li>
                 <ul id="portfolio-dropdown" style="display: none; padding-left: 20px; list-style: none; margin-bottom: 8px;">
@@ -525,6 +528,10 @@
 
             <!-- Dashboard Section -->
             <section id="sec-dashboard" class="tab-content">
+                <div class="financial-disclaimer" role="note">
+                    <strong>ℹ️ Market information only</strong>
+                    <span>StockPulse provides portfolio tracking and technical signals. Data can be delayed or unavailable. Signals are informational and are not financial advice.</span>
+                </div>
                 <div class="data-source-indicator" id="data-source-indicator">
                     <div class="source-info">
                         <span class="source-icon" id="source-icon">💾</span>
@@ -587,21 +594,22 @@
                     <div class="dashboard-search-container" style="margin: 15px 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
                         <div style="position: relative; flex: 1; min-width: 250px; max-width: 450px;">
                             <input type="text" id="dashboard-search-input" 
-                                   placeholder="🔍 Search share (e.g., GP, ROBI, SQURPHARMA)" 
+                                   placeholder="🔍 Search stock or ticker (e.g., GP, ROBI)" 
                                    autocomplete="off"
                                    style="width: 100%; padding: 10px 16px; border-radius: 30px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-primary); font-size: 14px; outline: none; transition: all 0.3s;">
                             <div id="dashboard-search-suggestions" class="suggestion-list hidden" 
                                  style="top: 46px; left: 0; width: 100%; position: absolute; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 999;"></div>
                         </div>
-                        <span style="font-size: 12px; color: var(--text-muted);">🔍 Type to search any share</span>
+                        <span style="font-size: 12px; color: var(--text-muted);">Search by company name or ticker</span>
                     </div>
                     <div class="data-details">
-                        <span>📅 Data: </span>
+                        <span>🕒 Last market update: </span>
                         <span id="data-date-value">Loading...</span>
                     </div>
 <div class="mode-buttons">
-  <button id="btn-database-mode" class="mode-btn active" onclick="window.setDatabaseMode()">📊 Database</button>
-<button id="btn-live-mode" class="mode-btn" onclick="window.setLiveDataMode()">📡 Live Data</button>
+  <button id="btn-database-mode" class="mode-btn active" onclick="window.setDatabaseMode()" title="Use the latest stored market snapshot">💾 Stored Data</button>
+<button id="btn-live-mode" class="mode-btn" onclick="window.setLiveDataMode()" title="Try to fetch the latest available market data">📡 Live</button>
+<span class="data-mode-help">Prices may be delayed. Check the timestamp before trading.</span>
 </div>
                 </div>
 
@@ -1348,7 +1356,7 @@
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
                         <div>
-                            <h3 style="color: white; margin: 0 0 5px 0;">📊 All Scanner <span style="font-size: 14px; opacity: 0.8;">(PSAR + RSI)</span></h3>
+                            <h3 style="color: white; margin: 0 0 5px 0;">🧪 Combined Scanner <span style="font-size: 14px; opacity: 0.8;">(PSAR + RSI)</span></h3>
                             <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Strong Buy (RSI &lt; 30 &amp; PSAR &lt; Price) &amp; Strong Sell (RSI &gt; 70 &amp; PSAR &gt; Price)</p>
                         </div>
                         <button onclick="refreshAllScannerPage()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 30px; cursor: pointer;">🔄 Refresh</button>
@@ -1776,7 +1784,7 @@
     <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
             <div>
-                <h3 style="color: white; margin: 0 0 5px 0;">📊 Market Watch</h3>
+                <h3 style="color: white; margin: 0 0 5px 0;">⭐ Market Watch</h3>
                 <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">Track your watchlist and full market performance</p>
             </div>
             <button onclick="loadMarketWatchPage()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 30px; cursor: pointer;">🔄 Refresh</button>
@@ -2005,6 +2013,19 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <!-- Production confirmation modal -->
+    <div id="app-confirm-modal" class="modal app-confirm-modal" style="display:none;" aria-hidden="true">
+        <div class="modal-content app-confirm-content" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title">
+            <div class="app-confirm-icon" id="app-confirm-icon">🧾</div>
+            <h3 id="app-confirm-title">Confirm transaction</h3>
+            <div id="app-confirm-body" class="app-confirm-body"></div>
+            <div class="app-confirm-actions">
+                <button type="button" class="btn-secondary" id="app-confirm-cancel">Cancel</button>
+                <button type="button" class="btn-primary" id="app-confirm-ok">Confirm</button>
+            </div>
+        </div>
     </div>
 
     <!-- ============================================= -->
@@ -2317,7 +2338,7 @@
     <div id="all-scanner-modal" class="modal" style="display:none;">
         <div class="modal-content" style="max-width: 900px; max-height: 85vh; overflow-y: auto;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
-                <h3 style="margin:0;">📊 All Scanner Details</h3>
+                <h3 style="margin:0;">🧪 Combined Scanner Details</h3>
                 <span onclick="document.getElementById('all-scanner-modal').style.display='none'" style="cursor: pointer; font-size: 28px; line-height: 1; color: var(--text-muted);">&times;</span>
             </div>
             <div id="all-scanner-modal-body">

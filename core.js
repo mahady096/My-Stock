@@ -396,7 +396,8 @@ async function getUnifiedPrice(ticker, forceRefresh = false) {
     }
 
     // -----------------------------------------------------
-    // ৩. ডেটাবেস থেকে ফেচ (Supabase → Firebase → Hardcoded)
+    // ৩. ডেটাবেস থেকে ফেচ (Supabase → Firebase)
+    // Production never substitutes stale demo prices for missing market data.
     // -----------------------------------------------------
     let price = 0;
     const sources = [];
@@ -473,8 +474,8 @@ async function getUnifiedPrice(ticker, forceRefresh = false) {
         }
     }
 
-    // ৩.৫ হার্ডকোডেড ফ্যালব্যাক (যদি কোনো সোর্সে না পাওয়া যায়)
-    if (price === 0) {
+    // ৩.৫ Optional demo fallback (OFF by default in production)
+    if (price === 0 && CONFIG?.DEFAULTS?.ALLOW_DEMO_PRICE_FALLBACK === true) {
         price = getHardcodedPrice(ticker);
     }
 
@@ -1358,7 +1359,6 @@ async function saveDividendToBoth(userId, data) {
                 share_name: data.shareName,
                 stock_percent: data.stockPercent || 0,
                 cash_amount: data.cashAmount || 0,
-                portfolio_id: data.portfolioId || 'main',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             });
@@ -1737,30 +1737,88 @@ async function fetchStockByTicker(ticker) {
     }
 }
 // ==========================================
-// 🔥 Supabase Direct Fetch হেলপার
+// 🔐 Firebase → Supabase JWT authentication bridge
 // ==========================================
 let cachedSupabaseToken = null;
+let supabaseTokenExpiresAt = 0;
+let supabaseAuthSyncPromise = null;
 
-async function getSupabaseToken() {
-    if (cachedSupabaseToken) return cachedSupabaseToken;
-    const user = auth.currentUser;
-    if (!user) throw new Error('No user logged in');
-    const idToken = await user.getIdToken();
-    const res = await fetch('https://dpdicusxlrdydajkcgev.supabase.co/functions/v1/auth-hook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firebase_token: idToken })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Token exchange failed');
-    cachedSupabaseToken = data.token;
-    return cachedSupabaseToken;
+function decodeJwtPayload(token) {
+    try {
+        const part = token.split('.')[1];
+        if (!part) return null;
+        const normalized = part.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+        return JSON.parse(atob(padded));
+    } catch (_) {
+        return null;
+    }
+}
+
+async function syncSupabaseAuth(force = false) {
+    if (supabaseAuthSyncPromise && !force) return supabaseAuthSyncPromise;
+
+    supabaseAuthSyncPromise = (async () => {
+        const user = auth && auth.currentUser;
+        if (!user) {
+            cachedSupabaseToken = null;
+            supabaseTokenExpiresAt = 0;
+            if (typeof window.clearSupabaseAuth === 'function') window.clearSupabaseAuth();
+            return null;
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        if (!force && cachedSupabaseToken && supabaseTokenExpiresAt > now + 60) {
+            return cachedSupabaseToken;
+        }
+
+        const idToken = await user.getIdToken(force);
+        const hookUrl = window.APP_CONFIG?.API?.SUPABASE_AUTH_HOOK_URL;
+        if (!hookUrl) throw new Error('Supabase auth-hook URL is not configured');
+
+        const res = await fetch(hookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ firebase_token: idToken })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.token) {
+            throw new Error(data.error || 'Supabase token exchange failed');
+        }
+
+        cachedSupabaseToken = data.token;
+        const payload = decodeJwtPayload(data.token);
+        supabaseTokenExpiresAt = Number(payload?.exp || 0);
+
+        if (typeof window.setSupabaseAuthToken === 'function') {
+            window.setSupabaseAuthToken(data.token);
+        } else {
+            throw new Error('Supabase auth client bridge is not initialized');
+        }
+
+        console.log('✅ Supabase authorization synchronized');
+        return cachedSupabaseToken;
+    })();
+
+    try {
+        return await supabaseAuthSyncPromise;
+    } finally {
+        supabaseAuthSyncPromise = null;
+    }
+}
+
+async function getSupabaseToken(force = false) {
+    return syncSupabaseAuth(force);
 }
 
 async function supabaseFetch(path, options = {}) {
-    const token = await getSupabaseToken();
-    const anonKey = 'sb_publishable_vIexTeuEoBjiFoA0F2w2Ag_3GUn_SMX';
-    const url = `https://dpdicusxlrdydajkcgev.supabase.co/rest/v1${path}`;
+    const token = await getSupabaseToken(false);
+    if (!token) throw new Error('Supabase authentication required');
+
+    const anonKey = window.APP_CONFIG?.API?.SUPABASE_ANON_KEY;
+    const baseUrl = window.APP_CONFIG?.API?.SUPABASE_URL;
+    const url = `${baseUrl}/rest/v1${path}`;
     const response = await fetch(url, {
         ...options,
         headers: {
@@ -1770,12 +1828,14 @@ async function supabaseFetch(path, options = {}) {
             ...(options.headers || {})
         }
     });
+
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || `HTTP ${response.status}`);
     }
     return response.json();
 }
+
 /**
  * ঐতিহাসিক ডেটা ফেচ করুন
  */
@@ -1841,5 +1901,6 @@ window.getPortfolioName = getPortfolioName;
 window.getHistoricalPricesFromSupabase = getHistoricalPricesFromSupabase;
 window.getLatestDSEXFromSupabase = getLatestDSEXFromSupabase;
 window.getSupabaseToken = getSupabaseToken;
+window.syncSupabaseAuth = syncSupabaseAuth;
 window.supabaseFetch = supabaseFetch;
 console.log('✅ core.js loaded successfully (All functions defined and exposed globally)');

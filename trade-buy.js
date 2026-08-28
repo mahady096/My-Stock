@@ -76,7 +76,13 @@
                 if (data && data.ltp) { priceInput.value = data.ltp; return; }
             }
         } catch (e) { /* ignore */ }
-        priceInput.value = getHardcodedPrice(ticker);
+        const unified = typeof getUnifiedPrice === 'function' ? await getUnifiedPrice(ticker, true) : 0;
+        if (unified > 0) {
+            priceInput.value = unified;
+        } else {
+            priceInput.value = '';
+            if (typeof showToast === 'function') showToast('Current price is unavailable. Please enter the executed trade price manually.', 'warning');
+        }
     }
 
     async function getCachedPrice(ticker) {
@@ -131,13 +137,26 @@
             const commissionAmount = commissionManager.calculateCommission(totalAmount);
             const totalWithCommission = totalAmount + commissionAmount;
 
-            let confirmMsg = `Buy Order Summary:\n📊 Share: ${shareName}\n📦 Quantity: ${quantity}\n💰 Price: ৳${price.toFixed(2)}\n📈 Total Amount: ৳${totalAmount.toFixed(2)}`;
-            if (commissionPercent > 0) {
-                confirmMsg += `\n💸 Commission (${commissionPercent}%): ৳${commissionAmount.toFixed(2)}\n───────────────────────────────\n💵 Net Payable: ৳${totalWithCommission.toFixed(2)}`;
-            } else {
-                confirmMsg += `\n💵 Net Payable: ৳${totalAmount.toFixed(2)}`;
+            const confirmBody = `
+                <div class="confirm-summary-grid">
+                    <span>Stock</span><strong>${shareName}</strong>
+                    <span>Quantity</span><strong>${quantity}</strong>
+                    <span>Price</span><strong>৳${price.toFixed(2)}</strong>
+                    <span>Trade value</span><strong>৳${totalAmount.toFixed(2)}</strong>
+                    <span>Commission</span><strong>৳${commissionAmount.toFixed(2)} (${commissionPercent}%)</strong>
+                    <span class="total-label">Total payable</span><strong class="total-value">৳${totalWithCommission.toFixed(2)}</strong>
+                </div>`;
+            if (typeof window.showConfirmModal === 'function') {
+                const confirmed = await window.showConfirmModal({
+                    title: 'Confirm Buy',
+                    icon: '🛒',
+                    body: confirmBody,
+                    confirmText: 'Confirm Buy'
+                });
+                if (!confirmed) return;
+            } else if (!window.confirm(`Buy ${quantity} ${shareName} at ৳${price.toFixed(2)}?`)) {
+                return;
             }
-            if (!confirm(confirmMsg)) return;
 
             try {
                 const result = await savePortfolioToBoth(user.uid, {

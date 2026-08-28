@@ -1,56 +1,81 @@
 // supabase-config.js
-// এটি সাধারণ JavaScript ফাইল, module নয়
-//
-// ✅ ফিক্স v2:
-// - Supabase URL/Key এখন config.js-এর APP_CONFIG থেকে পড়া হচ্ছে
-//   (আগে এখানে আলাদাভাবে হার্ডকোড করা ছিল — একই ভ্যালু দুই জায়গায়,
-//   key rotate করলে দুই ফাইলেই আপডেট করা লাগত, একটা মিস করলে
-//   সাইলেন্ট bug হতো)
-// - যদি কোনো কারণে APP_CONFIG এখনো লোড না হয়ে থাকে (script order
-//   সমস্যা), একটা fallback হার্ডকোড ভ্যালু ব্যবহার হবে এবং কনসোলে
-//   সতর্কতা দেখানো হবে — যাতে অ্যাপ ভেঙে না পড়ে
-//
-// ⚠️ গুরুত্বপূর্ণ: এই ফিক্স কাজ করার জন্য index.html-এ config.js
-// অবশ্যই supabase-config.js-এর আগে লোড হতে হবে। বর্তমানে
-// index.html-এ script অর্ডার এরকম আছে:
-//     firebase-config.js → supabase-config.js → config.js
-// এটা উল্টো — config.js-কে সবার আগে (বা অন্তত supabase-config.js-এর
-// আগে) আনতে হবে, নাহলে নিচের fallback ভ্যালুই সবসময় ব্যবহার হবে।
-
-(function() {
-    // ✅ ফিক্স: প্রথমে APP_CONFIG থেকে পড়ার চেষ্টা, না পেলে fallback
-    const FALLBACK_URL = 'https://dpdicusxlrdydajkcgev.supabase.co';
-    const FALLBACK_KEY = 'sb_publishable_vIexTeuEoBjiFoA0F2w2Ag_3GUn_SMX';
-
-    let supabaseUrl = FALLBACK_URL;
-    let supabaseAnonKey = FALLBACK_KEY;
-
-    if (typeof window.APP_CONFIG !== 'undefined' &&
-        window.APP_CONFIG.API &&
-        window.APP_CONFIG.API.SUPABASE_URL &&
-        window.APP_CONFIG.API.SUPABASE_ANON_KEY) {
-        supabaseUrl = window.APP_CONFIG.API.SUPABASE_URL;
-        supabaseAnonKey = window.APP_CONFIG.API.SUPABASE_ANON_KEY;
-    } else {
-        // config.js এখনো লোড হয়নি বা APP_CONFIG পাওয়া যায়নি —
-        // fallback ভ্যালু দিয়ে চালিয়ে যাচ্ছি, কিন্তু সতর্ক করছি
-        console.warn(
-            '⚠️ supabase-config.js: window.APP_CONFIG পাওয়া যায়নি। ' +
-            'config.js কি supabase-config.js-এর আগে লোড হচ্ছে? ' +
-            'ফলব্যাক (হার্ডকোডেড) Supabase কী ব্যবহার করা হচ্ছে। ' +
-            'index.html-এ script অর্ডার ঠিক করুন: config.js আগে, তারপর supabase-config.js।'
-        );
-    }
-
-    if (typeof supabase === 'undefined') {
-        console.error('Supabase library not loaded!');
+// Firebase Auth -> Supabase JWT bridge.
+// IMPORTANT: create exactly ONE Supabase client per page.
+// The current Firebase->Supabase JWT is injected dynamically into requests
+// so repeated token refreshes do not create multiple GoTrueClient instances.
+(function () {
+    const appConfig = window.APP_CONFIG;
+    if (!appConfig || !appConfig.API || !appConfig.API.SUPABASE_URL || !appConfig.API.SUPABASE_ANON_KEY) {
+        console.error('❌ Supabase configuration is missing. Check config.js and script order.');
         return;
     }
 
-    window.supabase = supabase.createClient(supabaseUrl, supabaseAnonKey, {
-        auth: { persistSession: false },
-        realtime: { autoConnect: false }
+    const supabaseLibrary = window.supabase;
+    if (!supabaseLibrary || typeof supabaseLibrary.createClient !== 'function') {
+        console.error('❌ Supabase library not loaded!');
+        return;
+    }
+
+    // Prevent accidental duplicate initialization if this file is included twice.
+    if (window.supabase && window.supabase.__stockPulseClient === true) {
+        console.warn('⚠️ StockPulse Supabase client already initialized; reusing it.');
+        return;
+    }
+
+    let currentAccessToken = null;
+
+    const dynamicFetch = async (input, init = {}) => {
+        const headers = new Headers(init.headers || {});
+        if (currentAccessToken) {
+            headers.set('Authorization', `Bearer ${currentAccessToken}`);
+        } else {
+            headers.delete('Authorization');
+        }
+        return fetch(input, { ...init, headers });
+    };
+
+    const client = supabaseLibrary.createClient(
+        appConfig.API.SUPABASE_URL,
+        appConfig.API.SUPABASE_ANON_KEY,
+        {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+                detectSessionInUrl: false
+            },
+            realtime: { autoConnect: false },
+            global: {
+                fetch: dynamicFetch
+            }
+        }
+    );
+
+    // Marker used only to prevent duplicate initialization in the same page.
+    Object.defineProperty(client, '__stockPulseClient', {
+        value: true,
+        enumerable: false,
+        configurable: false,
+        writable: false
     });
 
-    console.log('✅ Supabase client initialized (global)');
+    window.supabase = client;
+    window.__supabaseAccessToken = null;
+
+    window.setSupabaseAuthToken = function (accessToken) {
+        currentAccessToken = accessToken || null;
+        window.__supabaseAccessToken = currentAccessToken;
+        return client;
+    };
+
+    window.clearSupabaseAuth = function () {
+        currentAccessToken = null;
+        window.__supabaseAccessToken = null;
+        return client;
+    };
+
+    window.getSupabaseAuthToken = function () {
+        return currentAccessToken;
+    };
+
+    console.log('✅ Supabase client initialized once (Firebase JWT bridge ready)');
 })();

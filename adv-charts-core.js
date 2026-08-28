@@ -358,16 +358,27 @@ async function loadAdvancedChart(ticker, forceRefresh = false) {
             } catch (e) { /* ignore */ }
         }
 
-        const forecast = arimaForecast(priceData, 5);
+        let forecast = null;
+        try {
+            // Forecasting must never prevent the historical chart from rendering.
+            forecast = (typeof arimaForecast === 'function') ? arimaForecast(priceData, 5) : null;
+        } catch (forecastError) {
+            console.warn('ARIMA forecast skipped:', forecastError);
+        }
         let forecastLabels = [], forecastValues = [];
-        if (forecast) {
+        if (Array.isArray(forecast) && forecast.length && labels.length) {
             const lastDate = new Date(labels[labels.length - 1]);
-            forecast.forEach((f, idx) => {
-                const d = new Date(lastDate);
-                d.setDate(d.getDate() + idx + 1);
-                forecastLabels.push(d.toISOString().split('T')[0]);
-                forecastValues.push(f);
-            });
+            if (!Number.isNaN(lastDate.getTime())) {
+                forecast.forEach((f, idx) => {
+                    const d = new Date(lastDate);
+                    d.setDate(d.getDate() + idx + 1);
+                    const iso = d.toISOString().split('T')[0];
+                    if (Number.isFinite(f) && iso) {
+                        forecastLabels.push(iso);
+                        forecastValues.push(f);
+                    }
+                });
+            }
         }
 
         const allLabels = [...labels, ...forecastLabels];
@@ -1902,7 +1913,6 @@ window.loadAdvancedChart = loadAdvancedChart;
 window.selectAdvChartStock = selectAdvChartStock;
 window.toggleDarkMode = toggleDarkMode;
 window.getHistoricalPricesFromSupabase = getHistoricalPricesFromSupabase;
-window.toggleFullscreen = toggleFullscreen;
 window.downloadChartAsPNG = downloadChartAsPNG;
 window.saveIndicatorPreset = saveIndicatorPreset;
 window.loadIndicatorPreset = loadIndicatorPreset;

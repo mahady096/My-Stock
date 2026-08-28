@@ -675,16 +675,33 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="indicators.js"></script>
+    <!-- Dependencies must load before configuration/consumers on this standalone page. -->
+    <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
+    <script src="config.js"></script>
     <script src="firebase-config.js"></script>
     <script src="supabase-config.js"></script>
-    <script src="config.js"></script>
+    <script src="indicators.js"></script>
     <script src="data-service.js"></script>
     <script src="cache-helper.js"></script>
     <script src="core.js"></script>
-    <!-- প্রথমে কোর ফাইল -->
-<script src="adv-charts-core.js"></script>
-<!-- তারপর এক্সট্রা ফাইল -->
-<script src="adv-charts-extras.js"></script>
+    <!-- Keep the advanced chart extras before core so fullscreen is available when core exports it. -->
+    <script src="adv-charts-extras.js"></script>
+    <script src="adv-charts-core.js"></script>
+    <script>
+    // Standalone Advanced Charts page: sync Firebase auth before its first data request.
+    (function () {
+        if (typeof auth !== 'undefined' && auth && typeof auth.onAuthStateChanged === 'function' && typeof window.syncSupabaseAuth === 'function') {
+            auth.onAuthStateChanged(function (user) {
+                if (user) {
+                    window.syncSupabaseAuth(false).catch(function (e) {
+                        console.warn('Supabase auth sync failed on Advanced Charts:', e);
+                    });
+                } else if (typeof window.clearSupabaseAuth === 'function') {
+                    window.clearSupabaseAuth();
+                }
+            });
+        }
+    })();
+    </script>
 </body>
 </html>

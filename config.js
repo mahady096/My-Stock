@@ -8,7 +8,8 @@ const APP_CONFIG = {
     API: {
         SCRAPER_BASE_URL: 'https://dse-scraper.vercel.app/api',
         SUPABASE_URL: 'https://dpdicusxlrdydajkcgev.supabase.co',
-        SUPABASE_ANON_KEY: 'sb_publishable_vIexTeuEoBjiFoA0F2w2Ag_3GUn_SMX'
+        SUPABASE_ANON_KEY: 'sb_publishable_vIexTeuEoBjiFoA0F2w2Ag_3GUn_SMX',
+        SUPABASE_AUTH_HOOK_URL: 'https://dpdicusxlrdydajkcgev.supabase.co/functions/v1/auth-hook'
     },
 
     // ক্যাশ টাইমআউট (মিলিসেকেন্ড)
@@ -34,7 +35,9 @@ const APP_CONFIG = {
     DEFAULTS: {
         COMMISSION_PERCENT: 0,
         DATA_MODE: 'database',
-        SIGNAL_THRESHOLD: 50
+        SIGNAL_THRESHOLD: 50,
+        // Never show stale demo prices in production. Enable only for local testing.
+        ALLOW_DEMO_PRICE_FALLBACK: false
     },
 
     // ক্যালকুলেশন কনস্ট্যান্ট

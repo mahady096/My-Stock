@@ -1744,3 +1744,84 @@ input[type="date"] {
 .signal-item:hover {
     background: var(--hover-bg);
 }
+
+/* ==========================================
+   StockPulse production UX polish
+   ========================================== */
+.nav-section-label {
+    list-style: none;
+    padding: 14px 16px 6px !important;
+    margin: 4px 0 0;
+    font-size: 10px !important;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--text-muted) !important;
+    pointer-events: none;
+    cursor: default !important;
+}
+.data-mode-help {
+    font-size: 11px;
+    color: var(--text-muted);
+    flex: 1 1 220px;
+}
+.financial-disclaimer {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0 0 16px;
+    padding: 11px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+.financial-disclaimer strong { color: var(--text-primary); white-space: nowrap; }
+.app-confirm-modal {
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(15, 23, 42, .58);
+    backdrop-filter: blur(5px);
+}
+.app-confirm-content {
+    width: min(460px, 100%);
+    text-align: center;
+    padding: 26px;
+    border-radius: 20px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.25);
+}
+.app-confirm-icon { font-size: 34px; margin-bottom: 6px; }
+.app-confirm-content h3 { margin: 0 0 16px; font-size: 20px; }
+.app-confirm-body { text-align: left; }
+.confirm-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px 18px;
+    padding: 15px;
+    border-radius: 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    font-size: 13px;
+}
+.confirm-summary-grid span { color: var(--text-muted); }
+.confirm-summary-grid strong { color: var(--text-primary); text-align: right; }
+.confirm-summary-grid .total-label, .confirm-summary-grid .total-value {
+    padding-top: 10px;
+    margin-top: 2px;
+    border-top: 1px solid var(--border-color);
+    font-weight: 800;
+}
+.confirm-summary-grid .total-value { font-size: 15px; }
+.app-confirm-actions { display: flex; gap: 10px; margin-top: 20px; }
+.app-confirm-actions button { flex: 1; min-height: 44px; }
+body.modal-open { overflow: hidden; }
+
+@media (max-width: 480px) {
+    .financial-disclaimer { flex-direction: column; gap: 4px; }
+    .data-mode-help { flex-basis: 100%; }
+    .app-confirm-content { padding: 20px; }
+    .confirm-summary-grid { gap: 8px 12px; }
+}
