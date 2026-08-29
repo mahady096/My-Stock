@@ -1069,15 +1069,27 @@ async calculate(userId, portfolioId = null, forceRefresh = false) {
         // Supabase
         if (typeof supabase !== 'undefined' && supabase) {
             try {
-                let pQuery = supabase.from('portfolios').select('*').eq('user_id', userId);
-                if (portfolioId) pQuery = pQuery.eq('portfolio_id', portfolioId);
-                const { data: pData, error: pError } = await pQuery;
-                if (!pError && pData) portfolioData = pData;
+                const { data: pData, error: pError } = await supabase
+                    .from('portfolios').select('*').eq('user_id', userId);
+                if (!pError && pData) {
+                    const wanted = String(portfolioId || '').trim().toLowerCase();
+                    portfolioData = pData.filter(item => {
+                        const pid = String(item.portfolio_id ?? '').trim().toLowerCase();
+                        if (!wanted || wanted === 'grand') return true;
+                        return wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted;
+                    });
+                }
 
-                let sQuery = supabase.from('sales_history').select('*').eq('user_id', userId);
-                if (portfolioId) sQuery = sQuery.eq('portfolio_id', portfolioId);
-                const { data: sData, error: sError } = await sQuery;
-                if (!sError && sData) salesData = sData;
+                const { data: sData, error: sError } = await supabase
+                    .from('sales_history').select('*').eq('user_id', userId);
+                if (!sError && sData) {
+                    const wanted = String(portfolioId || '').trim().toLowerCase();
+                    salesData = sData.filter(item => {
+                        const pid = String(item.portfolio_id ?? '').trim().toLowerCase();
+                        if (!wanted || wanted === 'grand') return true;
+                        return wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted;
+                    });
+                }
             } catch (e) { console.warn('Supabase calc fetch failed', e); }
         }
 
@@ -1085,10 +1097,12 @@ async calculate(userId, portfolioId = null, forceRefresh = false) {
         if (portfolioData.length === 0 && typeof db !== 'undefined' && db) {
             try {
                 let pQuery = db.collection('portfolios').where('userId', '==', userId);
-                if (portfolioId) pQuery = pQuery.where('portfolioId', '==', portfolioId);
                 const snap = await pQuery.get();
                 snap.forEach(doc => {
                     const data = doc.data();
+                    const wanted = String(portfolioId || '').trim().toLowerCase();
+                    const pid = String(data.portfolioId ?? '').trim().toLowerCase();
+                    if (wanted && wanted !== 'grand' && !(wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted)) return;
                     portfolioData.push({
                         id: doc.id,
                         user_id: data.userId,
@@ -1106,15 +1120,17 @@ async calculate(userId, portfolioId = null, forceRefresh = false) {
         if (salesData.length === 0 && typeof db !== 'undefined' && db) {
             try {
                 let sQuery = db.collection('sales_history').where('userId', '==', userId);
-                if (portfolioId) sQuery = sQuery.where('portfolioId', '==', portfolioId);
                 const snap = await sQuery.get();
                 snap.forEach(doc => {
                     const data = doc.data();
+                    const wanted = String(portfolioId || '').trim().toLowerCase();
+                    const pid = String(data.portfolioId ?? '').trim().toLowerCase();
+                    if (wanted && wanted !== 'grand' && !(wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted)) return;
                     salesData.push({
                         id: doc.id,
                         user_id: data.userId,
-                        share_name: data.shareName,
-                        quantity_sold: data.quantitySold || 0,
+                        share_name: String(data.shareName ?? '').trim().toUpperCase(),
+                        quantity_sold: Number(data.quantitySold) || 0,
                         buy_price: data.buyPrice || 0,
                         sell_price: data.sellPrice || 0,
                         profit_or_loss: data.profitOrLoss || 0,
@@ -1128,6 +1144,23 @@ async calculate(userId, portfolioId = null, forceRefresh = false) {
             } catch (e) { console.warn('Firebase sales calc fetch failed', e); }
         }
 
+        // Normalize all rows before calculation. This prevents case/number formatting
+        // differences between Buy and Sell records from hiding valid sales.
+        portfolioData = portfolioData.map(item => ({
+            ...item,
+            share_name: String(item.share_name ?? '').trim().toUpperCase(),
+            quantity: Number(item.quantity) || 0,
+            buy_price: Number(item.buy_price) || 0,
+            commission: Number(item.commission) || 0,
+            commission_percent: Number(item.commission_percent) || 0,
+        })).filter(item => item.share_name && item.quantity > 0);
+
+        salesData = salesData.map(item => ({
+            ...item,
+            share_name: String(item.share_name ?? '').trim().toUpperCase(),
+            quantity_sold: Number(item.quantity_sold) || 0,
+        })).filter(item => item.share_name && item.quantity_sold > 0);
+
         if (portfolioData.length === 0) {
             console.log('No portfolio found for user');
             return null;
@@ -1136,23 +1169,26 @@ async calculate(userId, portfolioId = null, forceRefresh = false) {
         // মোট বিক্রি হিসাব
         const totalSoldMap = new Map();
         salesData.forEach(item => {
-            const ticker = item.share_name;
-            totalSoldMap.set(ticker, (totalSoldMap.get(ticker) || 0) + (item.quantity_sold || 0));
+            const ticker = String(item.share_name ?? '').trim().toUpperCase();
+            const qty = Number(item.quantity_sold) || 0;
+            if (!ticker || qty <= 0) return;
+            totalSoldMap.set(ticker, (totalSoldMap.get(ticker) || 0) + qty);
         });
 
         // Buy লট তৈরি
         const allBuyLots = [];
         const buyLots = [];
         portfolioData.forEach(item => {
-            const qty = item.quantity || 0;
-            const buyPrice = item.buy_price || 0;
-            const commission = item.commission || 0;
-            const commissionPercent = item.commission_percent || 0;
+            const ticker = String(item.share_name ?? '').trim().toUpperCase();
+            const qty = Number(item.quantity) || 0;
+            const buyPrice = Number(item.buy_price) || 0;
+            const commission = Number(item.commission) || 0;
+            const commissionPercent = Number(item.commission_percent) || 0;
             const totalCostWithCommission = (qty * buyPrice) + commission;
             const perUnitCostWithCommission = qty > 0 ? totalCostWithCommission / qty : 0;
             const date = item.date ? new Date(item.date) : new Date();
             allBuyLots.push({
-                ticker: item.share_name,
+                ticker: ticker,
                 qty: qty,
                 buyPrice: buyPrice,
                 totalCostWithCommission: totalCostWithCommission,
@@ -1263,34 +1299,54 @@ async calculate(userId, portfolioId = null, forceRefresh = false) {
 async function savePortfolioToBoth(userId, data) {
     let supabaseSuccess = false;
     let firebaseSuccess = false;
+    let supabaseError = null;
 
-    if (typeof supabase !== 'undefined' && supabase) {
+    const payload = {
+        user_id: userId,
+        share_name: String(data.shareName || '').trim().toUpperCase(),
+        quantity: Number(data.quantity) || 0,
+        buy_price: Number(data.buyPrice) || 0,
+        commission: Number(data.commission) || 0,
+        commission_percent: Number(data.commissionPercent) || 0,
+        portfolio_id: data.portfolioId || 'main',
+        date: data.date || new Date().toISOString().split('T')[0],
+        created_at: new Date().toISOString()
+    };
+
+    // Use the same Firebase->Supabase custom JWT bridge as the rest of the app.
+    if (typeof supabaseFetch === 'function') {
         try {
-            const { error } = await supabase.from('portfolios').insert({
-                user_id: userId,
-                share_name: data.shareName,
-                quantity: data.quantity,
-                buy_price: data.buyPrice,
-                commission: data.commission || 0,
-                commission_percent: data.commissionPercent || 0,
-                portfolio_id: data.portfolioId || 'main', // নতুন
-                date: data.date || new Date().toISOString().split('T')[0],
-                created_at: new Date().toISOString()
+            await supabaseFetch('/portfolios', {
+                method: 'POST',
+                headers: { 'Prefer': 'return=minimal' },
+                body: JSON.stringify(payload)
             });
-            if (!error) supabaseSuccess = true;
-        } catch (e) { console.warn('Supabase insert failed:', e); }
+            supabaseSuccess = true;
+        } catch (e) {
+            supabaseError = e instanceof Error ? e.message : String(e);
+            console.error('Supabase portfolio insert failed:', supabaseError);
+        }
+    } else if (typeof supabase !== 'undefined' && supabase) {
+        try {
+            const { error } = await supabase.from('portfolios').insert(payload);
+            if (error) throw error;
+            supabaseSuccess = true;
+        } catch (e) {
+            supabaseError = e instanceof Error ? e.message : String(e);
+            console.error('Supabase portfolio insert failed:', supabaseError);
+        }
     }
 
     if (typeof db !== 'undefined' && db) {
         try {
             await db.collection('portfolios').add({
                 userId: userId,
-                shareName: data.shareName,
-                quantity: data.quantity,
-                buyPrice: data.buyPrice,
-                commission: data.commission || 0,
-                commissionPercent: data.commissionPercent || 0,
-                portfolioId: data.portfolioId || 'main', // নতুন
+                shareName: payload.share_name,
+                quantity: payload.quantity,
+                buyPrice: payload.buy_price,
+                commission: payload.commission,
+                commissionPercent: payload.commission_percent,
+                portfolioId: payload.portfolio_id,
                 date: data.date ? new Date(data.date) : new Date(),
                 createdAt: new Date()
             });
@@ -1298,46 +1354,67 @@ async function savePortfolioToBoth(userId, data) {
         } catch (e) { console.warn('Firebase insert failed:', e); }
     }
 
-    return { supabaseSuccess, firebaseSuccess };
+    return { supabaseSuccess, firebaseSuccess, supabaseError };
 }
 
 async function saveSalesToBoth(userId, data) {
     let supabaseSuccess = false;
     let firebaseSuccess = false;
+    let supabaseError = null;
 
-    if (typeof supabase !== 'undefined' && supabase) {
+    const payload = {
+        user_id: userId,
+        share_name: String(data.shareName || '').trim().toUpperCase(),
+        quantity_sold: Number(data.quantitySold) || 0,
+        buy_price: Number(data.buyPrice) || 0,
+        sell_price: Number(data.sellPrice) || 0,
+        profit_or_loss: Number(data.profitOrLoss) || 0,
+        commission: Number(data.commission) || 0,
+        commission_percent: Number(data.commissionPercent) || 0,
+        net_received: Number(data.netReceived) || 0,
+        portfolio_id: data.portfolioId || 'main',
+        date: data.date || new Date().toISOString().split('T')[0],
+        created_at: new Date().toISOString()
+    };
+
+    // IMPORTANT: use the app's custom Firebase->Supabase JWT bridge.
+    // This avoids relying on a stale/incorrect supabase-js session.
+    if (typeof supabaseFetch === 'function') {
         try {
-            const { error } = await supabase.from('sales_history').insert({
-                user_id: userId,
-                share_name: data.shareName,
-                quantity_sold: data.quantitySold,
-                buy_price: data.buyPrice,
-                sell_price: data.sellPrice,
-                profit_or_loss: data.profitOrLoss,
-                commission: data.commission || 0,
-                commission_percent: data.commissionPercent || 0,
-                net_received: data.netReceived || 0,
-                portfolio_id: data.portfolioId || 'main',
-                date: data.date || new Date().toISOString().split('T')[0],
-                created_at: new Date().toISOString()
+            await supabaseFetch('/sales_history', {
+                method: 'POST',
+                headers: { 'Prefer': 'return=minimal' },
+                body: JSON.stringify(payload)
             });
-            if (!error) supabaseSuccess = true;
-        } catch (e) { console.warn('Supabase sales insert failed:', e); }
+            supabaseSuccess = true;
+        } catch (e) {
+            supabaseError = e instanceof Error ? e.message : String(e);
+            console.error('Supabase sales insert failed:', supabaseError);
+        }
+    } else if (typeof supabase !== 'undefined' && supabase) {
+        try {
+            const { error } = await supabase.from('sales_history').insert(payload);
+            if (error) throw error;
+            supabaseSuccess = true;
+        } catch (e) {
+            supabaseError = e instanceof Error ? e.message : String(e);
+            console.error('Supabase sales insert failed:', supabaseError);
+        }
     }
 
     if (typeof db !== 'undefined' && db) {
         try {
             await db.collection('sales_history').add({
                 userId: userId,
-                shareName: data.shareName,
-                quantitySold: data.quantitySold,
-                buyPrice: data.buyPrice,
-                sellPrice: data.sellPrice,
-                profitOrLoss: data.profitOrLoss,
-                commission: data.commission || 0,
-                commissionPercent: data.commissionPercent || 0,
-                netReceived: data.netReceived || 0,
-                portfolioId: data.portfolioId || 'main',
+                shareName: payload.share_name,
+                quantitySold: payload.quantity_sold,
+                buyPrice: payload.buy_price,
+                sellPrice: payload.sell_price,
+                profitOrLoss: payload.profit_or_loss,
+                commission: payload.commission,
+                commissionPercent: payload.commission_percent,
+                netReceived: payload.net_received,
+                portfolioId: payload.portfolio_id,
                 date: data.date ? new Date(data.date) : new Date(),
                 createdAt: new Date()
             });
@@ -1345,8 +1422,9 @@ async function saveSalesToBoth(userId, data) {
         } catch (e) { console.warn('Firebase sales insert failed:', e); }
     }
 
-    return { supabaseSuccess, firebaseSuccess };
+    return { supabaseSuccess, firebaseSuccess, supabaseError };
 }
+
 
 async function saveDividendToBoth(userId, data) {
     let supabaseSuccess = false;
@@ -1829,11 +1907,32 @@ async function supabaseFetch(path, options = {}) {
         }
     });
 
+    // Supabase REST INSERT/UPDATE requests may legitimately return 201/204
+    // with an empty body (especially with Prefer: return=minimal). Never call
+    // response.json() blindly on an empty response.
+    const rawText = await response.text();
+
     if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || `HTTP ${response.status}`);
+        let message = `HTTP ${response.status}`;
+        if (rawText) {
+            try {
+                const error = JSON.parse(rawText);
+                message = error?.message || error?.error_description || error?.hint || message;
+            } catch {
+                message = rawText.slice(0, 500) || message;
+            }
+        }
+        throw new Error(message);
     }
-    return response.json();
+
+    if (!rawText.trim()) return null;
+
+    try {
+        return JSON.parse(rawText);
+    } catch {
+        // A successful non-JSON response is still a successful request.
+        return rawText;
+    }
 }
 
 /**

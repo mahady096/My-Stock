@@ -97,32 +97,50 @@
             // ---------- Supabase ----------
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
-                    let pQuery = supabase.from('portfolios')
+                    // Fetch all lots for this user/ticker, then normalize the
+                    // legacy NULL portfolio_id rows in JavaScript. Older
+                    // records used NULL for the Main portfolio.
+                    const { data: pData, error: pError } = await supabase
+                        .from('portfolios')
                         .select('*')
                         .eq('user_id', user.uid)
                         .eq('share_name', ticker);
-                    // 'main' is the legacy/default selector value. Do not assume
-                    // every existing holding actually stores portfolio_id='main'.
-                    // If the selector is a real custom portfolio ID, filter by it.
-                    const scopedPortfolio = portfolioId && portfolioId !== 'main' && portfolioId !== 'grand'
-                        ? portfolioId : null;
-                    if (scopedPortfolio) pQuery = pQuery.eq('portfolio_id', scopedPortfolio);
-                    const { data: pData, error: pError } = await pQuery;
-                    if (pError) throw new Error(`portfolios: ${pError.message}`);
-                    if (pData && pData.length > 0) {
-                        buyLots = pData.map(doc => ({ docId: doc.id, ...doc }));
-                    }
+                    if (pError) throw pError;
 
-                    let sQuery = supabase.from('sales_history')
+                    const normalizedPortfolioId = portfolioId || 'main';
+                    const filteredPData = (pData || []).filter(doc => {
+                        const pid = String(doc.portfolio_id ?? '').trim().toLowerCase();
+                        if (normalizedPortfolioId === 'grand') return true;
+                        if (normalizedPortfolioId === 'main') return pid === '' || pid === 'main';
+                        return pid === String(normalizedPortfolioId).trim().toLowerCase();
+                    });
+
+                    buyLots = filteredPData.map(doc => ({
+                        docId: doc.id,
+                        ...doc,
+                        portfolio_id: doc.portfolio_id || 'main',
+                        quantity: Number(doc.quantity) || 0,
+                        buy_price: Number(doc.buy_price) || 0,
+                        share_name: String(doc.share_name || '').trim().toUpperCase()
+                    }));
+
+                    const { data: sData, error: sError } = await supabase
+                        .from('sales_history')
                         .select('*')
                         .eq('user_id', user.uid)
                         .eq('share_name', ticker);
-                    if (scopedPortfolio) sQuery = sQuery.eq('portfolio_id', scopedPortfolio);
-                    const { data: sData, error: sError } = await sQuery;
-                    if (sError) throw new Error(`sales_history: ${sError.message}`);
-                    if (sData) {
-                        totalSoldBefore = sData.reduce((sum, item) => sum + (item.quantity_sold || 0), 0);
-                    }
+                    if (sError) throw sError;
+
+                    const filteredSData = (sData || []).filter(item => {
+                        const pid = String(item.portfolio_id ?? '').trim().toLowerCase();
+                        if (normalizedPortfolioId === 'grand') return true;
+                        if (normalizedPortfolioId === 'main') return pid === '' || pid === 'main';
+                        return pid === String(normalizedPortfolioId).trim().toLowerCase();
+                    });
+
+                    totalSoldBefore = filteredSData.reduce(
+                        (sum, item) => sum + (Number(item.quantity_sold) || 0), 0
+                    );
                 } catch (e) {
                     console.warn('Supabase fetch failed, trying Firebase...', e);
                 }
@@ -134,10 +152,12 @@
                     let pQuery = db.collection('portfolios')
                         .where('userId', '==', user.uid)
                         .where('shareName', '==', ticker);
-                    if (scopedPortfolio) pQuery = pQuery.where('portfolioId', '==', scopedPortfolio);
                     const buySnapshot = await pQuery.get();
                     buySnapshot.forEach(doc => {
                         const data = doc.data();
+                        const pid = String(data.portfolioId ?? '').trim().toLowerCase();
+                        const wanted = String(portfolioId || 'main').trim().toLowerCase();
+                        if (wanted !== 'grand' && !(wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted)) return;
                         buyLots.push({
                             docId: doc.id,
                             id: doc.id,
@@ -145,8 +165,6 @@
                             buyPrice: data.buyPrice,
                             buy_price: data.buyPrice,
                             date: data.date,
-                            portfolioId: data.portfolioId || data.portfolio_id || 'main',
-                            portfolio_id: data.portfolioId || data.portfolio_id || 'main',
                             commission: data.commission || 0,
                             commission_percent: data.commissionPercent || 0
                         });
@@ -155,10 +173,14 @@
                     let sQuery = db.collection('sales_history')
                         .where('userId', '==', user.uid)
                         .where('shareName', '==', ticker);
-                    if (scopedPortfolio) sQuery = sQuery.where('portfolioId', '==', scopedPortfolio);
                     const sellSnapshot = await sQuery.get();
                     sellSnapshot.forEach(doc => {
-                        totalSoldBefore += (doc.data().quantitySold || 0);
+                        const data = doc.data();
+                        const pid = String(data.portfolioId ?? '').trim().toLowerCase();
+                        const wanted = String(portfolioId || 'main').trim().toLowerCase();
+                        if (wanted === 'grand' || (wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted)) {
+                            totalSoldBefore += (Number(data.quantitySold) || 0);
+                        }
                     });
                 } catch (e) {
                     console.warn('Firebase fetch failed', e);
@@ -176,7 +198,7 @@
             if (sellPortfolioTableBody) sellPortfolioTableBody.innerHTML = "";
 
             buyLots.forEach(lot => {
-                let availableQty = lot.quantity || 0;
+                let availableQty = Number(lot.quantity) || 0;
                 if (totalSoldBefore > 0) {
                     if (totalSoldBefore >= availableQty) {
                         totalSoldBefore -= availableQty;
@@ -189,12 +211,7 @@
                 if (availableQty > 0) {
                     const buyPrice = lot.buyPrice || lot.buy_price || 0;
                     const docId = lot.docId || lot.id;
-                    currentActiveLots.push({
-                        docId: docId,
-                        buyPrice: buyPrice,
-                        availableQty: availableQty,
-                        portfolioId: lot.portfolio_id || lot.portfolioId || portfolioId || 'main'
-                    });
+                    currentActiveLots.push({ docId: docId, buyPrice: buyPrice, availableQty: availableQty, portfolioId: lot.portfolio_id || 'main', shareName: ticker });
                     if (sellPortfolioTableBody) {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
@@ -309,7 +326,7 @@
                     commissionPercent: commissionPercent,
                     netReceived: saleValue - commission,
                     date: transactionDate.toISOString().split('T')[0],
-                    portfolioId: lot.portfolio_id || lot.portfolioId || portfolioId || 'main'
+                    portfolioId: lot.portfolioId || portfolioId || 'main'
                 });
             }
 
@@ -353,12 +370,21 @@
                 for (const saleData of pendingSales) {
                     const result = await saveSalesToBoth(user.uid, saleData);
                     if (!result.supabaseSuccess) {
-                        throw new Error('Supabase sale save failed');
+                        throw new Error(`Supabase sale save failed for ${saleData.shareName}: ${result.supabaseError || 'Unknown Supabase error'}`);
                     }
                     if (!result.firebaseSuccess && typeof showToast === 'function') {
                         showToast('⚠️ Sale saved to Supabase, but Firebase mirror failed.', 'warning');
                     }
                 }
+
+                // Force a fresh calculation from the database after the write.
+                // The Portfolio table must show Bought - Sold = Remaining.
+                resetUnifiedCache();
+                const verified = typeof unifiedEngine !== 'undefined'
+                    ? await unifiedEngine.calculate(user.uid, portfolioId === 'grand' ? null : portfolioId, true)
+                    : null;
+                const verifiedStock = verified?.stockDetails?.find(s => String(s.ticker).trim().toUpperCase() === ticker);
+                console.log(`✅ Sell verified: ${ticker} sold ${totalSoldQty}; remaining=${verifiedStock?.totalQty ?? 0}`);
 
                 if (typeof window.invalidateAppDataCache === 'function') {
                     window.invalidateAppDataCache('sale saved');
@@ -424,7 +450,8 @@
             buyPrice: buyPrice,
             sellQty: sellQty,
             sellPrice: sellPrice,
-            totalValue: sellQty * sellPrice
+            totalValue: sellQty * sellPrice,
+            portfolioId: (currentActiveLots.find(l => String(l.docId) === String(lotId))?.portfolioId) || portfolioId || 'main'
         };
         sellBatch.push(entry);
         renderBatchTable();
@@ -527,18 +554,19 @@
                 const saleValue = item.sellQty * item.sellPrice;
                 const commission = commissionManager.calculateCommission(saleValue);
 
-                await saveSalesToBoth(user.uid, {
-                    shareName: item.ticker,
-                    quantitySold: item.sellQty,
-                    buyPrice: item.buyPrice,
-                    sellPrice: item.sellPrice,
-                    profitOrLoss: (item.sellPrice - item.buyPrice) * item.sellQty,
+                const result = await saveSalesToBoth(user.uid, {
+                    shareName: String(item.ticker || '').trim().toUpperCase(),
+                    quantitySold: Number(item.sellQty) || 0,
+                    buyPrice: Number(item.buyPrice) || 0,
+                    sellPrice: Number(item.sellPrice) || 0,
+                    profitOrLoss: (Number(item.sellPrice) - Number(item.buyPrice)) * (Number(item.sellQty) || 0),
                     commission: commission,
                     commissionPercent: commissionManager.getPercent(),
                     netReceived: saleValue - commission,
                     date: transactionDate.toISOString().split('T')[0],
-                    portfolioId: portfolioId
+                    portfolioId: item.portfolioId || portfolioId || 'main'
                 });
+                if (!result.supabaseSuccess) throw new Error(`Supabase batch sale save failed for ${item.ticker}: ${result.supabaseError || 'Unknown Supabase error'}`);
                 processedCount++;
             }
 
@@ -667,14 +695,18 @@
             // Supabase
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
-                    let sQuery = supabase.from('sales_history')
+                    const { data, error } = await supabase.from('sales_history')
                         .select('*')
                         .eq('user_id', user.uid)
                         .eq('share_name', ticker)
                         .order('date', { ascending: false });
-                    if (portfolioId) sQuery = sQuery.eq('portfolio_id', portfolioId);
-                    const { data } = await sQuery;
-                    if (data) sellData = data;
+                    if (error) throw error;
+                    const wanted = String(portfolioId || 'main').trim().toLowerCase();
+                    sellData = (data || []).filter(item => {
+                        const pid = String(item.portfolio_id ?? '').trim().toLowerCase();
+                        return wanted === 'grand'
+                            || (wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted);
+                    });
                 } catch (e) {
                     console.warn('Supabase sell history fetch failed, trying Firebase...', e);
                 }

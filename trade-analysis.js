@@ -88,7 +88,8 @@
 
         try {
             const unifiedData = await unifiedEngine.calculate(user.uid, portfolioId, true);
-            const stockData = unifiedData.stockDetails.find(s => s.ticker === ticker);
+            const normalizedTicker = String(ticker || '').trim().toUpperCase();
+            const stockData = unifiedData.stockDetails.find(s => String(s.ticker || '').trim().toUpperCase() === normalizedTicker);
 
             if (!stockData || stockData.lots.length === 0) {
                 if (analysisTableBody) analysisTableBody.innerHTML = `<tr><td colspan="9">No active holdings for ${ticker}</td></tr>`;
@@ -221,7 +222,8 @@
         try {
             const portfolioId = document.getElementById('statement-portfolio-select')?.value || null;
             const unifiedData = await unifiedEngine.calculate(user.uid, portfolioId, true);
-            const stockData = unifiedData.stockDetails.find(s => s.ticker === ticker);
+            const normalizedTicker = String(ticker || '').trim().toUpperCase();
+            const stockData = unifiedData.stockDetails.find(s => String(s.ticker || '').trim().toUpperCase() === normalizedTicker);
 
             if (!stockData || stockData.lots.length === 0) {
                 if (statementTableBody) statementTableBody.innerHTML = `<tr><td colspan="7">No active holdings for ${ticker}</td></tr>`;

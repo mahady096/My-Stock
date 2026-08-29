@@ -23,15 +23,24 @@ async function loadUnifiedStockTable(userId, portfolioId = null) {
             // Supabase
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
-                    let pQuery = supabase.from('portfolios').select('*').eq('user_id', userId);
-                    if (portfolioId) pQuery = pQuery.eq('portfolio_id', portfolioId);
-                    const { data: pData } = await pQuery;
-                    if (pData) portfolioData = pData;
+                    const { data: pData, error: pError } = await supabase
+                        .from('portfolios').select('*').eq('user_id', userId);
+                    if (pError) throw pError;
+                    const wanted = String(portfolioId || '').trim().toLowerCase();
+                    portfolioData = (pData || []).filter(item => {
+                        const pid = String(item.portfolio_id ?? '').trim().toLowerCase();
+                        if (!wanted || wanted === 'grand') return true;
+                        return wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted;
+                    });
 
-                    let sQuery = supabase.from('sales_history').select('*').eq('user_id', userId);
-                    if (portfolioId) sQuery = sQuery.eq('portfolio_id', portfolioId);
-                    const { data: sData } = await sQuery;
-                    if (sData) salesData = sData;
+                    const { data: sData, error: sError } = await supabase
+                        .from('sales_history').select('*').eq('user_id', userId);
+                    if (sError) throw sError;
+                    salesData = (sData || []).filter(item => {
+                        const pid = String(item.portfolio_id ?? '').trim().toLowerCase();
+                        if (!wanted || wanted === 'grand') return true;
+                        return wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted;
+                    });
                 } catch (e) {
                     console.warn('Supabase fetch failed, trying Firebase...', e);
                 }
@@ -41,10 +50,12 @@ async function loadUnifiedStockTable(userId, portfolioId = null) {
             if (portfolioData.length === 0 && typeof db !== 'undefined') {
                 try {
                     let pQuery = db.collection('portfolios').where('userId', '==', userId);
-                    if (portfolioId) pQuery = pQuery.where('portfolioId', '==', portfolioId);
                     const snap = await pQuery.get();
                     snap.forEach(doc => {
                         const data = doc.data();
+                        const wanted = String(portfolioId || '').trim().toLowerCase();
+                        const pid = String(data.portfolioId ?? '').trim().toLowerCase();
+                        if (wanted && wanted !== 'grand' && !(wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted)) return;
                         const parsedDate = safeParseDate(data.date);
                         const parsedCreatedAt = safeParseDate(data.createdAt);
                         portfolioData.push({
@@ -66,10 +77,12 @@ async function loadUnifiedStockTable(userId, portfolioId = null) {
             if (salesData.length === 0 && typeof db !== 'undefined') {
                 try {
                     let sQuery = db.collection('sales_history').where('userId', '==', userId);
-                    if (portfolioId) sQuery = sQuery.where('portfolioId', '==', portfolioId);
                     const snap = await sQuery.get();
                     snap.forEach(doc => {
                         const data = doc.data();
+                        const wanted = String(portfolioId || '').trim().toLowerCase();
+                        const pid = String(data.portfolioId ?? '').trim().toLowerCase();
+                        if (wanted && wanted !== 'grand' && !(wanted === 'main' ? (pid === '' || pid === 'main') : pid === wanted)) return;
                         const parsedDate = safeParseDate(data.date);
                         const parsedCreatedAt = safeParseDate(data.createdAt);
                         salesData.push({
