@@ -1502,6 +1502,7 @@ input[type="date"] {
 /* সাজেশন বক্স ডার্ক মোডে */
 [data-theme="dark"] .adv-suggestion-box {
     background: linear-gradient(135deg, #0f172a 0%, #020617 100%);
+    color: var(--text-primary);
 }
 
 /* মোবাইলে RSI ও Stochastic পাশাপাশি */

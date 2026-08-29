@@ -162,8 +162,9 @@ function calculateStochastic(high, low, close, period = 14, smoothK = 3, smoothD
             if (high[j] > maxHigh) maxHigh = high[j];
             if (low[j] < minLow) minLow = low[j];
         }
-        const k = ((close[i] - minLow) / (maxHigh - minLow)) * 100;
-        kValues.push(k);
+        const range = maxHigh - minLow;
+        const k = range > 0 ? ((close[i] - minLow) / range) * 100 : 50;
+        kValues.push(Math.max(0, Math.min(100, k)));
     }
     const smoothKValues = [];
     for (let i = smoothK - 1; i < kValues.length; i++) {

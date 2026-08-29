@@ -358,27 +358,16 @@ async function loadAdvancedChart(ticker, forceRefresh = false) {
             } catch (e) { /* ignore */ }
         }
 
-        let forecast = null;
-        try {
-            // Forecasting must never prevent the historical chart from rendering.
-            forecast = (typeof arimaForecast === 'function') ? arimaForecast(priceData, 5) : null;
-        } catch (forecastError) {
-            console.warn('ARIMA forecast skipped:', forecastError);
-        }
+        const forecast = arimaForecast(priceData, 5);
         let forecastLabels = [], forecastValues = [];
-        if (Array.isArray(forecast) && forecast.length && labels.length) {
+        if (forecast) {
             const lastDate = new Date(labels[labels.length - 1]);
-            if (!Number.isNaN(lastDate.getTime())) {
-                forecast.forEach((f, idx) => {
-                    const d = new Date(lastDate);
-                    d.setDate(d.getDate() + idx + 1);
-                    const iso = d.toISOString().split('T')[0];
-                    if (Number.isFinite(f) && iso) {
-                        forecastLabels.push(iso);
-                        forecastValues.push(f);
-                    }
-                });
-            }
+            forecast.forEach((f, idx) => {
+                const d = new Date(lastDate);
+                d.setDate(d.getDate() + idx + 1);
+                forecastLabels.push(d.toISOString().split('T')[0]);
+                forecastValues.push(f);
+            });
         }
 
         const allLabels = [...labels, ...forecastLabels];
@@ -1150,12 +1139,12 @@ function renderStochasticChart(stochData, isDark, canvas) {
     }
 
     const validK = stochData.k.filter(v => v !== null && v !== undefined && !isNaN(v));
-    if (validK.length < 5) {
+    if (validK.length < 1) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = isDark ? '#64748b' : '#94a3b8';
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Not enough Stochastic data points', canvas.width/2, 40);
+        ctx.fillText('Not enough Stochastic data', canvas.width/2, 40);
         return;
     }
 
@@ -1391,8 +1380,8 @@ function updateStochComment(stochData) {
 function generateSuggestion(data) {
     const container = document.getElementById('suggestion-content');
     if (!container) return;
-    if (!data || !data.actualPrices || data.actualPrices.length < 20) {
-        container.innerHTML = `<div style="text-align:center; padding:20px; opacity:0.7;">Insufficient data for suggestion</div>`;
+    if (!data || !data.actualPrices || data.actualPrices.length < 14) {
+        container.innerHTML = `<div class="smart-suggestion-empty">📊 Not enough recent price history to calculate a reliable suggestion. Try 3 Months or longer.</div>`;
         return;
     }
 
@@ -1401,12 +1390,13 @@ function generateSuggestion(data) {
     const sma20 = cachedSMA(prices, 20);
     const sma50 = cachedSMA(prices, 50);
     const rsiData = cachedRSI(prices, 14);
-    const lastRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1].rsi : 50;
+    const lastRSI = rsiData.length > 0 && Number.isFinite(rsiData[rsiData.length - 1].rsi) ? rsiData[rsiData.length - 1].rsi : 50;
     const macdData = cachedMACD(prices, 12, 26, 9);
     const bollinger = cachedBollingerBands(prices, 20, 2);
     const stoch = cachedStochastic(data.highData || [], data.lowData || [], prices, 14, 3);
     const atr = cachedATR(data.highData || [], data.lowData || [], prices, 14);
-    const atrValue = atr.length > 0 ? atr[atr.length - 1] : (currentPrice * 0.02);
+    const rawAtrValue = atr.length > 0 ? atr[atr.length - 1] : null;
+    const atrValue = Number.isFinite(rawAtrValue) && rawAtrValue > 0 ? rawAtrValue : (currentPrice * 0.02);
     const forecast = advActiveIndicators.forecast ? data.forecastValues : [];
 
     let vwapScore = 0, pocScore = 0;
@@ -1530,10 +1520,10 @@ function generateSuggestion(data) {
     const stopLoss = currentPrice - (atrValue * 1.5);
 
     let html = `
-        <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+        <div class="smart-suggestion-summary">
             <span class="signal-badge ${decisionClass}">${decision}</span>
-            <span style="font-size:14px; opacity:0.8;">Confidence: <strong>${confidence}</strong></span>
-            <span style="font-size:13px; opacity:0.7;">${details}</span>
+            <span class="smart-suggestion-confidence">Confidence: <strong>${confidence}</strong></span>
+            <span class="smart-suggestion-details">${details}</span>
         </div>
         <div class="adv-suggestion-grid">
             <div class="adv-suggestion-item">
@@ -1557,7 +1547,7 @@ function generateSuggestion(data) {
                 <div class="sub">${lastRSI < 30 ? 'Oversold' : lastRSI > 70 ? 'Overbought' : 'Neutral'}</div>
             </div>
         </div>
-        <div style="margin-top: 12px; font-size: 13px; opacity: 0.7; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+        <div class="smart-suggestion-signals">
             <strong>Signals:</strong> ${signals.length > 0 ? signals.join(' | ') : 'No strong signals'}
         </div>
     `;
@@ -1754,7 +1744,7 @@ async function generateDeepAnalysis(data) {
         // ৫. RSI ও MACD (ক্যাশিং)
         // ==========================================
         const rsiData = cachedRSI(prices, 14);
-        const lastRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1].rsi : 50;
+        const lastRSI = rsiData.length > 0 && Number.isFinite(rsiData[rsiData.length - 1].rsi) ? rsiData[rsiData.length - 1].rsi : 50;
         const macdData = cachedMACD(prices, 12, 26, 9);
         let macdSignal = 'Neutral';
         if (macdData && macdData.histogram.length > 0) {
@@ -1913,6 +1903,7 @@ window.loadAdvancedChart = loadAdvancedChart;
 window.selectAdvChartStock = selectAdvChartStock;
 window.toggleDarkMode = toggleDarkMode;
 window.getHistoricalPricesFromSupabase = getHistoricalPricesFromSupabase;
+// toggleFullscreen is exported by adv-charts-extras.js after this file loads.
 window.downloadChartAsPNG = downloadChartAsPNG;
 window.saveIndicatorPreset = saveIndicatorPreset;
 window.loadIndicatorPreset = loadIndicatorPreset;

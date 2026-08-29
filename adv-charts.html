@@ -319,16 +319,32 @@
 
         /* সাজেশন বক্স */
         .adv-suggestion-box {
-            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            background: var(--bg-secondary);
             border-radius: var(--radius-md);
             padding: 24px;
             margin: 20px 0;
-            color: white;
-            border: 1px solid rgba(255,255,255,0.08);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
             box-shadow: var(--card-shadow);
+            transition: var(--transition);
         }
         [data-theme="dark"] .adv-suggestion-box {
             background: linear-gradient(135deg, #0f172a 0%, #020617 100%);
+            color: var(--text-primary);
+        }
+        .smart-suggestion-summary {
+            display:flex; align-items:center; gap:15px; flex-wrap:wrap;
+        }
+        .smart-suggestion-confidence { color: var(--text-secondary); font-size:14px; }
+        .smart-suggestion-details { color: var(--text-muted); font-size:13px; }
+        .smart-suggestion-signals {
+            margin-top:12px; font-size:13px; color:var(--text-secondary);
+            border-top:1px solid var(--border-color); padding-top:12px;
+        }
+        .smart-suggestion-empty {
+            text-align:center; padding:20px; color:var(--text-muted);
+            background:var(--bg-tertiary); border:1px dashed var(--border-color);
+            border-radius:var(--radius-sm);
         }
         .adv-suggestion-box .signal-badge {
             display: inline-block;
@@ -369,6 +385,16 @@
             opacity: 0.7;
             margin-top: 2px;
         }
+
+        .smart-suggestion-title { margin:0; color:var(--text-primary); }
+        .deep-analysis-suggestion { margin-top:20px; border-top:1px solid var(--border-color); padding-top:18px; }
+        .deep-analysis-title { margin:0; color:var(--text-primary); font-size:15px; display:flex; align-items:center; gap:8px; }
+        .deep-analysis-meta { font-size:11px; color:var(--text-muted); font-weight:normal; }
+        .deep-analysis-time { font-size:11px; color:var(--text-muted); }
+        .adv-suggestion-item { background:var(--bg-tertiary); border:1px solid var(--border-color); color:var(--text-primary); }
+        .adv-suggestion-item .label { color:var(--text-muted); opacity:1; }
+        .adv-suggestion-item .value { color:var(--text-primary); }
+        .adv-suggestion-item .sub { color:var(--text-muted); opacity:1; }
 
         /* রেসপনসিভ */
         @media (max-width: 768px) {
@@ -586,7 +612,7 @@
         <!-- স্মার্ট সাজেশন -->
         <div class="adv-suggestion-box" id="adv-suggestion-box">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-                <h3 style="margin:0; color:white;">🧠 Smart Suggestion</h3>
+                <h3 class="smart-suggestion-title">🧠 Smart Suggestion</h3>
                 <span id="suggestion-time" style="font-size:12px; opacity:0.6;">Last updated: -</span>
             </div>
             <div id="suggestion-content">
@@ -595,13 +621,13 @@
             <!-- ========================================== -->
 <!-- 🆕 অ্যাডভান্সড ডিপ অ্যানালাইসিস সাজেশন (VWAP + Volume Profile সহ) -->
 <!-- ========================================== -->
-<div id="deep-analysis-suggestion" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 18px;">
+<div id="deep-analysis-suggestion" class="deep-analysis-suggestion">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
-        <h4 style="margin:0; color: #f1f5f9; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+        <h4 class="deep-analysis-title">
             📊 <span>Smart Signal (VWAP + Volume Profile)</span>
-            <span style="font-size: 11px; opacity: 0.6; font-weight: normal;">(Institutional-grade analysis)</span>
+            <span class="deep-analysis-meta">(Institutional-grade analysis)</span>
         </h4>
-        <span id="deep-analysis-time" style="font-size: 11px; opacity: 0.5;">Last updated: -</span>
+        <span id="deep-analysis-time" class="deep-analysis-time">Last updated: -</span>
     </div>
     
     <!-- লোডিং -->
@@ -675,33 +701,18 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- Dependencies must load before configuration/consumers on this standalone page. -->
+    <!-- IndexedDB cache dependency: must load before cache-helper.js -->
     <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
+    <script src="indicators.js"></script>
     <script src="config.js"></script>
     <script src="firebase-config.js"></script>
     <script src="supabase-config.js"></script>
-    <script src="indicators.js"></script>
     <script src="data-service.js"></script>
     <script src="cache-helper.js"></script>
     <script src="core.js"></script>
-    <!-- Keep the advanced chart extras before core so fullscreen is available when core exports it. -->
-    <script src="adv-charts-extras.js"></script>
-    <script src="adv-charts-core.js"></script>
-    <script>
-    // Standalone Advanced Charts page: sync Firebase auth before its first data request.
-    (function () {
-        if (typeof auth !== 'undefined' && auth && typeof auth.onAuthStateChanged === 'function' && typeof window.syncSupabaseAuth === 'function') {
-            auth.onAuthStateChanged(function (user) {
-                if (user) {
-                    window.syncSupabaseAuth(false).catch(function (e) {
-                        console.warn('Supabase auth sync failed on Advanced Charts:', e);
-                    });
-                } else if (typeof window.clearSupabaseAuth === 'function') {
-                    window.clearSupabaseAuth();
-                }
-            });
-        }
-    })();
-    </script>
+    <!-- প্রথমে কোর ফাইল -->
+<script src="adv-charts-core.js"></script>
+<!-- তারপর এক্সট্রা ফাইল -->
+<script src="adv-charts-extras.js"></script>
 </body>
 </html>

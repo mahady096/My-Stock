@@ -1,3 +1,9 @@
+StockPulse v6.1.5 — Smart Suggestion + Theme Polish
+
+- Smart Suggestion no longer fails on short 1-month trading windows; it works with 14+ valid price points and falls back safely when longer indicators are unavailable.
+- Smart Suggestion and Deep Analysis colors now follow light/dark theme variables instead of hard-coded white text.
+- Suggestion cards use accessible theme-aware backgrounds, borders, and muted text.
+
 # StockPulse Release Notes — UX Polish Build
 
 This build includes a production-oriented UX polish pass:
@@ -21,3 +27,11 @@ This build includes a production-oriented UX polish pass:
 5. Keep production demo-price fallback disabled (`ALLOW_DEMO_PRICE_FALLBACK: false`).
 
 The frontend ZIP cannot verify or change your Supabase/Firebase backend rules; those must be checked in their respective consoles/migrations before launch.
+
+
+## v6.1.2 security update
+- Metadata sync no longer writes to Firebase or Supabase directly from the browser.
+- Deploy `supabase/functions/sync-metadata` with the service-role secret stored only in Edge Function secrets.
+- Keep `stock_metadata` RLS read-only for authenticated clients.
+- `config.js` now loads before `supabase-config.js` on Advanced Charts.
+- Supabase uses one client per page with dynamic Firebase JWT injection.
