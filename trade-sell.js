@@ -101,8 +101,14 @@
                         .select('*')
                         .eq('user_id', user.uid)
                         .eq('share_name', ticker);
-                    if (portfolioId) pQuery = pQuery.eq('portfolio_id', portfolioId);
-                    const { data: pData } = await pQuery;
+                    // 'main' is the legacy/default selector value. Do not assume
+                    // every existing holding actually stores portfolio_id='main'.
+                    // If the selector is a real custom portfolio ID, filter by it.
+                    const scopedPortfolio = portfolioId && portfolioId !== 'main' && portfolioId !== 'grand'
+                        ? portfolioId : null;
+                    if (scopedPortfolio) pQuery = pQuery.eq('portfolio_id', scopedPortfolio);
+                    const { data: pData, error: pError } = await pQuery;
+                    if (pError) throw new Error(`portfolios: ${pError.message}`);
                     if (pData && pData.length > 0) {
                         buyLots = pData.map(doc => ({ docId: doc.id, ...doc }));
                     }
@@ -111,8 +117,9 @@
                         .select('*')
                         .eq('user_id', user.uid)
                         .eq('share_name', ticker);
-                    if (portfolioId) sQuery = sQuery.eq('portfolio_id', portfolioId);
-                    const { data: sData } = await sQuery;
+                    if (scopedPortfolio) sQuery = sQuery.eq('portfolio_id', scopedPortfolio);
+                    const { data: sData, error: sError } = await sQuery;
+                    if (sError) throw new Error(`sales_history: ${sError.message}`);
                     if (sData) {
                         totalSoldBefore = sData.reduce((sum, item) => sum + (item.quantity_sold || 0), 0);
                     }
@@ -127,7 +134,7 @@
                     let pQuery = db.collection('portfolios')
                         .where('userId', '==', user.uid)
                         .where('shareName', '==', ticker);
-                    if (portfolioId) pQuery = pQuery.where('portfolioId', '==', portfolioId);
+                    if (scopedPortfolio) pQuery = pQuery.where('portfolioId', '==', scopedPortfolio);
                     const buySnapshot = await pQuery.get();
                     buySnapshot.forEach(doc => {
                         const data = doc.data();
@@ -138,6 +145,8 @@
                             buyPrice: data.buyPrice,
                             buy_price: data.buyPrice,
                             date: data.date,
+                            portfolioId: data.portfolioId || data.portfolio_id || 'main',
+                            portfolio_id: data.portfolioId || data.portfolio_id || 'main',
                             commission: data.commission || 0,
                             commission_percent: data.commissionPercent || 0
                         });
@@ -146,7 +155,7 @@
                     let sQuery = db.collection('sales_history')
                         .where('userId', '==', user.uid)
                         .where('shareName', '==', ticker);
-                    if (portfolioId) sQuery = sQuery.where('portfolioId', '==', portfolioId);
+                    if (scopedPortfolio) sQuery = sQuery.where('portfolioId', '==', scopedPortfolio);
                     const sellSnapshot = await sQuery.get();
                     sellSnapshot.forEach(doc => {
                         totalSoldBefore += (doc.data().quantitySold || 0);
@@ -180,7 +189,12 @@
                 if (availableQty > 0) {
                     const buyPrice = lot.buyPrice || lot.buy_price || 0;
                     const docId = lot.docId || lot.id;
-                    currentActiveLots.push({ docId: docId, buyPrice: buyPrice, availableQty: availableQty });
+                    currentActiveLots.push({
+                        docId: docId,
+                        buyPrice: buyPrice,
+                        availableQty: availableQty,
+                        portfolioId: lot.portfolio_id || lot.portfolioId || portfolioId || 'main'
+                    });
                     if (sellPortfolioTableBody) {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
@@ -295,7 +309,7 @@
                     commissionPercent: commissionPercent,
                     netReceived: saleValue - commission,
                     date: transactionDate.toISOString().split('T')[0],
-                    portfolioId: portfolioId
+                    portfolioId: lot.portfolio_id || lot.portfolioId || portfolioId || 'main'
                 });
             }
 
