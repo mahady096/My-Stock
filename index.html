@@ -446,7 +446,7 @@
                         onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
                         🧪 Combined Scanner
                     </li>
-                    <li onclick="switchTab('smart-signals')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
+                    <li data-pro-feature data-require-pro data-pro-reason="Smart Signals is available with Pro." onclick="switchTab('smart-signals')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
                         onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
                         🧠 Smart Signals
                     </li>
@@ -474,12 +474,13 @@
                         ➕ Create New
                     </li>
                 </ul>
-                <li onclick="switchTab('deep-analysis')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
+                <li data-pro-feature data-require-pro data-pro-reason="Deep Analysis is available with Pro." onclick="switchTab('deep-analysis')" style="padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
                     onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
                     🔬 Deep Analysis
                 </li>
                 <li onclick="switchTab('record-date')">📅 Record Date</li>
-                <li onclick="window.location.href='adv-charts.html'">📈 Advanced Charts</li>
+                <li data-pro-feature data-require-pro data-pro-reason="Advanced Charts is a Pro feature." onclick="window.location.href='adv-charts.html'">📈 Advanced Charts <span class="sp-pro-mini">PRO</span></li>
+                <li onclick="window.location.href='admin.html'">🛡️ Admin Panel</li>
                 <li onclick="confirmAndDeletePortfolio()" style="color: #ef4444; font-weight: bold; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.backgroundColor='rgba(239, 68, 68, 0.1)'" onmouseout="this.style.backgroundColor='transparent'">
                     <span class="icon">🗑️</span> Delete Portfolio
                 </li>
@@ -2386,6 +2387,13 @@
                     <span>UID</span>
                     <span id="user-uid" style="font-size:12px; color:var(--text-muted);">-</span>
                 </div>
+                <div class="sp-plan-card" id="sp-plan-card">
+                    <div class="sp-plan-card-top">
+                        <div><div class="sp-plan-title">Your Plan</div><div id="sp-plan-badge" class="sp-plan-badge free">🆓 FREE</div></div>
+                        <div id="sp-plan-expiry" class="sp-plan-expiry">Free plan</div>
+                    </div>
+                    <button id="sp-upgrade-btn" class="sp-upgrade-btn"          onclick="window.location.href='mailto:admin.stockpulse@gmail.com?subject=Hello, আমি Stockpulse Pro কিনতে চাই&body=আমার ইমেইল: (এখানে আপনার ইমেইল লিখুন)%0Aআমার UID: (এখানে আপনার UID লিখুন)'">     👑 Upgrade to Pro · ৳50/month </button>
+                </div>
                 <div style="display:flex; justify-content:space-between; padding:6px 0;">
                     <span>Account Created</span>
                     <span id="user-created" style="font-weight:bold;">-</span>
@@ -2450,6 +2458,42 @@
         </div>
     </div>
 
+    
+    <!-- 👑 StockPulse Pro Upgrade -->
+    <!-- 👑 StockPulse Pro Upgrade Modal -->
+<div id="sp-upgrade-modal" class="sp-upgrade-modal" style="display:none;">
+  <div class="sp-upgrade-dialog">
+    <button class="sp-upgrade-close" onclick="closeUpgradeModal()" aria-label="Close">×</button>
+    
+    <div class="sp-crown">👑</div>
+    <h2>StockPulse Pro</h2>
+    <p id="sp-upgrade-reason">আনলক করুন অ্যাডভান্সড ফিচার এবং একটি ক্লিন এক্সপেরিয়েন্স।</p>
+    
+    <div class="sp-price"><span>৳50</span> / month</div>
+    
+    <!-- ফিচার লিস্ট (Pro ভার্সনে কী কী আছে) -->
+    <div class="sp-feature-list">
+      <div>✅ Advanced Charts (Line + Candlestick)</div>
+      <div>✅ ২০+ টেকনিক্যাল ইন্ডিকেটর (RSI, MACD, Bollinger, PSAR, VWAP)</div>
+      <div>✅ Smart Signals & Deep Analysis (21-Column)</div>
+      <div>✅ ARIMA Forecast & Holt-Winters Prediction</div>
+      <div>✅ Volume Profile, Fibonacci, Aroon, Ichimoku</div>
+      <div>✅ No Ads — সম্পূর্ণ অ্যাড-ফ্রি এক্সপেরিয়েন্স</div>
+    </div>
+    
+    <!-- পেমেন্ট নির্দেশনা -->
+    <div class="sp-manual-payment">
+      💳 পেমেন্ট: bKash/Nagad: <strong>01XXXXXXXXX</strong><br>
+      Reference: আপনার ইমেইল দিন
+    </div>
+    
+    <!-- Send Mail বাটন (মডালের ভেতরে) -->
+    <button class="sp-upgrade-btn sp-upgrade-send-mail">
+      📧 Send Mail — Pro কিনতে চাই
+    </button>
+  </div>
+</div>
+
     <!-- Install App Button -->
     <button id="install-btn" style="position: fixed; bottom: 20px; left: 20px; background: #10b981; color: white; border: none; border-radius: 50px; padding: 12px 20px; cursor: pointer; z-index: 9999; display: none; align-items: center; gap: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
         📲 Install App
@@ -2470,6 +2514,8 @@
 <script src="data-service.js" defer></script>
 <script src="cache-helper.js" defer></script>
 <script src="core.js" defer></script>
+<script src="subscription-manager.js" defer></script>
+<script src="upgrade-ui.js" defer></script>
 
 <!-- portfolio ফাইল -->
 <script src="trade-buy.js" defer></script>

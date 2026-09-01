@@ -1826,3 +1826,86 @@ body.modal-open { overflow: hidden; }
     .app-confirm-content { padding: 20px; }
     .confirm-summary-grid { gap: 8px 12px; }
 }
+
+/* ==========================================
+   👑 StockPulse v6.2 Free / Pro UI
+   ========================================== */
+.sp-plan-card{margin:14px 0;padding:14px;border:1px solid var(--border-color);border-radius:14px;background:linear-gradient(135deg,var(--bg-tertiary),var(--bg-card));}
+.sp-plan-card-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.sp-plan-title{font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:800;letter-spacing:.06em}
+.sp-plan-badge{display:inline-flex;margin-top:4px;padding:4px 9px;border-radius:999px;font-size:12px;font-weight:900}
+.sp-plan-badge.free{background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border-color)}
+.sp-plan-badge.pro{background:rgba(245,158,11,.14);color:#d97706;border:1px solid rgba(245,158,11,.35)}
+.sp-plan-expiry{font-size:11px;color:var(--text-muted);text-align:right}
+.sp-upgrade-btn{width:100%;border:0;border-radius:10px;padding:11px 14px;background:linear-gradient(135deg,var(--primary-color),var(--primary-dark));color:#fff;font-weight:800;cursor:pointer;box-shadow:0 8px 20px rgba(99,102,241,.18)}
+.sp-upgrade-btn:hover{transform:translateY(-1px)}
+.sp-pro-mini{font-size:9px;background:rgba(245,158,11,.16);color:#d97706;border:1px solid rgba(245,158,11,.28);padding:2px 5px;border-radius:999px;margin-left:5px;font-weight:900}
+.sp-pro-locked{opacity:.72}
+.sp-pro-locked::after{content:' 🔒';font-size:11px}
+.sp-upgrade-modal{position:fixed;inset:0;z-index:100000;background:rgba(2,6,23,.72);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:18px}
+.sp-upgrade-dialog{position:relative;width:min(430px,100%);background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);border-radius:24px;padding:28px;box-shadow:0 25px 80px rgba(0,0,0,.35);text-align:center}
+.sp-upgrade-close{position:absolute;right:14px;top:10px;border:0;background:transparent;color:var(--text-muted);font-size:30px;cursor:pointer}
+.sp-crown{font-size:42px}.sp-upgrade-dialog h2{margin:4px 0 6px}.sp-upgrade-dialog p{color:var(--text-secondary);font-size:14px}
+.sp-price{margin:16px 0;font-size:15px;color:var(--text-secondary)}.sp-price span{font-size:36px;font-weight:900;color:var(--primary-color)}
+.sp-feature-list{text-align:left;display:grid;gap:8px;padding:14px;border:1px solid var(--border-color);border-radius:14px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:13px}
+.sp-manual-payment{font-size:11px;color:var(--text-muted);margin:14px 0}
+.sp-upgrade-main{font-size:15px}
+@media(max-width:640px){.sp-plan-card-top{align-items:flex-start}.sp-upgrade-dialog{padding:24px 18px}}
+
+/* ==========================================
+   🎨 Pro Upgrade Modal v3.1
+   ========================================== */
+.sp-upgrade-dialog {
+  max-width: 460px;
+  width: 100%;
+}
+
+.sp-feature-list {
+  text-align: left;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.sp-feature-list div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sp-feature-list div::before {
+  content: '✔️';
+  color: var(--success-color);
+}
+
+.sp-upgrade-send-mail {
+  width: 100%;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 8px;
+}
+
+.sp-upgrade-send-mail:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.3);
+}
+
+.sp-manual-payment {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  line-height: 1.6;
+}

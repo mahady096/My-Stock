@@ -235,6 +235,13 @@ window.toggleRightSidebar = function() {
 };
 
 window.switchTab = function(tabName) {
+    // 🔒 Smart Signals / Deep Analysis are Pro-only.
+    const proTabs = new Set(['smart-signals', 'deep-analysis']);
+    if (proTabs.has(tabName) && window.StockPulsePlan && !window.StockPulsePlan.isPro()) {
+        window.location.href = 'pro.html';
+        return;
+    }
+
     // 🧹 ১. সব ইন্টারভাল ক্লিয়ার করুন
     if (window.portfolioAnalysisInterval) {
         clearInterval(window.portfolioAnalysisInterval);

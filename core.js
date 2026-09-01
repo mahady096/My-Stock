@@ -1710,6 +1710,19 @@ async function updatePortfolioMeta(userId, meta) {
 async function createPortfolio(userId, name) {
     if (!userId || !name || !name.trim()) return null;
     const meta = await getPortfolioMeta(userId);
+
+    // 🆓 Free plan: Main + one custom portfolio. Pro is unlimited.
+    try {
+        const pro = !!(window.StockPulsePlan && typeof window.StockPulsePlan.isPro === 'function' && window.StockPulsePlan.isPro());
+        if (!pro && Array.isArray(meta?.portfolios) && meta.portfolios.length >= 2) {
+            if (typeof showToast === 'function') showToast('Free plan allows up to 2 portfolios (including Main). Upgrade to Pro for unlimited portfolios.', 'warning');
+            return null;
+        }
+    } catch (_) {
+        // Fail closed for the limit check if subscription state is unavailable.
+        if (Array.isArray(meta?.portfolios) && meta.portfolios.length >= 2) return null;
+    }
+
     const id = 'sub_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
     meta.portfolios.push({
         id,
@@ -1874,6 +1887,9 @@ async function syncSupabaseAuth(force = false) {
         } else {
             throw new Error('Supabase auth client bridge is not initialized');
         }
+
+        // Notify subscription/admin-aware UI only after the custom Supabase JWT is ready.
+        try { window.dispatchEvent(new CustomEvent('stockpulse:auth-ready')); } catch (_) {}
 
         console.log('✅ Supabase authorization synchronized');
         return cachedSupabaseToken;

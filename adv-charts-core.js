@@ -57,19 +57,24 @@ if (typeof Chart !== 'undefined' && typeof ChartZoom !== 'undefined') {
 // 🔙 গো ব্যাক ফাংশন
 // ==========================================
 window.goBackToStockModal = function() {
-    const params = new URLSearchParams(window.location.search);
-    const ticker = params.get('ticker');
-    if (ticker) {
-        window.location.href = `/?ticker=${ticker}`;
-    } else {
-        window.history.back();
-    }
+    // Always return directly to the dashboard. Returning to the stock-detail
+    // modal can re-trigger the Pro gate and create a back-navigation loop.
+    window.location.replace('./');
 };
 
 // ==========================================
 // 🚀 ইনিশিয়ালাইজেশন
 // ==========================================
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    // 🔒 Direct URL access must also respect the Pro gate.
+    if (window.StockPulsePlan) {
+        await window.StockPulsePlan.load(false);
+        if (!window.StockPulsePlan.isPro()) {
+            window.location.replace('./pro.html');
+            return;
+        }
+    }
+
     if (typeof dseStocks !== 'undefined') advStockList = dseStocks;
     else if (window.dseStocks) advStockList = window.dseStocks;
 

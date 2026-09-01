@@ -1057,9 +1057,16 @@ window.closeDSEXChartModal = function() {
 // ==========================================
 
 window.openAdvancedChartFromModal = function() {
+    // 🔒 Advanced Charts are Pro-only.
+    if (window.StockPulsePlan && !window.StockPulsePlan.isPro()) {
+        window.location.href = 'pro.html';
+        return;
+    }
     const ticker = document.getElementById('adv-modal-ticker')?.innerText;
     if (ticker) {
-        window.location.href = `adv-charts.html?ticker=${ticker}`;
+        // Replace the current history entry so Back from Advanced Charts
+        // returns to the dashboard instead of the gated stock-detail modal.
+        window.location.replace(`adv-charts.html?ticker=${encodeURIComponent(ticker)}`);
     } else {
         if (typeof showToast === 'function') showToast('No ticker found', 'error');
     }

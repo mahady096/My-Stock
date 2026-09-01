@@ -12,6 +12,24 @@ let portfolioSummaries = {};
 let currentSelectedPortfolio = 'main';
 
 // ==========================================
+// 🆓 FREE PLAN LIMITS
+//    Main portfolio counts toward the total. Pro users are unlimited.
+// ==========================================
+const FREE_MAX_PORTFOLIOS = 2;       // Main + 1 custom portfolio
+const FREE_MAX_UNIQUE_SHARES = 20;   // Active unique share symbols across all portfolios
+
+async function ensureSubscriptionLoaded() {
+    try {
+        if (window.StockPulsePlan && typeof window.StockPulsePlan.load === 'function') {
+            await window.StockPulsePlan.load(true);
+        }
+    } catch (e) {
+        console.warn('Subscription status check failed; Free limits remain enabled:', e?.message || e);
+    }
+    return !!(window.StockPulsePlan && typeof window.StockPulsePlan.isPro === 'function' && window.StockPulsePlan.isPro());
+}
+
+// ==========================================
 // 🛡️ HTML Escape হেল্পার
 //    যেকোনো ইউজার-সাপ্লায়েড টেক্সট innerHTML-এ বসানোর আগে
 //    এই ফাংশন দিয়ে পাস করাতে হবে — <img onerror=...> জাতীয়
@@ -587,6 +605,20 @@ window.createNewPortfolio = async function() {
         if (typeof showToast === 'function') showToast('Please login first', 'error');
         return;
     }
+
+    // 🆓 Free users: limit total portfolios (Main counts as one).
+    const isPro = await ensureSubscriptionLoaded();
+    if (!isPro) {
+        const meta = await getPortfolioMeta(user.uid);
+        const portfolioCount = Array.isArray(meta?.portfolios) ? meta.portfolios.length : 1;
+        if (portfolioCount >= FREE_MAX_PORTFOLIOS) {
+            const msg = `Free plan allows up to ${FREE_MAX_PORTFOLIOS} portfolios (including Main). Upgrade to Pro for unlimited portfolios.`;
+            if (status) status.innerText = '🔒 Portfolio limit reached';
+            if (typeof showToast === 'function') showToast(msg, 'warning');
+            return;
+        }
+    }
+
     const id = await createPortfolio(user.uid, name);
     if (id) {
         if (status) status.innerText = '✅ Portfolio created!';

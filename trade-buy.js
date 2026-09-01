@@ -12,6 +12,36 @@
 // ==========================================
 
 (function() {
+
+    // 🆓 FREE PLAN LIMIT: maximum active unique shares across all portfolios.
+    const FREE_MAX_UNIQUE_SHARES = 20;
+
+    async function ensureSubscriptionLoadedForBuy() {
+        try {
+            if (window.StockPulsePlan && typeof window.StockPulsePlan.load === 'function') {
+                await window.StockPulsePlan.load(true);
+            }
+        } catch (e) {
+            console.warn('Subscription status check failed; Free share limit remains enabled:', e?.message || e);
+        }
+        return !!(window.StockPulsePlan && typeof window.StockPulsePlan.isPro === 'function' && window.StockPulsePlan.isPro());
+    }
+
+    async function getActiveUniqueShares(userId) {
+        const seen = new Set();
+        try {
+            const unified = await unifiedEngine.calculate(userId, null, true);
+            if (unified?.stockDetails) {
+                unified.stockDetails.forEach(item => {
+                    const ticker = String(item?.ticker || '').trim().toUpperCase();
+                    if (ticker && Number(item?.totalQty || 0) > 0) seen.add(ticker);
+                });
+            }
+        } catch (e) {
+            console.warn('Could not count active shares for Free limit:', e?.message || e);
+        }
+        return seen;
+    }
     // DOM এলিমেন্টগুলো নিরাপদে রেফারেন্স
     const tickerInput = document.getElementById('trade-ticker');
     const priceInput = document.getElementById('trade-price');
@@ -130,6 +160,20 @@
             if (isNaN(transactionDate.getTime())) {
                 if (typeof showToast === 'function') showToast("Invalid date!", "error");
                 return;
+            }
+
+            // 🆓 Free users can hold up to FREE_MAX_UNIQUE_SHARES active unique shares.
+            // Buying more of an existing holding remains allowed.
+            const isPro = await ensureSubscriptionLoadedForBuy();
+            if (!isPro) {
+                const activeShares = await getActiveUniqueShares(user.uid);
+                if (activeShares.size >= FREE_MAX_UNIQUE_SHARES && !activeShares.has(shareName)) {
+                    if (typeof showToast === 'function') showToast(
+                        `Free plan allows up to ${FREE_MAX_UNIQUE_SHARES} active shares. Upgrade to Pro for unlimited shares.`,
+                        'warning'
+                    );
+                    return;
+                }
             }
 
             const totalAmount = quantity * price;
