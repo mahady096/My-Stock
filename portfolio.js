@@ -1609,7 +1609,7 @@ async function loadDividendData(portfolioId = null) {
         let portfolioData = [];
         if (typeof supabase !== 'undefined' && supabase) {
             try {
-                let query = supabase.from('portfolios').select('share_name, quantity, portfolio_id').eq('user_id', user.uid);
+                let query = supabase.from('portfolios').select('share_name, quantity, buy_price, portfolio_id').eq('user_id', user.uid);
                 if (portfolioId) query = query.eq('portfolio_id', portfolioId);
                 const { data } = await query;
                 if (data) portfolioData = data;
@@ -1622,7 +1622,7 @@ async function loadDividendData(portfolioId = null) {
                 const snap = await query.get();
                 snap.forEach(doc => {
                     const data = doc.data();
-                    portfolioData.push({ share_name: data.shareName, quantity: data.quantity, portfolio_id: data.portfolioId || 'main' });
+                    portfolioData.push({ share_name: data.shareName, quantity: data.quantity, buy_price: data.buyPrice || 0, portfolio_id: data.portfolioId || 'main' });
                 });
             } catch (e) { /* ignore */ }
         }

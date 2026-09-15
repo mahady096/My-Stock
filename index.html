@@ -23,6 +23,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="landing.css">
     
     <style>
         /* ===== মোবাইলে অ্যাডভান্সড মডাল কার্ড গ্রিড ===== */
@@ -375,6 +376,152 @@
         });
     </script>
 
+    <!-- 🌐 Public StockPulse Market Landing -->
+    <section id="public-market-landing" class="public-landing" aria-label="StockPulse public market page">
+      <div class="public-landing-inner">
+        <nav class="public-nav">
+          <div class="public-brand">
+            <img class="public-logo" src="stockpulse-brand-logo.png" alt="StockPulse logo">
+            <div><h1>StockPulse</h1><span>DSE Market Intelligence</span></div>
+          </div>
+          <button class="public-login-btn" data-open-login>🔐 Login / Enter App</button>
+        </nav>
+
+        <header class="public-hero">
+          <div class="eyebrow">Bangladesh Stock Market</div>
+          <h2>Know the market before you make your move.</h2>
+          <p>Real-time market summary and DSEX trend from the StockPulse database, presented in a clean and simple view.</p>
+          <div class="public-status-row">
+            <div id="landing-condition-badge" class="public-badge is-positive"><span id="landing-condition">--</span></div>
+            <div class="public-badge">📅 <span id="landing-market-date">--</span></div>
+          </div>
+          <div id="landing-data-status">Loading market data...</div>
+        </header>
+
+          <section class="public-why-section" aria-labelledby="why-stockpulse-title">
+            <div class="public-section-kicker">Why StockPulse?</div>
+            <div class="public-section-heading-row">
+              <div>
+                <h2 id="why-stockpulse-title">Your complete stock market companion</h2>
+                <p>Market data, analysis and portfolio tools brought together in one clean workspace.</p>
+              </div>
+            </div>
+            <div class="public-feature-grid">
+              <article class="public-feature-card">
+                <div class="public-feature-icon">📊</div>
+                <h3>Live DSE Market Data</h3>
+                <p>Get market summary, index movement and key statistics in one place.</p>
+              </article>
+              <article class="public-feature-card">
+                <div class="public-feature-icon">🔎</div>
+                <h3>Deep Stock Analysis</h3>
+                <p>Use technical indicators, charts and historical data to support deeper insights.</p>
+              </article>
+              <article class="public-feature-card">
+                <div class="public-feature-icon">⚖️</div>
+                <h3>DSE vs CSE Comparison</h3>
+                <p>Compare Bangladesh’s two major markets more easily from within the platform.</p>
+              </article>
+              <article class="public-feature-card">
+                <div class="public-feature-icon">💼</div>
+                <h3>Portfolio Intelligence</h3>
+                <p>Track holdings, performance and trading history with practical portfolio tools.</p>
+              </article>
+            </div>
+          </section>
+
+        <section class="public-market-overview-head" aria-labelledby="today-market-title">
+          <div>
+            <div class="public-section-kicker">Today’s Market</div>
+            <h2 id="today-market-title">Market overview</h2>
+          </div>
+          <div class="public-market-meta">
+            <span id="landing-market-status-pill" class="public-market-status-pill">● MARKET CLOSED</span>
+            <span>Last updated: <strong id="landing-updated-head">--</strong></span>
+          </div>
+        </section>
+
+        <div class="public-grid">
+          <article class="public-card public-dsex-card">
+            <div class="public-dsex-top">
+              <div>
+                <div class="public-card-label">DSEX Index</div>
+                <div id="landing-dsex" class="public-dsex-value">--</div>
+                <div class="public-card-sub">Previous close: <strong id="landing-prev-close">--</strong></div>
+              </div>
+              <div id="landing-dsex-change" class="public-change is-positive">
+                <div id="landing-change">--</div>
+                <div id="landing-percent">--</div>
+              </div>
+            </div>
+          </article>
+          <article class="public-card"><div class="public-card-label">Total Trade</div><div id="landing-trades" class="public-card-value">--</div><div class="public-card-sub">Transactions</div></article>
+          <article class="public-card"><div class="public-card-label">Total Volume</div><div id="landing-volume" class="public-card-value">--</div><div class="public-card-sub">Shares traded</div></article>
+          <article class="public-card"><div class="public-card-label">Total Value</div><div id="landing-value" class="public-card-value">--</div><div class="public-card-sub">Taka (mn)</div></article>
+          <article class="public-card public-stat-advance"><div class="public-card-label">Advancing</div><div id="landing-advanced" class="public-card-value">--</div><div class="public-card-sub">Issues advanced</div></article>
+          <article class="public-card public-stat-decline"><div class="public-card-label">Declining</div><div id="landing-declined" class="public-card-value">--</div><div class="public-card-sub">Issues declined</div></article>
+          <article class="public-card public-stat-unchanged"><div class="public-card-label">Unchanged</div><div id="landing-unchanged" class="public-card-value">--</div><div class="public-card-sub">Issues unchanged</div></article>
+        </div>
+
+        <section class="public-section">
+          <div class="public-card public-chart-card">
+            <h3 class="public-section-title">📈 30-Day DSEX Trend <span>Latest available sessions</span></h3>
+            <div class="public-chart-wrap"><canvas id="landing-dsex-chart"></canvas></div>
+          </div>
+          <div id="landing-chart-interpretation" class="public-chart-interpretation">📈 DSEX is currently trading above its previous close, indicating positive short-term market momentum.</div>
+        </section>
+
+        <section class="public-section public-condition">
+          <article class="public-card public-condition-card">
+            <div class="public-card-label">Market Condition</div>
+            <h3 class="public-condition-heading"><span id="landing-condition-2">Market view</span></h3>
+            <div id="landing-commentary" class="public-condition-text">Loading market commentary...</div>
+            <div class="public-card-sub public-last-update">Last data update: <span id="landing-updated">--</span></div>
+          </article>
+        </section>
+
+        <section class="public-section">
+          <article class="public-cta-card">
+            <div>
+              <div class="public-cta-kicker">Ready to explore the market?</div>
+              <h2>Go beyond the market snapshot.</h2>
+              <p>Access your StockPulse dashboard for portfolio tracking, advanced charts, stock analysis and more.</p>
+            </div>
+            <button class="public-primary-btn public-cta-btn" data-open-login>🔐 Login / Enter StockPulse</button>
+          </article>
+        </section>
+
+        <section class="public-section">
+          <div class="public-info-grid">
+            <article class="public-card public-info-card public-info-link-card" onclick="window.location.href='about.html'" role="link" tabindex="0">
+              <h3>👤 About Me</h3>
+              <p>Muhammad Mahady Hasan — Statistics & Data Science graduate and the creator of StockPulse.</p>
+              <a href="about.html" onclick="event.stopPropagation()">View profile →</a>
+            </article>
+            <article class="public-card public-info-card public-info-link-card" onclick="window.location.href='user-guide.html'" role="link" tabindex="0">
+              <h3>📖 User Guide</h3>
+              <p>A quick overview of the main StockPulse tools. Open the guide for the full feature walkthrough.</p>
+              <a href="user-guide.html" onclick="event.stopPropagation()">Explore features →</a>
+            </article>
+            <article class="public-card public-info-card">
+              <h3>💬 Communication</h3>
+              <p>Have feedback, a bug report, or a feature idea? Contact the StockPulse admin directly.</p>
+              <div class="public-contact-links">
+                <a href="mailto:admin.stockpule@gmail.com">✉️ admin.stockpule@gmail.com</a>
+                <a href="https://www.facebook.com/profile.php?id=61594136007917" target="_blank" rel="noopener">📘 Facebook</a>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <footer class="public-footer">
+          <div class="public-footer-links"><button data-open-login>Login</button><a href="about.html">About</a><a href="user-guide.html">User Guide</a></div>
+          <div>© 2026 StockPulse. All rights reserved.</div>
+          <div style="margin-top:5px;">Market information is provided for informational purposes and is not investment advice.</div>
+        </footer>
+      </div>
+    </section>
+
     <div id="login-container" class="auth-box">
         <h2 id="auth-title">Portfolio Login</h2>
         <input type="email" id="login-email" placeholder="Email" required>
@@ -387,6 +534,7 @@
             Don't have an account? Register here
         </p>
         <p id="auth-error" class="error"></p>
+        <button type="button" class="public-primary-btn public-back-btn" data-back-market>← Back to Market</button>
     </div>
 
     <!-- ফ্লোটিং লোডিং ইন্ডিকেটর -->
@@ -464,6 +612,7 @@
         
         <aside id="left-sidebar" class="sidebar left-sidebar">
             <div class="sidebar-header">
+                <div class="sp-sidebar-brand" role="button" tabindex="0" title="Return to StockPulse landing page" onclick="StockPulseLanding && StockPulseLanding.showLanding ? StockPulseLanding.showLanding() : null" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault(); StockPulseLanding && StockPulseLanding.showLanding ? StockPulseLanding.showLanding() : null;}"><img src="stockpulse-brand-logo.png" alt="StockPulse"><div><strong>StockPulse</strong><span>Market Intelligence</span></div></div>
                 <h3>Navigation</h3>
                 <button class="close-btn" onclick="toggleLeftSidebar()">×</button>
             </div>
@@ -2597,6 +2746,7 @@
 <script src="ui-modals.js" defer></script>
 <script src="ui-charts.js" defer></script>
 <script src="sync-metadata.js" defer></script>
+<script src="market-landing.js" defer></script>
 
     <script>
         // Screener Dropdown

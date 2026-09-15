@@ -1220,6 +1220,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 if (loginContainer) loginContainer.classList.add('hidden');
                 if (appContainer) appContainer.classList.remove('hidden');
+                if (window.StockPulseLanding && typeof window.StockPulseLanding.showApp === 'function') {
+                    window.StockPulseLanding.showApp();
+                }
                 if (authError) authError.innerText = '';
 
                 // ড্যাশবোর্ড লোড
@@ -1267,8 +1270,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('✅ Dashboard loaded successfully');
             } else {
                 console.log('👤 User logged out');
-                if (loginContainer) loginContainer.classList.remove('hidden');
+                // Public state is controlled by market-landing.js.
+                // Do NOT reveal the login form here; logout must return to the landing page.
+                if (loginContainer) loginContainer.classList.add('hidden');
                 if (appContainer) appContainer.classList.add('hidden');
+                if (window.StockPulseLanding && typeof window.StockPulseLanding.showLanding === 'function') {
+                    window.StockPulseLanding.showLanding();
+                }
                 if (authError) authError.innerText = '';
                 if (typeof stopAutoRefresh === 'function') stopAutoRefresh();
                 if (typeof CacheManager !== 'undefined' && CacheManager.clearAll) CacheManager.clearAll();
