@@ -21,7 +21,8 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null, port
     const start = startDate || defaultStart;
     const end = endDate || defaultEnd;
 
-    const cacheKey = `timeline_${user.uid}_${start}_${end}_${portfolioId || 'all'}`;
+    // v2: invalidate old timeline cache so closed-day zero values are not reused.
+    const cacheKey = `timeline_v2_${user.uid}_${start}_${end}_${portfolioId || 'all'}`;
     try {
         const cached = await CacheManager.get(cacheKey, 1800000);
         if (cached) {
@@ -115,8 +116,8 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null, port
                     if (!error && data && data.length > 0) {
                         data.forEach(item => {
                             const price = parseFloat(item.ltp);
-                            const dateStr = item.date;
-                            if (price > 0) {
+                            const dateStr = String(item.date || '').split('T')[0];
+                            if (dateStr && dateStr.length === 10 && price > 0) {
                                 if (!priceMap.has(dateStr)) priceMap.set(dateStr, new Map());
                                 priceMap.get(dateStr).set(item.ticker, price);
                             }
@@ -142,8 +143,8 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null, port
                     snap.forEach(doc => {
                         const data = doc.data();
                         const price = parseFloat(data.price) || parseFloat(data.close) || 0;
-                        const dateStr = data.date;
-                        if (price > 0) {
+                        const dateStr = String(data.date || '').split('T')[0];
+                        if (dateStr && dateStr.length === 10 && price > 0) {
                             if (!priceMap.has(dateStr)) priceMap.set(dateStr, new Map());
                             priceMap.get(dateStr).set(data.ticker, price);
                         }
@@ -159,8 +160,8 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null, port
                             snap2.forEach(doc => {
                                 const data = doc.data();
                                 const price = parseFloat(data.price) || parseFloat(data.close) || 0;
-                                const dateStr = data.date;
-                                if (price > 0) {
+                                const dateStr = String(data.date || '').split('T')[0];
+                                if (dateStr && dateStr.length === 10 && price > 0) {
                                     if (!priceMap.has(dateStr)) priceMap.set(dateStr, new Map());
                                     priceMap.get(dateStr).set(data.ticker, price);
                                 }
@@ -193,24 +194,27 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null, port
         console.log('⏳ Building timeline...');
         const dailyPortfolio = [];
         let cumulativeLots = [];
+        const lastKnownPrices = new Map();
 
         for (let idx = 0; idx < allDates.length; idx++) {
             const currentDateObj = allDates[idx];
             const dateStr = currentDateObj.toISOString().split('T')[0];
 
-            for (const lot of buyLots) {
+            // Build the portfolio state for this date from the original lots.
+            // Do not mutate buyLots with a persistent `added` flag; doing so can
+            // make a second/refresh calculation produce an empty timeline.
+            const activeLots = buyLots.filter(lot => {
                 const lotDate = new Date(lot.date);
+                if (isNaN(lotDate.getTime())) return false;
                 lotDate.setHours(0, 0, 0, 0);
-                if (lotDate <= currentDateObj && !lot.added) {
-                    cumulativeLots.push({ ...lot, remainingQty: lot.qty, added: true });
-                    lot.added = true;
-                }
-            }
+                return lotDate <= currentDateObj;
+            });
 
             const tempSoldMap = new Map(totalSoldMap);
-            let tempLots = cumulativeLots.map(lot => ({ ...lot, remainingQty: lot.remainingQty }));
+            const tempLots = activeLots.map(lot => ({ ...lot, remainingQty: Number(lot.qty) || 0 }));
+
             for (const lot of tempLots) {
-                let toSell = tempSoldMap.get(lot.ticker) || 0;
+                let toSell = Number(tempSoldMap.get(lot.ticker) || 0);
                 if (toSell > 0 && lot.remainingQty > 0) {
                     const taken = Math.min(lot.remainingQty, toSell);
                     lot.remainingQty -= taken;
@@ -232,11 +236,27 @@ async function fetchPortfolioTimelineData(startDate = null, endDate = null, port
                 }
             }
 
+            // No market data for this date = market closed / holiday.
+            // Never turn a missing market day into a zero-value chart point.
+            const dayPriceMap = priceMap.get(dateStr);
+            if (!dayPriceMap || dayPriceMap.size === 0) continue;
+
+            // Carry forward the last valid price for a ticker if that ticker is
+            // temporarily missing on an otherwise valid trading day.
+            for (const [ticker, price] of dayPriceMap.entries()) {
+                if (price > 0) lastKnownPrices.set(ticker, price);
+            }
+
             let totalCurrentValue = 0;
-            const dayPriceMap = priceMap.get(dateStr) || new Map();
             for (const stock of remainingStocks) {
-                const price = dayPriceMap.get(stock.ticker) || 0;
-                totalCurrentValue += stock.qty * price;
+                // Prefer this day's close, then the most recent valid market price.
+                // If a ticker has no historical price yet, use its cost basis rather
+                // than zero. This keeps the timeline usable without fabricating a
+                // zero-value portfolio on partially populated trading days.
+                let price = dayPriceMap.get(stock.ticker);
+                if (!(price > 0)) price = lastKnownPrices.get(stock.ticker);
+                if (!(price > 0)) price = stock.avgCost;
+                if (price > 0) totalCurrentValue += stock.qty * price;
             }
 
             if (totalInvestment > 0 && isFinite(totalInvestment)) {
