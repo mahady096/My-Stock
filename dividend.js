@@ -39,8 +39,111 @@ function toDividendNumber(value, fallback = 0) {
     return Number.isFinite(n) ? n : fallback;
 }
 
+function normalizeDividendPortfolioId(value) {
+    const id = String(value ?? '').trim().toLowerCase();
+    return id || 'main';
+}
+
+function isGrandDividendPortfolio(value) {
+    const id = normalizeDividendPortfolioId(value);
+    return id === 'grand' || id === 'all' || id === 'all_portfolios';
+}
+
+function dividendPortfolioMatches(rowPortfolioId, selectedPortfolioId) {
+    const selected = normalizeDividendPortfolioId(selectedPortfolioId);
+    const row = String(rowPortfolioId ?? '').trim().toLowerCase();
+
+    // Grand Portfolio is a virtual aggregate. It must include all holdings.
+    if (isGrandDividendPortfolio(selected)) return true;
+
+    // Backward compatibility: the current dividend_records schema may not
+    // have portfolio_id at all. In that schema, dividend records are user-
+    // scoped rather than portfolio-scoped, so a record without the field
+    // must remain visible instead of disappearing from the list.
+    if (row === '') return true;
+
+    if (selected === 'main') return row === 'main';
+    return row === selected;
+}
+
+function getDividendSelectedPortfolioId(portfolioId = null) {
+    if (portfolioId !== null && portfolioId !== undefined && String(portfolioId).trim() !== '') {
+        return normalizeDividendPortfolioId(portfolioId);
+    }
+
+    const selector = document.getElementById('dividend-portfolio-select');
+    return normalizeDividendPortfolioId(selector?.value || 'grand');
+}
+
+function getDividendStockDetailMap(stockDetails) {
+    const map = new Map();
+
+    (Array.isArray(stockDetails) ? stockDetails : []).forEach(item => {
+        const ticker = normalizeDividendTicker(item?.ticker ?? item?.share_name);
+        const qty = toDividendNumber(item?.totalQty ?? item?.quantity);
+        const avgBuyPrice = toDividendNumber(
+            item?.avgBuyPrice ?? item?.averageBuyPrice ?? item?.buyPrice
+        );
+
+        if (!ticker || qty <= 0) return;
+
+        map.set(ticker, {
+            quantity: qty,
+            avgBuyPrice: avgBuyPrice > 0 ? avgBuyPrice : 0
+        });
+    });
+
+    return map;
+}
+
+async function fetchDividendPortfolioFallback(userId, selectedPortfolioId) {
+    let rows = [];
+
+    // Fetch ALL user holdings first. Filtering in JavaScript is intentional:
+    // Grand Portfolio is virtual and has no physical "grand" portfolio_id.
+    if (typeof supabase !== 'undefined' && supabase) {
+        try {
+            const { data, error } = await supabase
+                .from('portfolios')
+                .select('share_name, quantity, buy_price, portfolio_id')
+                .eq('user_id', userId);
+
+            if (!error && Array.isArray(data)) rows = data;
+        } catch (e) {
+            console.warn('Supabase dividend portfolio fetch failed', e);
+        }
+    }
+
+    if (rows.length === 0 && typeof db !== 'undefined' && db) {
+        try {
+            const snap = await db
+                .collection('portfolios')
+                .where('userId', '==', userId)
+                .get();
+
+            snap.forEach(doc => {
+                const data = doc.data() || {};
+                rows.push({
+                    share_name: data.shareName,
+                    quantity: data.quantity,
+                    buy_price: data.buyPrice,
+                    portfolio_id: data.portfolioId
+                });
+            });
+        } catch (e) {
+            console.warn('Firebase dividend portfolio fetch failed', e);
+        }
+    }
+
+    return rows.filter(row =>
+        dividendPortfolioMatches(row?.portfolio_id, selectedPortfolioId)
+    );
+}
+
 async function loadDividendData(portfolioId = null) {
     const user = auth && auth.currentUser ? auth.currentUser : null;
+    const selectedPortfolioId = getDividendSelectedPortfolioId(portfolioId);
+
     if (!user) {
         const tb = document.getElementById('dividend-table-body');
         if (tb) tb.innerHTML = `<tr><td colspan="6">Please login</td></tr>`;
@@ -51,24 +154,25 @@ async function loadDividendData(portfolioId = null) {
     if (!tableBody) return;
 
     try {
+        // ==========================================
+        // 1. Load dividend records for this user.
+        //    Grand = all records; legacy DB without portfolio_id = user-scoped
+        //    records remain visible. Portfolio-specific filtering is applied
+        //    only when the database record actually has portfolio_id.
+        // ==========================================
         let dividendRecords = [];
 
-        // ---------- Supabase dividend records ----------
         if (typeof supabase !== 'undefined' && supabase) {
             try {
-                let query = supabase
+                const { data, error } = await supabase
                     .from('dividend_records')
                     .select('*')
                     .eq('user_id', user.uid);
 
-                if (portfolioId) {
-                    query = query.eq('portfolio_id', portfolioId);
-                }
-
-                const { data, error } = await query;
-
-                if (!error && data) {
-                    dividendRecords = data;
+                if (!error && Array.isArray(data)) {
+                    dividendRecords = data.filter(rec =>
+                        dividendPortfolioMatches(rec?.portfolio_id, selectedPortfolioId)
+                    );
                 }
             } catch (e) {
                 console.warn(
@@ -78,38 +182,29 @@ async function loadDividendData(portfolioId = null) {
             }
         }
 
-        // ---------- Firebase dividend fallback ----------
-        if (dividendRecords.length === 0 && typeof db !== 'undefined') {
+        if (dividendRecords.length === 0 && typeof db !== 'undefined' && db) {
             try {
-                let query = db
+                const snapshot = await db
                     .collection('dividend_records')
-                    .where('userId', '==', user.uid);
-
-                if (portfolioId) {
-                    query = query.where('portfolioId', '==', portfolioId);
-                }
-
-                const snapshot = await query.get();
+                    .where('userId', '==', user.uid)
+                    .get();
 
                 snapshot.forEach(doc => {
-                    const data = doc.data();
-                    const parsedCreatedAt = safeParseDate(data.createdAt);
-                    const parsedUpdatedAt = safeParseDate(data.updatedAt);
-
-                    dividendRecords.push({
+                    const data = doc.data() || {};
+                    const record = {
                         id: doc.id,
                         user_id: data.userId,
                         share_name: data.shareName,
-                        stock_percent: data.stockPercent || 0,
-                        cash_amount: data.cashAmount || 0,
-                        portfolio_id: data.portfolioId || 'main',
-                        created_at: parsedCreatedAt
-                            ? parsedCreatedAt.toISOString()
-                            : null,
-                        updated_at: parsedUpdatedAt
-                            ? parsedUpdatedAt.toISOString()
-                            : null
-                    });
+                        stock_percent: data.stockPercent ?? 0,
+                        cash_amount: data.cashAmount ?? 0,
+                        portfolio_id: data.portfolioId ?? 'main',
+                        created_at: safeParseDate(data.createdAt)?.toISOString?.() || null,
+                        updated_at: safeParseDate(data.updatedAt)?.toISOString?.() || null
+                    };
+
+                    if (dividendPortfolioMatches(record.portfolio_id, selectedPortfolioId)) {
+                        dividendRecords.push(record);
+                    }
                 });
             } catch (e) {
                 console.warn('Firebase dividend fetch failed', e);
@@ -123,80 +218,112 @@ async function loadDividendData(portfolioId = null) {
         }
 
         // ==========================================
-        // 📦 Load portfolio holdings
+        // 2. PRIMARY source of truth = UnifiedCalculationEngine.
+        //    This is the SAME calculation used by Holdings, so:
+        //    - Grand Portfolio includes all portfolios for this logged-in user
+        //    - Sales/FIFO are respected
+        //    - avgBuyPrice matches the Grand Portfolio Holdings view
         // ==========================================
-        let portfolioData = [];
+        let detailMap = new Map();
 
-        if (typeof supabase !== 'undefined' && supabase) {
-            try {
-                let query = supabase
-                    .from('portfolios')
-                    .select('share_name, quantity, buy_price, portfolio_id')
-                    .eq('user_id', user.uid);
+        try {
+            if (
+                typeof unifiedEngine !== 'undefined' &&
+                unifiedEngine &&
+                typeof unifiedEngine.calculate === 'function'
+            ) {
+                // Dividend calculations always use the LOGGED-IN USER'S
+                // Grand Portfolio. This is the same aggregate holding view
+                // used by the Portfolio/Grand Portfolio calculations.
+                // The dividend page selector must not change the quantity or
+                // average buy price used for Dividend Gain / Unrealized P/L.
+                const calculation = await unifiedEngine.calculate(
+                    user.uid,
+                    'grand',
+                    true
+                );
 
-                if (portfolioId) {
-                    query = query.eq('portfolio_id', portfolioId);
-                }
-
-                const { data, error } = await query;
-
-                if (!error && data) {
-                    portfolioData = data;
-                }
-            } catch (e) {
-                console.warn('Supabase portfolio fetch failed', e);
+                detailMap = getDividendStockDetailMap(
+                    calculation?.stockDetails
+                );
             }
-        }
-
-        // ---------- Firebase portfolio fallback ----------
-        if (portfolioData.length === 0 && typeof db !== 'undefined') {
-            try {
-                let query = db
-                    .collection('portfolios')
-                    .where('userId', '==', user.uid);
-
-                if (portfolioId) {
-                    query = query.where('portfolioId', '==', portfolioId);
-                }
-
-                const snap = await query.get();
-
-                snap.forEach(doc => {
-                    const data = doc.data();
-
-                    portfolioData.push({
-                        share_name: data.shareName,
-                        quantity: data.quantity,
-                        buy_price: data.buyPrice || 0,
-                        portfolio_id: data.portfolioId || 'main'
-                    });
-                });
-            } catch (e) {
-                console.warn('Firebase portfolio fallback failed', e);
-            }
+        } catch (e) {
+            console.warn('Unified dividend calculation failed; using fallback', e);
         }
 
         // ==========================================
-        // 📊 Build normalized holdings map
+        // 3. Defensive holdings fallback / merge
         // ==========================================
-        const remainingQtyMap = new Map();
+        // Do NOT rely only on UnifiedCalculationEngine. If its result is
+        // unavailable, stale, or missing a ticker, load the same logged-in
+        // user's portfolio rows directly and aggregate them as Grand Portfolio.
+        const dividendTickersNeeded = new Set(
+            dividendRecords.map(rec => normalizeDividendTicker(rec?.share_name))
+                .filter(Boolean)
+        );
 
-        portfolioData.forEach(item => {
-            const ticker = normalizeDividendTicker(item.share_name);
-            const qty = toDividendNumber(item.quantity);
+        const missingDividendTickers = [...dividendTickersNeeded]
+            .filter(ticker => {
+                const d = detailMap.get(ticker);
+                return !d || toDividendNumber(d.quantity) <= 0 || toDividendNumber(d.avgBuyPrice) <= 0;
+            });
 
-            if (!ticker || qty <= 0) return;
-
-            remainingQtyMap.set(
-                ticker,
-                (remainingQtyMap.get(ticker) || 0) + qty
+        if (missingDividendTickers.length > 0) {
+            const portfolioData = await fetchDividendPortfolioFallback(
+                user.uid,
+                'grand'
             );
+
+            const fallbackMap = new Map();
+
+            portfolioData.forEach(item => {
+                const ticker = normalizeDividendTicker(item?.share_name);
+                const qty = toDividendNumber(item?.quantity);
+                const buyPrice = toDividendNumber(item?.buy_price);
+
+                if (!ticker || qty <= 0) return;
+
+                const current = fallbackMap.get(ticker) || {
+                    quantity: 0,
+                    totalCost: 0
+                };
+
+                current.quantity += qty;
+                if (buyPrice > 0) {
+                    current.totalCost += qty * buyPrice;
+                }
+
+                fallbackMap.set(ticker, current);
+            });
+
+            fallbackMap.forEach((value, ticker) => {
+                if (!missingDividendTickers.includes(ticker)) return;
+                const avgBuyPrice =
+                    value.quantity > 0 && value.totalCost > 0
+                        ? value.totalCost / value.quantity
+                        : 0;
+
+                if (value.quantity > 0 && avgBuyPrice > 0) {
+                    detailMap.set(ticker, {
+                        quantity: value.quantity,
+                        avgBuyPrice
+                    });
+                }
+            });
+        }
+
+        // Diagnostic: if a dividend ticker still has no holding details,
+        // the UI should show '-' rather than inventing a gain.
+        dividendTickersNeeded.forEach(ticker => {
+            if (!detailMap.has(ticker)) {
+                console.warn('Dividend holding not found for ticker:', ticker);
+            }
         });
 
         // ==========================================
-        // 📈 Refresh current market prices
+        // 4. Current market prices.
         // ==========================================
-        const dividendTickers = [...remainingQtyMap.keys()];
+        const dividendTickers = [...detailMap.keys()];
 
         if (
             dividendTickers.length > 0 &&
@@ -204,14 +331,9 @@ async function loadDividendData(portfolioId = null) {
         ) {
             try {
                 const latestPrices =
-                    await getLatestAndPreviousPrices(dividendTickers);
+                    await getLatestAndPreviousPrices(dividendTickers, true);
 
-                // The existing app normally returns a Map.
-                // Support Map, plain object and array defensively.
-                if (
-                    latestPrices &&
-                    typeof latestPrices.forEach === 'function'
-                ) {
+                if (latestPrices && typeof latestPrices.forEach === 'function') {
                     latestPrices.forEach((priceInfo, ticker) => {
                         const normalizedTicker =
                             normalizeDividendTicker(ticker);
@@ -219,7 +341,8 @@ async function loadDividendData(portfolioId = null) {
                         const currentPrice = toDividendNumber(
                             priceInfo?.currentPrice ??
                             priceInfo?.ltp ??
-                            priceInfo?.price
+                            priceInfo?.price ??
+                            priceInfo
                         );
 
                         if (
@@ -227,46 +350,9 @@ async function loadDividendData(portfolioId = null) {
                             currentPrice > 0 &&
                             typeof currentPriceData !== 'undefined'
                         ) {
-                            currentPriceData.set(
-                                normalizedTicker,
-                                currentPrice
-                            );
-
-                            // Keep original key too for compatibility
-                            currentPriceData.set(
-                                ticker,
-                                currentPrice
-                            );
+                            currentPriceData.set(normalizedTicker, currentPrice);
                         }
                     });
-                } else if (
-                    latestPrices &&
-                    typeof latestPrices === 'object'
-                ) {
-                    Object.entries(latestPrices).forEach(
-                        ([ticker, priceInfo]) => {
-                            const normalizedTicker =
-                                normalizeDividendTicker(ticker);
-
-                            const currentPrice = toDividendNumber(
-                                priceInfo?.currentPrice ??
-                                priceInfo?.ltp ??
-                                priceInfo?.price ??
-                                priceInfo
-                            );
-
-                            if (
-                                normalizedTicker &&
-                                currentPrice > 0 &&
-                                typeof currentPriceData !== 'undefined'
-                            ) {
-                                currentPriceData.set(
-                                    normalizedTicker,
-                                    currentPrice
-                                );
-                            }
-                        }
-                    );
                 }
             } catch (e) {
                 console.warn(
@@ -276,73 +362,30 @@ async function loadDividendData(portfolioId = null) {
             }
         }
 
-        // ==========================================
-        // 🧮 Render dividend calculations
-        // ==========================================
         let html = '';
 
         for (const rec of dividendRecords) {
-            const ticker =
-                normalizeDividendTicker(rec.share_name);
+            const ticker = normalizeDividendTicker(rec?.share_name);
+            const stockPercent = toDividendNumber(rec?.stock_percent);
+            const cashAmount = toDividendNumber(rec?.cash_amount);
+            const docId = rec?.id;
 
-            const stockPercent =
-                toDividendNumber(rec.stock_percent);
+            const detail = detailMap.get(ticker) || {
+                quantity: 0,
+                avgBuyPrice: 0
+            };
 
-            const cashAmount =
-                toDividendNumber(rec.cash_amount);
-
-            const docId = rec.id;
-
-            // Current holding quantity
-            const remainingQty =
-                toDividendNumber(
-                    remainingQtyMap.get(ticker)
-                );
+            const remainingQty = toDividendNumber(detail.quantity);
+            const avgBuyPrice = toDividendNumber(detail.avgBuyPrice);
 
             // ==========================================
-            // 💵 Weighted average buy price
-            // ==========================================
-            let totalCost = 0;
-            let totalQty = 0;
-
-            const portfolioItems = portfolioData.filter(
-                p =>
-                    normalizeDividendTicker(p.share_name) ===
-                    ticker
-            );
-
-            portfolioItems.forEach(p => {
-                const qty =
-                    toDividendNumber(p.quantity);
-
-                const buyPrice =
-                    toDividendNumber(p.buy_price);
-
-                if (qty > 0 && buyPrice > 0) {
-                    totalQty += qty;
-                    totalCost += qty * buyPrice;
-                }
-            });
-
-            const avgBuyPrice =
-                totalQty > 0
-                    ? totalCost / totalQty
-                    : 0;
-
-            // ==========================================
-            // 💰 Dividend Gain
+            // Dividend Gain — independent of current price
             // ==========================================
             let stockDividendGain = 0;
             let cashDividendGain = 0;
-            let totalDividendGain = 0;
 
-            // Dividend Gain must NOT depend on current price.
-            // It only needs quantity + dividend inputs.
             if (remainingQty > 0) {
-                if (
-                    stockPercent > 0 &&
-                    avgBuyPrice > 0
-                ) {
+                if (stockPercent > 0 && avgBuyPrice > 0) {
                     stockDividendGain =
                         remainingQty *
                         (stockPercent / 100) *
@@ -350,20 +393,18 @@ async function loadDividendData(portfolioId = null) {
                 }
 
                 // Existing StockPulse convention:
-                // cashAmount is a percentage based on Tk.10 face value.
+                // cashAmount is based on Tk.10 face value.
                 if (cashAmount > 0) {
                     cashDividendGain =
-                        remainingQty *
-                        (cashAmount / 10);
+                        remainingQty * (cashAmount / 10);
                 }
-
-                totalDividendGain =
-                    stockDividendGain +
-                    cashDividendGain;
             }
 
+            const totalDividendGain =
+                stockDividendGain + cashDividendGain;
+
             // ==========================================
-            // 📈 Unrealized P/L
+            // Unrealized P/L
             // ==========================================
             let currentPrice = 0;
 
@@ -371,21 +412,21 @@ async function loadDividendData(portfolioId = null) {
                 typeof currentPriceData !== 'undefined' &&
                 currentPriceData
             ) {
-                currentPrice =
-                    toDividendNumber(
-                        currentPriceData.get(ticker)
-                    );
+                currentPrice = toDividendNumber(
+                    currentPriceData.get(ticker)
+                );
+            }
 
-                // Compatibility fallback if the map still
-                // contains the original ticker casing.
-                if (currentPrice <= 0) {
-                    currentPrice =
-                        toDividendNumber(
-                            currentPriceData.get(
-                                rec.share_name
-                            )
-                        );
-                }
+            // Extra fallback: ask the unified price loader directly.
+            if (
+                currentPrice <= 0 &&
+                typeof getUnifiedPrice === 'function'
+            ) {
+                try {
+                    currentPrice = toDividendNumber(
+                        await getUnifiedPrice(ticker, true)
+                    );
+                } catch (_) {}
             }
 
             let unrealizedGain = 0;
@@ -396,28 +437,14 @@ async function loadDividendData(portfolioId = null) {
                 currentPrice > 0
             ) {
                 unrealizedGain =
-                    (currentPrice - avgBuyPrice) *
-                    remainingQty;
+                    (currentPrice - avgBuyPrice) * remainingQty;
             }
 
-            // ==========================================
-            // 🛡️ Safe HTML values
-            // ==========================================
-            const safeDocId =
-                escapeHtmlDiv(docId);
+            const safeDocId = escapeHtmlDiv(docId);
+            const safeTicker = escapeHtmlDiv(ticker);
+            const safeStockPercent = stockPercent.toFixed(2);
+            const safeCashAmount = cashAmount.toFixed(2);
 
-            const safeTicker =
-                escapeHtmlDiv(ticker);
-
-            const safeStockPercent =
-                stockPercent.toFixed(2);
-
-            const safeCashAmount =
-                cashAmount.toFixed(2);
-
-            // ==========================================
-            // 🖥️ Table row
-            // ==========================================
             html += `
                 <tr onclick="openDividendEditModal(
                     '${safeDocId}',
@@ -425,18 +452,9 @@ async function loadDividendData(portfolioId = null) {
                     ${stockPercent},
                     ${cashAmount}
                 )">
-                    <td>
-                        <b>${safeTicker}</b>
-                    </td>
-
-                    <td>
-                        ${safeStockPercent}%
-                    </td>
-
-                    <td>
-                        ৳${safeCashAmount}
-                    </td>
-
+                    <td><b>${safeTicker}</b></td>
+                    <td>${safeStockPercent}%</td>
+                    <td>৳${safeCashAmount}</td>
                     <td>
                         ${
                             remainingQty > 0
@@ -444,7 +462,6 @@ async function loadDividendData(portfolioId = null) {
                                 : '-'
                         }
                     </td>
-
                     <td>
                         ${
                             remainingQty > 0 &&
@@ -454,31 +471,25 @@ async function loadDividendData(portfolioId = null) {
                                 : '-'
                         }
                     </td>
-
                     <td>
                         <button
                             onclick="deleteDividendRecord(
                                 '${safeDocId}',
                                 event
                             )"
-                        >
-                            Delete
-                        </button>
+                        >Delete</button>
                     </td>
                 </tr>
             `;
         }
 
         tableBody.innerHTML = html;
-
     } catch (error) {
         console.error('Dividend calculation error:', error);
-
         tableBody.innerHTML =
             `<tr><td colspan="6">Error loading data</td></tr>`;
     }
 }
-
 // ==========================================
 // 🗑️ Delete
 //    ✅ user_id ownership চেক
@@ -722,8 +733,6 @@ async function saveDividendData(
                             toDividendNumber(
                                 cashAmount
                             ),
-                        portfolio_id:
-                            portfolioId || 'main',
                         updated_at:
                             new Date().toISOString()
                     })
@@ -799,18 +808,78 @@ async function saveDividendData(
             }
 
         } else {
-            await saveDividendToBoth(
-                user.uid,
-                data
-            );
+            // ==========================================================
+            // NEW RECORD SAVE — Supabase is the primary source of truth.
+            // Do NOT use supabaseFetch() here because older versions of
+            // that helper may not throw on HTTP errors, which can make the
+            // UI think the record was saved even when it was not.
+            // Firebase is used only as a fallback/secondary copy.
+            // ==========================================================
+            const normalizedPortfolioId =
+                normalizeDividendPortfolioId(portfolioId || 'main');
 
-            if (
-                typeof window.invalidateAppDataCache ===
-                'function'
-            ) {
-                window.invalidateAppDataCache(
-                    'dividend saved'
+            const record = {
+                user_id: user.uid,
+                share_name: normalizeDividendTicker(ticker),
+                stock_percent: toDividendNumber(stockPercent),
+                cash_amount: toDividendNumber(cashAmount),
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            let savedInSupabase = false;
+            let savedInFirebase = false;
+            let supabaseErrorMessage = '';
+
+            // ---------- Supabase primary ----------
+            if (typeof supabase !== 'undefined' && supabase) {
+                try {
+                    const { error } = await supabase
+                        .from('dividend_records')
+                        .insert(record);
+
+                    if (error) {
+                        supabaseErrorMessage = error.message || String(error);
+                        console.warn('Supabase dividend insert failed:', error);
+                    } else {
+                        savedInSupabase = true;
+                    }
+                } catch (e) {
+                    supabaseErrorMessage = e?.message || String(e);
+                    console.warn('Supabase dividend insert exception:', e);
+                }
+            }
+
+            // ---------- Firebase fallback / secondary copy ----------
+            // If Supabase succeeded, keep the existing dual-store design by
+            // writing Firebase too. If Supabase is unavailable, Firebase can
+            // still make the record visible through the loader's fallback.
+            if (typeof db !== 'undefined' && db) {
+                try {
+                    await db.collection('dividend_records').add({
+                        userId: user.uid,
+                        shareName: normalizeDividendTicker(ticker),
+                        stockPercent: toDividendNumber(stockPercent),
+                        cashAmount: toDividendNumber(cashAmount),
+                        portfolioId: normalizedPortfolioId,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    });
+                    savedInFirebase = true;
+                } catch (e) {
+                    console.warn('Firebase dividend insert failed:', e);
+                }
+            }
+
+            if (!savedInSupabase && !savedInFirebase) {
+                throw new Error(
+                    supabaseErrorMessage ||
+                    'Dividend record could not be saved'
                 );
+            }
+
+            if (typeof window.invalidateAppDataCache === 'function') {
+                window.invalidateAppDataCache('dividend saved');
             }
         }
 
@@ -1072,6 +1141,19 @@ async function saveDividendData(
             }
         );
     }
+})();
+
+// ==========================================
+// 🔄 Portfolio selector — always reload calculations for the selected scope
+// ==========================================
+(function attachDividendPortfolioListener() {
+    const selector = document.getElementById('dividend-portfolio-select');
+    if (!selector || selector.dataset.dividendFixAttached === '1') return;
+
+    selector.dataset.dividendFixAttached = '1';
+    selector.addEventListener('change', () => {
+        loadDividendData(selector.value || 'grand');
+    });
 })();
 
 // ==========================================
