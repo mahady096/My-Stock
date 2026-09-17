@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://stockpulse.appbd.workers.dev/sitemap.xml
