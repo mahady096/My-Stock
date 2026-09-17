@@ -223,7 +223,7 @@
                                     <input type="number" id="input-sell-qty-${docId}" placeholder="Qty" min="1" max="${availableQty}">
                                     <input type="number" id="input-sell-price-${docId}" placeholder="Price">
                                 </div>
-                                <button onclick="addToSellBatch('${docId}', '${ticker}', ${buyPrice}, ${availableQty})"
+                                <button type="button" onclick="addToSellBatch(this, '${docId}', '${ticker}', ${buyPrice}, ${availableQty})"
                                         style="margin-top: 5px; background: #6366f1; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; width: 100%;">
                                     ➕ Add to Batch
                                 </button>
@@ -427,38 +427,57 @@
     // ==========================================
 
     // ব্যাচে যোগ
-    window.addToSellBatch = function(lotId, ticker, buyPrice, availableQty) {
-        const qtyInput = document.getElementById(`input-sell-qty-${lotId}`);
-        const priceInput = document.getElementById(`input-sell-price-${lotId}`);
-        if (!qtyInput || !priceInput) return;
+    window.addToSellBatch = function(button, lotId, ticker, buyPrice, availableQty) {
+        // Read the inputs from the exact row/button that was clicked.
+        // This is more reliable on mobile after the holdings table re-renders.
+        const rowCell = button && button.closest ? button.closest('td') : null;
+        const qtyInput = rowCell?.querySelector('input[id^="input-sell-qty-"]')
+            || document.getElementById(`input-sell-qty-${lotId}`);
+        const priceInput = rowCell?.querySelector('input[id^="input-sell-price-"]')
+            || document.getElementById(`input-sell-price-${lotId}`);
 
-        const sellQty = Number(qtyInput.value) || 0;
-        const sellPrice = Number(priceInput.value) || 0;
+        if (!qtyInput || !priceInput) {
+            console.error('Sell batch inputs not found for lot:', lotId);
+            if (typeof showToast === 'function') showToast('Sell inputs not found. Please try again.', 'warning');
+            return;
+        }
 
-        if (sellQty <= 0 || sellPrice <= 0) {
+        const sellQty = Number.parseFloat(String(qtyInput.value ?? '').trim());
+        const sellPrice = Number.parseFloat(String(priceInput.value ?? '').trim());
+        const maxQty = Number.parseFloat(String(availableQty ?? '0'));
+
+        if (!Number.isFinite(sellQty) || sellQty <= 0 || !Number.isFinite(sellPrice) || sellPrice <= 0) {
             if (typeof showToast === 'function') showToast('Please enter valid quantity and price.', 'warning');
             return;
         }
-        if (sellQty > availableQty) {
-            if (typeof showToast === 'function') showToast(`Maximum ${availableQty} shares available.`, 'warning');
+        if (Number.isFinite(maxQty) && sellQty > maxQty) {
+            if (typeof showToast === 'function') showToast(`Maximum ${maxQty} shares available.`, 'warning');
             return;
         }
 
+        // The old code used `portfolioId` here, but that variable was not in
+        // this function's scope. That caused a ReferenceError after valid input.
+        const selectedPortfolioId = currentSellPortfolioId
+            || (sellPortfolioSelect ? sellPortfolioSelect.value : '')
+            || 'main';
+        const activeLot = currentActiveLots.find(l => String(l.docId) === String(lotId));
+        const lotPortfolioId = activeLot?.portfolioId || selectedPortfolioId || 'main';
+
         const entry = {
             lotId: lotId,
-            ticker: ticker,
-            buyPrice: buyPrice,
+            ticker: String(ticker || '').trim().toUpperCase(),
+            buyPrice: Number(buyPrice) || 0,
             sellQty: sellQty,
             sellPrice: sellPrice,
             totalValue: sellQty * sellPrice,
-            portfolioId: (currentActiveLots.find(l => String(l.docId) === String(lotId))?.portfolioId) || portfolioId || 'main'
+            portfolioId: lotPortfolioId
         };
         sellBatch.push(entry);
         renderBatchTable();
 
         qtyInput.value = '';
         priceInput.value = '';
-        if (typeof showToast === 'function') showToast(`✅ ${ticker} added to batch (${sellQty} shares)`, 'success');
+        if (typeof showToast === 'function') showToast(`✅ ${entry.ticker} added to batch (${sellQty} shares)`, 'success');
     };
 
     // ব্যাচ থেকে রিমুভ
