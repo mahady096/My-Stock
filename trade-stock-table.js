@@ -354,19 +354,48 @@ window.navigateToAnalysis = function(ticker) {
 };
 
 window.loadUnifiedStockTable = loadUnifiedStockTable;
+// Holdings portfolio filter — change করলে সঙ্গে সঙ্গে selected portfolio অনুযায়ী table reload হবে.
+function initStockTablePortfolioFilter() {
+    const select = document.getElementById('stock-table-portfolio-select');
+    if (!select || select.dataset.filterBound === '1') return;
+
+    select.dataset.filterBound = '1';
+    select.addEventListener('change', async function() {
+        const user = (typeof auth !== 'undefined' && auth && auth.currentUser) ? auth.currentUser : null;
+        if (!user) {
+            if (typeof showToast === 'function') showToast('Please login first', 'error');
+            return;
+        }
+
+        const selectedPortfolioId = String(this.value || 'grand').trim();
+        const queryPortfolioId = selectedPortfolioId.toLowerCase() === 'grand' ? null : selectedPortfolioId;
+
+        console.log(`📂 Holdings portfolio filter changed: ${selectedPortfolioId}`);
+        await loadUnifiedStockTable(user.uid, queryPortfolioId);
+    });
+}
+
 window.refreshStockTable = function() {
     const user = auth && auth.currentUser ? auth.currentUser : null;
     if (!user) {
         if (typeof showToast === 'function') showToast('Please login first', 'error');
         return;
     }
-    if (typeof showToast === 'function') showToast('🔄 Refreshing stock table...', 'info');
-    loadUnifiedStockTable(user.uid).then(() => {
+
+    const select = document.getElementById('stock-table-portfolio-select');
+    const selectedPortfolioId = String(select?.value || 'grand').trim();
+    const queryPortfolioId = selectedPortfolioId.toLowerCase() === 'grand' ? null : selectedPortfolioId;
+
+    if (typeof showToast === 'function') showToast(`🔄 Refreshing ${selectedPortfolioId.toLowerCase() === 'grand' ? 'Grand Portfolio' : selectedPortfolioId} holdings...`, 'info');
+    loadUnifiedStockTable(user.uid, queryPortfolioId).then(() => {
         if (typeof showToast === 'function') showToast('✅ Stock table refreshed!', 'success');
     }).catch(() => {
         if (typeof showToast === 'function') showToast('❌ Refresh failed', 'error');
     });
 };
+
+// Script is deferred and loaded after the Holdings DOM, so bind immediately.
+initStockTablePortfolioFilter();
 
 // ==========================================
 // 📥 CSV ডাউনলোড (আপডেটেড)

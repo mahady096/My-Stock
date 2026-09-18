@@ -560,6 +560,7 @@
               <div class="public-contact-links">
                 <a href="mailto:admin.stockpule@gmail.com">✉️ admin.stockpule@gmail.com</a>
                 <a href="https://www.facebook.com/profile.php?id=61594136007917" target="_blank" rel="noopener">📘 Facebook</a>
+                <a href="https://www.linkedin.com/company/143894628/" target="_blank" rel="noopener">💼 LinkedIn</a>
               </div>
             </article>
           </div>
@@ -713,6 +714,10 @@
                     <li onclick="openPortfolioManager()" style="padding: 8px 16px; font-weight: bold; color: var(--primary-color); border-radius: 4px; transition: background 0.2s;" 
                         onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
                         📊 Manage Portfolios
+                    </li>
+                    <li onclick="openShareTransfer()" style="padding: 8px 16px; font-weight: bold; color: #6366f1; border-radius: 4px; transition: background 0.2s; cursor: pointer;"
+                        onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+                        🔄 Transfer Shares
                     </li>
                     <li id="portfolio-grand-item" onclick="switchToPortfolio('grand')" style="padding: 8px 16px; border-radius: 4px; transition: background 0.2s; cursor: pointer;"
                         onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
@@ -2709,6 +2714,57 @@
     </div>
 
     
+    <!-- 🔄 Share Transfer Modal -->
+    <div id="share-transfer-modal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 560px; width: calc(100% - 28px); max-height: 85vh; overflow-y: auto; border-radius: 16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; padding-bottom:12px; border-bottom:1px solid var(--border-color);">
+                <div>
+                    <h3 style="margin:0; font-size:20px; color:var(--text-primary);">🔄 Transfer Shares</h3>
+                    <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Move shares between your own portfolios without selling.</div>
+                </div>
+                <button type="button" onclick="closeShareTransfer()" style="border:0; background:transparent; color:var(--text-muted); font-size:28px; cursor:pointer; line-height:1;">&times;</button>
+            </div>
+
+            <div style="display:grid; gap:14px;">
+                <div>
+                    <label style="display:block; font-size:12px; font-weight:700; margin-bottom:6px;">From Portfolio</label>
+                    <select id="transfer-from-portfolio" class="portfolio-selector" style="width:100%; padding:10px 12px;"></select>
+                </div>
+
+                <div>
+                    <label style="display:block; font-size:12px; font-weight:700; margin-bottom:6px;">To Portfolio</label>
+                    <select id="transfer-to-portfolio" class="portfolio-selector" style="width:100%; padding:10px 12px;"></select>
+                </div>
+
+                <div>
+                    <label style="display:block; font-size:12px; font-weight:700; margin-bottom:6px;">Select Lot</label>
+                    <select id="transfer-lot" class="portfolio-selector" style="width:100%; padding:10px 12px;">
+                        <option value="">Select a lot</option>
+                    </select>
+                    <div id="transfer-source-info" style="font-size:11px; color:var(--text-muted); margin-top:6px; line-height:1.45;">Each buy lot is shown separately.</div>
+                </div>
+
+                <div>
+                    <div style="display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:6px;">
+                        <label style="font-size:12px; font-weight:700;">Transfer Quantity</label>
+                        <span id="transfer-available" style="font-size:11px; color:#10b981; font-weight:700;">Available: —</span>
+                    </div>
+                    <input id="transfer-quantity" type="number" min="0.0001" step="any" placeholder="Enter quantity from selected lot" style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-primary);">
+                </div>
+
+                <div style="padding:11px 12px; border-radius:10px; background:var(--bg-tertiary); font-size:11px; color:var(--text-secondary); line-height:1.5;">
+                    💡 <strong>Lot-by-lot transfer:</strong> select the exact buy lot you want to move. Original <strong>buy price, buy date and proportional commission</strong> are preserved. Sold quantity is excluded.
+                </div>
+
+                <div id="share-transfer-status" style="min-height:18px; font-size:12px;"></div>
+
+                <button id="execute-share-transfer-btn" type="button" onclick="executeShareTransfer()" style="width:100%; padding:12px 16px; background:#6366f1; color:white; border:0; border-radius:9px; font-weight:700; cursor:pointer;">
+                    🔄 Transfer Selected Lot
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 👑 StockPulse Pro Upgrade -->
     <!-- 👑 StockPulse Pro Upgrade Modal -->
 <div id="sp-upgrade-modal" class="sp-upgrade-modal" style="display:none;">
@@ -2790,6 +2846,7 @@
 <script src="smart-signals.js" defer></script>
 <script src="record-date.js" defer></script>
 <script src="portfolio-manager.js" defer></script>
+<script src="portfolio-transfer.js" defer></script>
 <script src="notification.js" defer></script>
 
 <!-- ui ফাইল -->

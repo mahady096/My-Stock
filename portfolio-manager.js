@@ -553,6 +553,12 @@ window.switchToPortfolio = function(portfolioId) {
         if (paSection && !paSection.classList.contains('hidden') && typeof loadPortfolioAnalysisTable === 'function') {
             loadPortfolioAnalysisTable(user.uid, portfolioId === 'grand' ? null : portfolioId, true);
         }
+
+        // Holdings table-ও sidebar portfolio switch অনুযায়ী reload হবে.
+        const tableSection = document.getElementById('sec-table');
+        if (tableSection && !tableSection.classList.contains('hidden') && typeof loadUnifiedStockTable === 'function') {
+            loadUnifiedStockTable(user.uid, portfolioId === 'grand' ? null : portfolioId);
+        }
     }
     const name = portfolioId === 'grand' ? 'Grand Portfolio' : getPortfolioNameFromMeta(portfolioId);
     if (typeof showToast === 'function') showToast(`Switched to ${name}`, 'info');
