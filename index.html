@@ -598,11 +598,15 @@
 
     <div id="login-container" class="auth-box">
         <h2 id="auth-title">Portfolio Login</h2>
-        <input type="email" id="login-email" placeholder="Email" required>
-        <input type="password" id="login-password" placeholder="Password" required>
-        
-        <button id="btn-login">Login</button>
-        <button id="btn-signup" class="hidden" style="background: #10b981;">Create Account</button>
+        <form id="auth-form" onsubmit="return false;" autocomplete="on">
+            <label for="login-email" class="sr-only">Email address</label>
+            <input type="email" id="login-email" placeholder="Email" autocomplete="email" required>
+            <label for="login-password" class="sr-only">Password</label>
+            <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" required>
+            
+            <button type="button" id="btn-login">Login</button>
+            <button type="button" id="btn-signup" class="hidden" style="background: #10b981;">Create Account</button>
+        </form>
         
         <p id="toggle-auth-text" style="margin-top: 15px; font-size: 14px; cursor: pointer; color: #007bff;">
             Don't have an account? Register here
@@ -2678,11 +2682,17 @@
             </div>
             <div style="border-top:1px solid var(--border-color); padding-top:12px;">
                 <h4 style="margin:0 0 8px 0;">🔑 Change Password</h4>
-                <input type="password" id="current-password" placeholder="Current Password" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-primary); margin-bottom:8px;">
-                <input type="password" id="new-password" placeholder="New Password (min 6 chars)" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-primary); margin-bottom:8px;">
-                <input type="password" id="confirm-password" placeholder="Confirm New Password" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-primary); margin-bottom:8px;">
-                <span id="password-status" style="font-size:12px; color:var(--text-muted);"></span>
-                <button onclick="changeUserPassword()" id="btn-change-password" style="width:100%; background:var(--primary-color); color:white; border:none; padding:10px; border-radius:4px; cursor:pointer; font-weight:bold;">Update Password</button>
+                <form id="change-password-form" onsubmit="return false;" autocomplete="on">
+                    <input type="email" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;">
+                    <label for="current-password" class="sr-only">Current password</label>
+                    <input type="password" id="current-password" placeholder="Current Password" autocomplete="current-password" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-primary); margin-bottom:8px;">
+                    <label for="new-password" class="sr-only">New password</label>
+                    <input type="password" id="new-password" placeholder="New Password (min 6 chars)" autocomplete="new-password" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-primary); margin-bottom:8px;">
+                    <label for="confirm-password" class="sr-only">Confirm new password</label>
+                    <input type="password" id="confirm-password" placeholder="Confirm New Password" autocomplete="new-password" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-primary); margin-bottom:8px;">
+                    <span id="password-status" style="font-size:12px; color:var(--text-muted);"></span>
+                    <button type="button" onclick="changeUserPassword()" id="btn-change-password" style="width:100%; background:var(--primary-color); color:white; border:none; padding:10px; border-radius:4px; cursor:pointer; font-weight:bold;">Update Password</button>
+                </form>
             </div>
         </div>
     </div>
@@ -2917,7 +2927,10 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
-                    .then(reg => console.log('✅ Service Worker registered:', reg.scope))
+                    .then(reg => {
+                        console.log('✅ Service Worker registered:', reg.scope);
+                        if (reg.update) reg.update().catch(() => {});
+                    })
                     .catch(err => console.log('❌ SW registration failed:', err));
             });
         }

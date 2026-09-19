@@ -1,3 +1,16 @@
+StockPulse v6.1.7 — Advanced Charts Touch/Cache Fix
+
+- Bumped the service-worker cache namespace so mobile browsers receive the current chart scripts instead of stale cached code.
+- Added Advanced Charts and chart-extra scripts to the service-worker static cache.
+- Added mobile tap handling hints to chart controls to avoid gesture delay on touch devices.
+
+StockPulse v6.1.6 — Publishable QA Fixes
+
+- Fixed Advanced Charts startup error caused by core code referencing controls before the extras script loaded.
+- Restored working PNG chart export on Advanced Charts.
+- Wrapped authentication and password-change inputs in accessible forms with autocomplete metadata.
+- Added screen-reader-only labels for password and email fields.
+
 StockPulse v6.1.5 — Smart Suggestion + Theme Polish
 
 - Smart Suggestion no longer fails on short 1-month trading windows; it works with 14+ valid price points and falls back safely when longer indicators are unavailable.

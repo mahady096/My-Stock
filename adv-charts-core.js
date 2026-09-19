@@ -1,12 +1,14 @@
 // ==========================================
 // 📈 adv-charts-core.js - অ্যাডভান্সড চার্ট কোর ফাংশন
 //    ডেটা লোড, ইন্ডিকেটর ক্যালকুলেশন, চার্ট রেন্ডারিং (মেইন + RSI + Stochastic)
-//    ✅ সব ইন্ডিকেটর ফাংশন indicators.js থেকে নেওয়া (ডুপ্লিকেট সরানো)
-//    ✅ ক্যাশিং ইন্ডিকেটর ফাংশন ব্যবহার করা হয়েছে (cachedRSI, cachedSMA ইত্যাদি)
-//    ✅ ইরর হ্যান্ডলিং যোগ করা হয়েছে (showToast)
+//    ✅ সব ইন্ডিকেটর ফাংশন indicators.js থেকে নেওয়া (ডুপ্লিকেট সরানো)
+//    ✅ ক্যাশিং ইন্ডিকেটর ফাংশন ব্যবহার করা হয়েছে (cachedRSI, cachedSMA ইত্যাদি)
+//    ✅ ইরর হ্যান্ডলিং যোগ করা হয়েছে (showToast)
+//    ✅ FIX: extra ফাংশনগুলো (downloadChartAsPNG, saveIndicatorPreset ইত্যাদি)
+//       আর এখানে export করা হচ্ছে না — সেগুলো adv-charts-extras.js থেকে আসে।
 // ==========================================
 
-// গ্লোবাল ভেরিয়েবল
+// গ্লোবাল ভেরিয়েবল
 let advMainChart = null;
 let advRSIChart = null;
 let advStochChart = null;
@@ -63,7 +65,7 @@ window.goBackToStockModal = function() {
 };
 
 // ==========================================
-// 🚀 ইনিশিয়ালাইজেশন
+// 🚀 ইনিশিয়ালাইজেশন
 // ==========================================
 document.addEventListener('DOMContentLoaded', async function() {
     // 🔒 Direct URL access must also respect the Pro gate.
@@ -173,7 +175,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         candleBtn.classList.remove('active');
     }
 
-    updatePresetSelect();
+    if (typeof updatePresetSelect === 'function') updatePresetSelect();
 
     const params = new URLSearchParams(window.location.search);
     const tickerFromURL = params.get('ticker');
@@ -195,7 +197,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 async function loadAdvancedChart(ticker, forceRefresh = false) {
     const searchInput = document.getElementById('adv-chart-search');
     const finalTicker = ticker || (searchInput ? searchInput.value.trim().toUpperCase() || advCurrentTicker : advCurrentTicker);
-    
+
     if (!finalTicker) {
         showToast('Please enter a share name', 'warning');
         return;
@@ -222,7 +224,7 @@ async function loadAdvancedChart(ticker, forceRefresh = false) {
 
     // ✅ forceRefresh এর ক্ষেত্রে ক্যাশ ডিলিট
     if (forceRefresh) {
-        CacheManager.remove(cacheKey);
+      await CacheManager.remove(cacheKey);
     }
 
     const cachedData = await CacheManager.get(cacheKey, CACHE_TTL);
@@ -264,7 +266,7 @@ async function loadAdvancedChart(ticker, forceRefresh = false) {
                         .eq('ticker', finalTicker)
                         .gte('date', startDateStr)
                         .order('date', { ascending: true });
-                    
+
                     const { data, error } = await query;
                     if (!error && data && data.length > 0) {
                         data.forEach(row => {
@@ -293,7 +295,7 @@ async function loadAdvancedChart(ticker, forceRefresh = false) {
                         .where('ticker', '==', finalTicker)
                         .where('date', '>=', startDateStr)
                         .orderBy('date', 'asc');
-                    
+
                     const snap = await query.get();
                     if (!snap.empty) {
                         snap.forEach(doc => {
@@ -317,11 +319,11 @@ async function loadAdvancedChart(ticker, forceRefresh = false) {
             }
         } else {
             const apiUrl = `https://bd-stock-api-an3n.vercel.app/v1/dse/historical?start=${startDateStr}&end=${endDateStr}&code=${finalTicker}`;
-            
+
             try {
                 const response = await fetch(apiUrl);
                 const result = await response.json();
-                
+
                 if (result.success && result.data && result.data.length > 0) {
                     result.data.forEach(item => {
                         const price = parseFloat(item['LTP*']);
@@ -412,7 +414,7 @@ async function loadAdvancedChart(ticker, forceRefresh = false) {
         if (updateTime) updateTime.innerText = new Date().toLocaleString();
         const suggestionTime = document.getElementById('suggestion-time');
         if (suggestionTime) suggestionTime.innerText = new Date().toLocaleString();
-        
+
         // ডিপ অ্যানালাইসিস রান করুন
         setTimeout(runDeepAnalysis, 500);
 
@@ -465,7 +467,7 @@ function renderAdvancedChart(data) {
         return;
     }
 
-    // ✅ আগের চার্ট ডেস্ট্রয়
+    // ✅ আগের চার্ট ডেস্ট্রয়
     if (advMainChart) {
         advMainChart.destroy();
         advMainChart = null;
@@ -487,12 +489,12 @@ function renderAdvancedChart(data) {
     const sma10 = advActiveIndicators.sma10 ? cachedSMA(actualPrices, 10) : [];
     const sma20 = advActiveIndicators.sma20 ? cachedSMA(actualPrices, 20) : [];
     const sma50 = advActiveIndicators.sma50 ? cachedSMA(actualPrices, 50) : [];
-    
+
     const ema5 = advActiveIndicators.ema5 ? cachedEMA(actualPrices, 5) : [];
     const ema10 = advActiveIndicators.ema10 ? cachedEMA(actualPrices, 10) : [];
     const ema20 = advActiveIndicators.ema20 ? cachedEMA(actualPrices, 20) : [];
     const ema50 = advActiveIndicators.ema50 ? cachedEMA(actualPrices, 50) : [];
-    
+
     const bollinger = advActiveIndicators.bollinger ? cachedBollingerBands(actualPrices, 20, 2) : null;
     const rsiData = advActiveIndicators.rsi ? cachedRSI(actualPrices, 14) : [];
     const stochastic = advActiveIndicators.stochastic ? cachedStochastic(highData, lowData, actualPrices, 14, 3) : { k: [], d: [] };
@@ -786,7 +788,7 @@ function renderAdvancedChart(data) {
     if (advActiveIndicators.ichimoku && ichimoku) {
         const tenkanData = [...new Array(actualPrices.length - ichimoku.tenkanSen.length).fill(null), ...ichimoku.tenkanSen];
         const kijunData = [...new Array(actualPrices.length - ichimoku.kijunSen.length).fill(null), ...ichimoku.kijunSen];
-        
+
         datasets.push({
             label: 'Tenkan-sen (9)',
             data: tenkanData,
@@ -1102,22 +1104,22 @@ function renderRSIChart(rsiData, isDark, canvas) {
             animation: false,
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { 
-                legend: { 
+            plugins: {
+                legend: {
                     display: true,
                     labels: { color: textColor, boxWidth: 12, font: { size: 10 } }
                 }
             },
             scales: {
-                x: { 
+                x: {
                     display: false,
                     grid: { color: gridColor }
                 },
-                y: { 
-                    min: 0, 
-                    max: 100, 
-                    ticks: { color: textColor, stepSize: 20 }, 
-                    grid: { color: gridColor } 
+                y: {
+                    min: 0,
+                    max: 100,
+                    ticks: { color: textColor, stepSize: 20 },
+                    grid: { color: gridColor }
                 }
             }
         }
@@ -1133,7 +1135,7 @@ function renderStochasticChart(stochData, isDark, canvas) {
         advStochChart.destroy();
         advStochChart = null;
     }
-    
+
     if (!stochData || !stochData.k || stochData.k.length === 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = isDark ? '#64748b' : '#94a3b8';
@@ -1216,22 +1218,22 @@ function renderStochasticChart(stochData, isDark, canvas) {
             animation: false,
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { 
-                legend: { 
+            plugins: {
+                legend: {
                     display: true,
                     labels: { color: textColor, boxWidth: 12, font: { size: 10 } }
                 }
             },
             scales: {
-                x: { 
+                x: {
                     display: false,
                     grid: { color: gridColor }
                 },
-                y: { 
-                    min: 0, 
-                    max: 100, 
-                    ticks: { color: textColor, stepSize: 20 }, 
-                    grid: { color: gridColor } 
+                y: {
+                    min: 0,
+                    max: 100,
+                    ticks: { color: textColor, stepSize: 20 },
+                    grid: { color: gridColor }
                 }
             }
         }
@@ -1503,7 +1505,7 @@ function generateSuggestion(data) {
 
     if (vwapScore > 0) { buyScore += 1; signals.push('Price above VWAP'); }
     else if (vwapScore < 0) { sellScore += 1; signals.push('Price below VWAP'); }
-    
+
     if (pocScore > 0) { buyScore += 1; signals.push('Price above POC'); }
     else if (pocScore < 0) { sellScore += 1; signals.push('Price below POC'); }
 
@@ -1629,23 +1631,23 @@ async function generateDeepAnalysis(data) {
     const loader = document.getElementById('deep-analysis-loader');
     const content = document.getElementById('deep-analysis-content');
     const timeEl = document.getElementById('deep-analysis-time');
-    
+
     if (!data || !data.actualPrices || data.actualPrices.length < 10) {
         if (loader) loader.innerHTML = '⚠️ Insufficient data for analysis.';
         return;
     }
-    
+
     try {
         loader.style.display = 'block';
         content.style.display = 'none';
-        
+
         const prices = data.actualPrices;
         const volumes = data.volumeData || [];
         const high = data.highData || [];
         const low = data.lowData || [];
         const currentPrice = prices[prices.length - 1];
         const n = prices.length;
-        
+
         // ==========================================
         // ১. Anchored VWAP ক্যালকুলেশন (ক্যাশিং)
         // ==========================================
@@ -1653,7 +1655,7 @@ async function generateDeepAnalysis(data) {
         const lastVWAP = vwap.length > 0 ? vwap[vwap.length - 1] : currentPrice;
         const vwapDiff = currentPrice - lastVWAP;
         const vwapPct = lastVWAP > 0 ? (vwapDiff / lastVWAP) * 100 : 0;
-        
+
         let vwapStatus = 'Neutral', vwapColor = '#f59e0b', vwapSub = `VWAP: ৳${lastVWAP.toFixed(2)}`;
         if (currentPrice > lastVWAP * 1.01) {
             vwapStatus = '🟢 Above VWAP';
@@ -1668,7 +1670,7 @@ async function generateDeepAnalysis(data) {
             vwapColor = '#f59e0b';
             vwapSub = `Within 1% of VWAP (Neutral)`;
         }
-        
+
         // ==========================================
         // ২. Volume Profile (POC) ক্যালকুলেশন (ক্যাশিং)
         // ==========================================
@@ -1676,7 +1678,7 @@ async function generateDeepAnalysis(data) {
         const pocPrice = volProfile?.pocPrice || currentPrice;
         const pocDiff = currentPrice - pocPrice;
         const pocPct = pocPrice > 0 ? (pocDiff / pocPrice) * 100 : 0;
-        
+
         let pocStatus = 'Neutral', pocColor = '#8b5cf6', pocSub = `POC: ৳${pocPrice.toFixed(2)}`;
         if (currentPrice > pocPrice * 1.01) {
             pocStatus = '🟢 Above POC';
@@ -1691,7 +1693,7 @@ async function generateDeepAnalysis(data) {
             pocColor = '#8b5cf6';
             pocSub = `Within 1% of POC (Neutral)`;
         }
-        
+
         // ==========================================
         // ৩. ট্রেন্ড অ্যানালাইসিস (SMA) – ক্যাশিং
         // ==========================================
@@ -1701,7 +1703,7 @@ async function generateDeepAnalysis(data) {
         const lastSMA50 = sma50.length > 0 ? sma50[sma50.length - 1] : currentPrice;
         const prevSMA20 = sma20.length > 1 ? sma20[sma20.length - 2] : lastSMA20;
         const prevSMA50 = sma50.length > 1 ? sma50[sma50.length - 2] : lastSMA50;
-        
+
         let trend = 'Neutral', trendColor = '#f59e0b', trendSub = 'Sideways';
         if (currentPrice > lastSMA20 && lastSMA20 > lastSMA50) {
             trend = 'Bullish';
@@ -1729,7 +1731,7 @@ async function generateDeepAnalysis(data) {
             trendColor = '#ef4444';
             trendSub = 'Death Cross (SMA20 below SMA50)';
         }
-        
+
         // ==========================================
         // ৪. সাপোর্ট/রেসিস্টেন্স (৩০ দিন)
         // ==========================================
@@ -1739,12 +1741,12 @@ async function generateDeepAnalysis(data) {
         const support = recentLow + range * 0.25;
         const resistance = recentHigh - range * 0.25;
         const pivot = (recentHigh + recentLow + currentPrice) / 3;
-        
+
         let srStatus = `S: ${support.toFixed(2)} | R: ${resistance.toFixed(2)}`;
         let srSub = `Pivot: ${pivot.toFixed(2)}`;
         if (currentPrice >= resistance) srSub += ' 🔴 Near Resistance';
         else if (currentPrice <= support) srSub += ' 🟢 Near Support';
-        
+
         // ==========================================
         // ৫. RSI ও MACD (ক্যাশিং)
         // ==========================================
@@ -1760,7 +1762,7 @@ async function generateDeepAnalysis(data) {
             else if (lastHist > 0) macdSignal = '📈 Bullish Momentum';
             else if (lastHist < 0) macdSignal = '📉 Bearish Momentum';
         }
-        
+
         // ==========================================
         // ৬. ভলিউম অ্যানালাইসিস
         // ==========================================
@@ -1768,42 +1770,42 @@ async function generateDeepAnalysis(data) {
         const lastVolume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
         const volumeSurge = avgVolume > 0 ? (lastVolume / avgVolume) : 1;
         const volumeSignal = volumeSurge > 2 ? '🟢 High' : (volumeSurge > 1.5 ? '📈 Above Avg' : '📊 Normal');
-        
+
         // ==========================================
         // ৭. ফাইনাল সিগন্যাল (VWAP + POC + অন্যান্য)
         // ==========================================
         let buyScore = 0, sellScore = 0;
         let reasons = [];
-        
+
         // VWAP স্কোর
         if (currentPrice > lastVWAP * 1.01) { buyScore += 3; reasons.push('Price above VWAP'); }
         else if (currentPrice < lastVWAP * 0.99) { sellScore += 3; reasons.push('Price below VWAP'); }
-        
+
         // POC স্কোর
         if (currentPrice > pocPrice * 1.01) { buyScore += 3; reasons.push('Price above POC'); }
         else if (currentPrice < pocPrice * 0.99) { sellScore += 3; reasons.push('Price below POC'); }
-        
+
         // ট্রেন্ড স্কোর
         if (trend === 'Bullish') { buyScore += 2; reasons.push('Bullish trend'); }
         else if (trend === 'Bearish') { sellScore += 2; reasons.push('Bearish trend'); }
-        
+
         // সাপোর্ট/রেসিস্টেন্স স্কোর
         if (currentPrice <= support) { buyScore += 2; reasons.push('Near support'); }
         else if (currentPrice >= resistance) { sellScore += 2; reasons.push('Near resistance'); }
-        
+
         // RSI স্কোর
         if (lastRSI < 30) { buyScore += 2; reasons.push('RSI oversold'); }
         else if (lastRSI > 70) { sellScore += 2; reasons.push('RSI overbought'); }
-        
+
         // MACD স্কোর
         if (macdSignal.includes('Bullish')) { buyScore += 2; reasons.push('MACD bullish'); }
         else if (macdSignal.includes('Bearish')) { sellScore += 2; reasons.push('MACD bearish'); }
-        
+
         // ভলিউম স্কোর
         if (volumeSurge > 2 && buyScore > sellScore) { buyScore += 1; reasons.push('High volume support'); }
         else if (volumeSurge > 2 && sellScore > buyScore) { sellScore += 1; reasons.push('High volume pressure'); }
-        
-        // চূড়ান্ত সিগন্যাল
+
+        // চূড়ান্ত সিগন্যাল
         let signal = 'NEUTRAL', signalColor = '#64748b', signalSub = 'No clear signal';
         if (buyScore >= 5 && buyScore > sellScore) {
             signal = 'BUY';
@@ -1826,22 +1828,22 @@ async function generateDeepAnalysis(data) {
             signalColor = '#64748b';
             signalSub = `Buy ${buyScore} | Sell ${sellScore} - No strong conviction`;
         }
-        
+
         // ==========================================
         // ৮. UI আপডেট
         // ==========================================
         // VWAP কার্ড
         document.getElementById('da-vwap').innerHTML = `<span style="color: ${vwapColor};">${vwapStatus}</span>`;
         document.getElementById('da-vwap-sub').textContent = vwapSub;
-        
+
         // POC কার্ড
         document.getElementById('da-poc').innerHTML = `<span style="color: ${pocColor};">${pocStatus}</span>`;
         document.getElementById('da-poc-sub').textContent = pocSub;
-        
+
         // সিগন্যাল কার্ড
         document.getElementById('da-signal').innerHTML = `<span style="color: ${signalColor}; font-weight: 700; font-size: 20px;">${signal}</span>`;
         document.getElementById('da-signal-sub').textContent = signalSub;
-        
+
         // টেবিল
         const tableBody = document.getElementById('da-table-body');
         const metrics = [
@@ -1856,7 +1858,7 @@ async function generateDeepAnalysis(data) {
             { name: 'Support', value: `৳${support.toFixed(2)}`, signal: currentPrice <= support ? '🟢 Near' : '⚪ Far' },
             { name: 'Resistance', value: `৳${resistance.toFixed(2)}`, signal: currentPrice >= resistance ? '🔴 Near' : '⚪ Far' }
         ];
-        
+
         tableBody.innerHTML = metrics.map(m => `
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
                 <td style="padding: 6px 8px;">${m.name}</td>
@@ -1864,11 +1866,11 @@ async function generateDeepAnalysis(data) {
                 <td style="padding: 6px 8px; text-align: right;">${m.signal}</td>
             </tr>
         `).join('');
-        
+
         // সারাংশ
         const summaryText = document.getElementById('da-summary-text');
         const summaryDiv = document.getElementById('da-summary');
-        
+
         if (signal === 'BUY' || signal === 'WEAK BUY') {
             summaryText.innerHTML = `📈 <strong>${signal}</strong> signal detected. ${reasons.join(', ')}. VWAP & POC both support bullish view. Consider entry near support with stop loss.`;
             summaryDiv.style.borderLeftColor = '#10b981';
@@ -1879,13 +1881,13 @@ async function generateDeepAnalysis(data) {
             summaryText.innerHTML = `⚪ <strong>NEUTRAL</strong>. ${reasons.join(', ') || 'No strong signals. VWAP & POC are neutral. Wait for clearer setup.'}`;
             summaryDiv.style.borderLeftColor = '#64748b';
         }
-        
-        // সময় আপডেট
+
+        // সময় আপডেট
         if (timeEl) timeEl.textContent = `Last updated: ${new Date().toLocaleString()}`;
-        
+
         loader.style.display = 'none';
         content.style.display = 'block';
-        
+
     } catch (error) {
         console.error('Deep analysis error:', error);
         document.getElementById('deep-analysis-loader').innerHTML = `❌ Error: ${error.message}`;
@@ -1902,20 +1904,29 @@ function runDeepAnalysis() {
 }
 
 // ==========================================
-// 📌 গ্লোবাল এক্সপোজ (সব ফাংশন)
+// 📌 গ্লোবাল এক্সপোজ (শুধু এই ফাইলে ডিফাইন করা ফাংশন)
 // ==========================================
+// ✅ core ফাইলে ডিফাইন করা ফাংশনগুলো export করা হচ্ছে:
 window.loadAdvancedChart = loadAdvancedChart;
 window.selectAdvChartStock = selectAdvChartStock;
 window.toggleDarkMode = toggleDarkMode;
 window.getHistoricalPricesFromSupabase = getHistoricalPricesFromSupabase;
-// toggleFullscreen is exported by adv-charts-extras.js after this file loads.
-window.downloadChartAsPNG = downloadChartAsPNG;
-window.saveIndicatorPreset = saveIndicatorPreset;
-window.loadIndicatorPreset = loadIndicatorPreset;
-window.deleteIndicatorPreset = deleteIndicatorPreset;
-window.updatePresetSelect = updatePresetSelect;
-window.switchTimeframe = switchTimeframe;
 window.generateDeepAnalysis = generateDeepAnalysis;
 window.runDeepAnalysis = runDeepAnalysis;
+
+// ⚠️ নিচের ফাংশনগুলো adv-charts-extras.js-এ ডিফাইন করা হয়।
+// এই ফাইল extras.js এর আগে লোড হয়, তাই এখানে এগুলো export করা
+// ReferenceError ছুড়ে script execution থামিয়ে দিত। extras.js
+// নিজেই এগুলো window-এ export করে:
+//
+//   - downloadChartAsPNG
+//   - saveIndicatorPreset
+//   - loadIndicatorPreset
+//   - deleteIndicatorPreset
+//   - updatePresetSelect
+//   - switchTimeframe
+//   - toggleFullscreen
+//   - loadCandlestickLibrary
+//   - renderCandlestickChart
 
 console.log('✅ adv-charts-core.js loaded successfully (duplicate-free, error-free)');
