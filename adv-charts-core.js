@@ -67,15 +67,79 @@ window.goBackToStockModal = function() {
 // ==========================================
 // 🚀 ইনিশিয়ালাইজেশন
 // ==========================================
-document.addEventListener('DOMContentLoaded', async function() {
-    // 🔒 Direct URL access must also respect the Pro gate.
-    if (window.StockPulsePlan) {
-        await window.StockPulsePlan.load(false);
-        if (!window.StockPulsePlan.isPro()) {
-            window.location.replace('./pro.html');
+async function requireAdvancedChartsProAccess() {
+    const guard = document.getElementById('sp-pro-route-guard');
+    const redirectToPro = () => {
+        if (guard) guard.style.display = 'none';
+        window.location.replace('./pro.html');
+        return false;
+    };
+
+    // Fail closed: if the subscription manager is missing, never expose the Pro page.
+    if (!window.StockPulsePlan || !window.auth) {
+        console.error('🔒 Pro route blocked: required auth/subscription services are unavailable.');
+        return redirectToPro();
+    }
+
+    // Firebase Auth restores its session asynchronously. Wait for the first
+    // definitive auth state instead of treating a temporary null user as Free.
+    const user = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        if (window.auth.currentUser) {
+            finish(window.auth.currentUser);
             return;
         }
+        let unsubscribe = () => {};
+        unsubscribe = window.auth.onAuthStateChanged((nextUser) => {
+            try { unsubscribe(); } catch (_) {}
+            finish(nextUser);
+        });
+        // Do not fail open if Firebase cannot restore auth state.
+        setTimeout(() => {
+            try { unsubscribe(); } catch (_) {}
+            finish(window.auth.currentUser || null);
+        }, 10000);
+    });
+
+    if (!user) {
+        console.warn('🔒 Pro route blocked: user is not authenticated.');
+        return redirectToPro();
     }
+
+    try {
+        // Establish the Firebase -> Supabase authorization bridge before
+        // reading the subscription. A direct URL must never rely on cached UI state.
+        if (typeof window.syncSupabaseAuth === 'function') {
+            await window.syncSupabaseAuth(true);
+        } else {
+            throw new Error('Supabase authorization bridge unavailable');
+        }
+
+        // Force a fresh subscription read. LocalStorage cache is intentionally
+        // not trusted for this route-level authorization decision.
+        const plan = await window.StockPulsePlan.load(true);
+        if (!plan || !window.StockPulsePlan.isPro()) {
+            console.warn('🔒 Pro route blocked: active Pro subscription not verified.');
+            return redirectToPro();
+        }
+
+        if (guard) guard.remove();
+        return true;
+    } catch (error) {
+        console.error('🔒 Pro route verification failed; failing closed:', error);
+        return redirectToPro();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async function() {
+    // 🔒 Direct URL access is protected independently of dashboard navigation.
+    const hasProAccess = await requireAdvancedChartsProAccess();
+    if (!hasProAccess) return;
 
     if (typeof dseStocks !== 'undefined') advStockList = dseStocks;
     else if (window.dseStocks) advStockList = window.dseStocks;

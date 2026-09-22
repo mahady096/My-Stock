@@ -24,10 +24,10 @@ const VAPID_PUBLIC_KEY = 'BJvVefLaxMNoMclXOJ_lNNGfTiYtT0e30u2MtEd9fNYN6OqW6SrIkz
 //    নতুন নামগুলো ছাড়া বাকি সব পুরনো ক্যাশ ডিলিট করে দেবে, ফলে
 //    ইউজাররা নতুন (ফিক্সড) কোড পাবে, পুরনো ক্যাশড বাগ-যুক্ত JS না
 // ==========================================
-const CACHE_NAME = 'stockpulse-v6.1.7';
-const STATIC_CACHE = 'static-v6.1.7';
-const API_CACHE = 'api-v6.1.7';
-const DYNAMIC_CACHE = 'dynamic-v6.1.7';
+const CACHE_NAME = 'stockpulse-v6.2.1';
+const STATIC_CACHE = 'static-v6.2.1';
+const API_CACHE = 'api-v6.2.1';
+const DYNAMIC_CACHE = 'dynamic-v6.2.1';
 
 // ==========================================
 // 📦 ক্যাশে রাখার ফাইলসমূহ
@@ -47,6 +47,7 @@ const urlsToCache = [
   '/data-service.js',
   '/cache-helper.js',
   '/core.js',
+  '/subscription-manager.js',
   '/indicators.js',
   '/adv-charts-core.js',
   '/adv-charts-extras.js',

@@ -457,6 +457,10 @@
     </style>
 </head>
 <body>
+    <!-- 🔒 Pro route guard: keep Advanced Charts hidden until auth + subscription are verified. -->
+    <div id="sp-pro-route-guard" role="status" aria-live="polite" style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1220;color:#fff;font:600 15px system-ui,sans-serif;text-align:center;padding:24px;">
+        <div>Checking StockPulse Pro access…</div>
+    </div>
 
     <!-- ডার্ক মোড টগল -->
     <div class="theme-switch" style="position: fixed; top: 16px; right: 20px; z-index: 999;">
@@ -725,6 +729,8 @@
     <script src="data-service.js"></script>
     <script src="cache-helper.js"></script>
     <script src="core.js"></script>
+    <!-- Subscription manager is required here too: direct URL access must be gated. -->
+    <script src="subscription-manager.js"></script>
     <!-- প্রথমে কোর ফাইল -->
 <script src="adv-charts-core.js"></script>
 <!-- তারপর এক্সট্রা ফাইল -->

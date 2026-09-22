@@ -114,7 +114,8 @@ class NotificationManager {
             triggered: false,
             triggeredAt: null,
             createdAt: Date.now(),
-            callback: callback ? callback.toString() : null
+            // Callbacks are kept for API compatibility but are not persisted/executed.
+            callback: null
         };
 
         this.saveAlerts();
@@ -179,15 +180,9 @@ class NotificationManager {
             alert.triggeredAt = Date.now();
             this.saveAlerts();
 
-            // কাস্টম কলব্যাক
-            if (alert.callback) {
-                try {
-                    const fn = new Function('return ' + alert.callback)();
-                    if (typeof fn === 'function') fn(ticker, currentPrice, alert.target);
-                } catch (e) {
-                    console.warn('Callback error:', e);
-                }
-            }
+            // Never execute callback source loaded from storage.
+            // Price alerts are intentionally notification-only; arbitrary
+            // function reconstruction via new Function() is unsafe.
 
             this.showNotification('🔔 Price Alert!', triggerMessage);
         }
