@@ -69,6 +69,25 @@
       };
       localStorage.setItem(KEY, JSON.stringify(state));
     } catch (e) {
+      // Firebase contains a scheduled recovery copy of subscriptions.
+      try {
+        const snap = await window.db?.collection('backup_subscriptions').doc(user.uid).get();
+        if (snap?.exists) {
+          const data = snap.data() || {};
+          state = {
+            uid: user.uid,
+            plan: data.plan === 'pro' ? 'pro' : 'free',
+            status: data.status || 'active',
+            expiresAt: data.expires_at || null,
+            loadedAt: Date.now()
+          };
+          console.warn('⚠️ Subscription loaded from Firebase recovery backup.');
+          applyUI();
+          return state;
+        }
+      } catch (fallbackError) {
+        console.warn('Firebase subscription fallback failed:', fallbackError?.message || fallbackError);
+      }
       console.warn('Subscription read failed; using Free safely:', e?.message || e);
       state = { uid: user.uid, plan: 'free', status: 'active', expiresAt: null, loadedAt: Date.now() };
     }

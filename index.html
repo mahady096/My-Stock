@@ -324,6 +324,9 @@
             }
         }
     </style>
+<style id="stockpulse-chart-touch-css">
+canvas { touch-action: none !important; -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; overscroll-behavior: contain !important; }
+</style>
 </head>
 <body>
 <!-- StockPulse: Hilltop Ads are executed ONLY after verified subscription state. Pro users never execute this code. -->
@@ -529,8 +532,8 @@
             </div>
           </article>
           <article class="public-card"><div class="public-card-label">Total Trade</div><div id="landing-trades" class="public-card-value">--</div><div class="public-card-sub">Transactions</div></article>
-          <article class="public-card"><div class="public-card-label">Total Volume</div><div id="landing-volume" class="public-card-value">--</div><div class="public-card-sub">Shares traded</div></article>
-          <article class="public-card"><div class="public-card-label">Total Value</div><div id="landing-value" class="public-card-value">--</div><div class="public-card-sub">Taka (mn)</div></article>
+          <article class="public-card"><div class="public-card-label">Total Volume</div><div id="landing-volume" class="public-card-value">--</div><div class="public-card-sub">Shares traded (cr)</div></article>
+          <article class="public-card"><div class="public-card-label">Total Value</div><div id="landing-value" class="public-card-value">--</div><div class="public-card-sub">Taka (cr)</div></article>
           <article class="public-card public-stat-advance"><div class="public-card-label">Advancing</div><div id="landing-advanced" class="public-card-value">--</div><div class="public-card-sub">Issues advanced</div></article>
           <article class="public-card public-stat-decline"><div class="public-card-label">Declining</div><div id="landing-declined" class="public-card-value">--</div><div class="public-card-sub">Issues declined</div></article>
           <article class="public-card public-stat-unchanged"><div class="public-card-label">Unchanged</div><div id="landing-unchanged" class="public-card-value">--</div><div class="public-card-sub">Issues unchanged</div></article>
@@ -919,26 +922,26 @@
                 </div>
                 
                 <div class="portfolio-summary-cards">
-                    <div class="premium-card card-1" id="card-total-value" title="Current Portfolio Value">
+                    <div class="premium-card card-1" id="card-total-value" onclick="openDashboardCardHistory('value')" role="button" tabindex="0" aria-label="Show last 30 days chart" style="cursor:pointer;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDashboardCardHistory('value')}" title="Current Portfolio Value">
                         <div class="card-icon">💰</div>
                         <div class="card-label"><span>📊</span> TOTAL VALUE</div>
                         <div class="card-value" id="dash-total-value">৳0.00</div>
                         <div class="card-footer">Current Portfolio Value</div>
                     </div>
-                    <div class="premium-card card-2" id="card-total-cost" title="Total Money Invested">
+                    <div class="premium-card card-2" id="card-total-cost" onclick="openDashboardCardHistory('investment')" role="button" tabindex="0" aria-label="Show last 30 days chart" style="cursor:pointer;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDashboardCardHistory('investment')}" title="Total Money Invested">
                         <div class="card-icon">📈</div>
                         <div class="card-label"><span>💰</span> TOTAL INVESTMENT</div>
                         <div class="card-value" id="dash-total-cost">৳0.00</div>
                         <div class="card-footer">Including Commission</div>
                     </div>
-                    <div class="premium-card card-3" id="card-daily-pl" title="Today's Gain/Loss">
+                    <div class="premium-card card-3" id="card-daily-pl" onclick="openDashboardCardHistory('dailyPL')" role="button" tabindex="0" aria-label="Show last 30 days chart" style="cursor:pointer;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDashboardCardHistory('dailyPL')}" title="Today's Gain/Loss">
                         <div class="card-icon">📉</div>
                         <div class="card-label"><span>⚡</span> DAILY P/L</div>
                         <div class="card-value" id="dash-total-daily">৳0.00</div>
                         <div class="card-percent" id="dash-total-daily-pct">(0.00%)</div>
                         <div class="card-footer">Today's Change</div>
                     </div>
-                    <div class="premium-card card-4" id="card-total-pl" title="Overall Gain/Loss">
+                    <div class="premium-card card-4" id="card-total-pl" onclick="openDashboardCardHistory('totalPL')" role="button" tabindex="0" aria-label="Show last 30 days chart" style="cursor:pointer;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDashboardCardHistory('totalPL')}" title="Overall Gain/Loss">
                         <div class="card-icon">🎯</div>
                         <div class="card-label"><span>🏆</span> TOTAL P/L</div>
                         <div class="card-value" id="dash-total-gl">৳0.00</div>
@@ -1650,9 +1653,34 @@
                     <button id="all-scanner-tab-sell" class="all-scanner-tab-btn" onclick="switchAllScannerTab('sell')" style="padding: 8px 24px; flex-shrink: 0; background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 30px; cursor: pointer; font-weight: bold;">📉 Strong Sell</button>
                     <button id="all-scanner-tab-analysis" class="all-scanner-tab-btn" onclick="switchAllScannerTab('analysis')" style="padding: 8px 24px; flex-shrink: 0; background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 30px; cursor: pointer; font-weight: bold;">🔍 Analysis</button>
                 </div>
-                <div id="all-scanner-buy-container" style="display: block;">...</div>
-                <div id="all-scanner-sell-container" style="display: none;">...</div>
-                <div id="all-scanner-analysis-container" style="display: none;">...</div>
+                <div id="all-scanner-buy-container" style="display:block; overflow-x:auto; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:12px;">
+                    <table style="width:100%; min-width:560px; border-collapse:collapse; font-size:13px;">
+                        <thead><tr style="background:var(--bg-tertiary); text-align:left;">
+                            <th style="padding:12px;">Ticker</th><th style="padding:12px; text-align:right;">Current Price</th><th style="padding:12px; text-align:right;">PSAR</th><th style="padding:12px; text-align:right;">RSI (14)</th><th style="padding:12px; text-align:center;">Signal</th>
+                        </tr></thead>
+                        <tbody id="all-scanner-buy-body"><tr><td colspan="5" style="padding:30px; text-align:center;">Open Combined Scanner to load data.</td></tr></tbody>
+                    </table>
+                </div>
+                <div id="all-scanner-sell-container" style="display:none; overflow-x:auto; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:12px;">
+                    <table style="width:100%; min-width:560px; border-collapse:collapse; font-size:13px;">
+                        <thead><tr style="background:var(--bg-tertiary); text-align:left;">
+                            <th style="padding:12px;">Ticker</th><th style="padding:12px; text-align:right;">Current Price</th><th style="padding:12px; text-align:right;">PSAR</th><th style="padding:12px; text-align:right;">RSI (14)</th><th style="padding:12px; text-align:center;">Signal</th>
+                        </tr></thead>
+                        <tbody id="all-scanner-sell-body"><tr><td colspan="5" style="padding:30px; text-align:center;">Open Combined Scanner to load data.</td></tr></tbody>
+                    </table>
+                </div>
+                <div id="all-scanner-analysis-container" style="display:none; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:12px; padding:14px;">
+                    <label for="all-scanner-analysis-search" style="display:block; margin-bottom:8px; font-weight:600;">Search ticker for indicator analysis</label>
+                    <div style="display:flex; gap:8px; position:relative; flex-wrap:wrap;">
+                        <input id="all-scanner-analysis-search" type="search" placeholder="e.g. GP, BATBC, WALTONHIL" autocomplete="off" style="flex:1; min-width:180px; padding:10px 12px; border:1px solid var(--border-color); border-radius:8px; background:var(--input-bg); color:var(--text-primary);">
+                        <button id="all-scanner-analysis-search-btn" type="button" onclick="if(window._allScannerData){const q=document.getElementById('all-scanner-analysis-search').value.trim().toUpperCase();renderAllScannerAnalysisTable(window._allScannerData,q)}" style="padding:10px 16px; border:0; border-radius:8px; background:var(--primary-color); color:white; font-weight:600;">Analyze</button>
+                        <div id="all-scanner-analysis-suggestions" class="hidden" style="position:absolute; top:44px; left:0; right:80px; z-index:20; max-height:180px; overflow:auto; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px;"></div>
+                    </div>
+                    <div style="overflow-x:auto; margin-top:14px;"><table style="width:100%; min-width:560px; border-collapse:collapse; font-size:13px;">
+                        <thead><tr style="background:var(--bg-tertiary); text-align:left;"><th style="padding:12px;">Ticker</th><th style="padding:12px; text-align:right;">Current Price</th><th style="padding:12px; text-align:right;">PSAR</th><th style="padding:12px; text-align:right;">RSI (14)</th><th style="padding:12px; text-align:center;">Signal</th></tr></thead>
+                        <tbody id="all-scanner-analysis-body"><tr><td colspan="5" style="padding:30px; text-align:center;">Search a share to see its indicators.</td></tr></tbody>
+                    </table></div>
+                </div>
                 <div style="margin-top: 15px; font-size: 12px; color: var(--text-muted); text-align: right;">
                     Last updated: <span id="all-scanner-update-time">-</span>
                 </div>
@@ -2358,11 +2386,11 @@
                     <span id="deposit-realized-profit" style="font-weight:bold;">৳0.00</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
-                    <span>Total Deposit</span>
+                    <span>Net Income</span>
                     <span id="deposit-total-income" style="font-weight:bold;">৳0.00</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; padding: 8px 0;">
-                    <span>Net Income</span>
+                    <span>Net Income (%)</span>
                     <span id="deposit-income-pct" style="font-weight:bold;">(0.00%)</span>
                 </div>
             </div>
@@ -2845,11 +2873,14 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+    <script src="chart-zoom.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="indicators.js" defer></script>
 <script src="config.js" defer></script>
 <script src="firebase-config.js" defer></script>
 <script src="supabase-config.js" defer></script>
+<script src="supabase-market-compat.js" defer></script>
 <script src="data-service.js" defer></script>
 <script src="cache-helper.js" defer></script>
 <script src="core.js" defer></script>

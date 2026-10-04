@@ -97,31 +97,18 @@
     // ==========================================
     async function fetchLivePriceForBuy(ticker) {
         if (!priceInput) return;
-        const cached = await getCachedPrice(ticker);
-        if (cached) { priceInput.value = cached; return; }
         try {
-            const response = await fetch(`${SCRAPER_BASE_URL}?symbol=${ticker}`);
-            if (response.ok) {
-                const data = await response.json();
-                if (data && data.ltp) { priceInput.value = data.ltp; return; }
-            }
+            const unified = typeof getUnifiedPrice === 'function' ? await getUnifiedPrice(ticker, true) : 0;
+            if (unified > 0) { priceInput.value = unified; return; }
         } catch (e) { /* ignore */ }
-        const unified = typeof getUnifiedPrice === 'function' ? await getUnifiedPrice(ticker, true) : 0;
-        if (unified > 0) {
-            priceInput.value = unified;
-        } else {
-            priceInput.value = '';
-            if (typeof showToast === 'function') showToast('Current price is unavailable. Please enter the executed trade price manually.', 'warning');
-        }
+        priceInput.value = '';
+        if (typeof showToast === 'function') showToast('Current price is unavailable. Please enter the executed trade price manually.', 'warning');
     }
 
     async function getCachedPrice(ticker) {
         try {
-            if (typeof db === 'undefined') return null;
-            const doc = await db.collection('current_prices').doc(ticker).get();
-            if (doc.exists) return doc.data().price;
-        } catch(e) { /* ignore */ }
-        return null;
+            return typeof getUnifiedPrice === 'function' ? await getUnifiedPrice(ticker) : null;
+        } catch(e) { return null; }
     }
 
     // ==========================================
@@ -214,9 +201,8 @@
                 });
 
                 if (result.supabaseSuccess) {
-                    if (!result.firebaseSuccess && typeof showToast === 'function') {
-                        showToast('⚠️ Supabase saved successfully, but Firebase mirror failed.', 'warning');
-                    }
+                    // Firebase is backup-only and is intentionally NOT written on a successful
+                    // Supabase transaction. Do not show a misleading Firebase mirror warning.
                     // ক্যাশ রিসেট
                     resetUnifiedCache();
                     resetUnifiedPriceCache();

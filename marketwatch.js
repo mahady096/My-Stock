@@ -46,119 +46,151 @@ function setCachedMarketData(data) {
 }
 
 // ==========================================
-// 📈 প্রাইস হিস্টোরি ফেচার (১, ৩, ৭, ১৫, ৩০ দিন)
+// 📈 Historical + live market data — Supabase only
+//    history_dse = historical source
+//    dse_live_data = current DSE price source
+//    stock_metadata = category/metadata fallback
 // ==========================================
 async function getHistoricalPrices(ticker) {
     const periods = [1, 3, 7, 15, 30];
     const result = { currentPrice: 0, changes: {} };
-    
     try {
-        const latestPrice = await getUnifiedPrice(ticker);
-        result.currentPrice = latestPrice || 0;
-        
+        if (typeof supabase === 'undefined' || !supabase) return result;
+        const { data: live } = await supabase
+            .from('dse_live_data')
+            .select('ltp,date')
+            .eq('ticker', ticker)
+            .order('date', { ascending: false })
+            .limit(1);
+        result.currentPrice = Number(live?.[0]?.ltp) || 0;
+
+        const from = new Date();
+        from.setDate(from.getDate() - 45);
+        const start = from.toISOString().slice(0, 10);
+        const { data: history, error } = await supabase
+            .from('history_dse')
+            .select('date,ltp')
+            .eq('ticker', ticker)
+            .gte('date', start)
+            .order('date', { ascending: true });
+        if (error) throw error;
+
+        const rows = history || [];
+        if (!result.currentPrice && rows.length) result.currentPrice = Number(rows.at(-1).ltp) || 0;
+        const byDate = new Map(rows.map(r => [String(r.date).slice(0,10), Number(r.ltp)]));
         for (const days of periods) {
-            const date = new Date();
-            date.setDate(date.getDate() - days);
-            const dateStr = date.toISOString().split('T')[0];
-            
-            let price = await firebaseDataManager.getPriceByDate(ticker, dateStr);
-            if (!price || price === 0) {
-                for (let extra = 1; extra <= 3; extra++) {
-                    const fallbackDate = new Date();
-                    fallbackDate.setDate(fallbackDate.getDate() - days - extra);
-                    const fallbackStr = fallbackDate.toISOString().split('T')[0];
-                    price = await firebaseDataManager.getPriceByDate(ticker, fallbackStr);
-                    if (price && price > 0) break;
-                }
-            }
-            
-            let changePct = 0;
-            if (price && price > 0 && result.currentPrice > 0) {
-                changePct = ((result.currentPrice - price) / price) * 100;
+            const target = new Date();
+            target.setDate(target.getDate() - days);
+            let price = 0;
+            for (let extra = 0; extra <= 7; extra++) {
+                const d = new Date(target);
+                d.setDate(d.getDate() - extra);
+                const v = byDate.get(d.toISOString().slice(0,10));
+                if (Number.isFinite(v) && v > 0) { price = v; break; }
             }
             result.changes[`${days}d`] = {
-                price: price || 0,
-                changePct: changePct
+                price,
+                changePct: price > 0 && result.currentPrice > 0 ? ((result.currentPrice - price) / price) * 100 : 0
             };
         }
     } catch (err) {
-        console.warn(`Error fetching historical prices for ${ticker}:`, err);
+        console.warn(`Error fetching Supabase historical prices for ${ticker}:`, err);
     }
-    
     return result;
 }
 
 // ==========================================
-// 🔍 মার্কেট ডেটা লোডার (সব শেয়ারের জন্য)
+// 🔍 Full Market View — batched Supabase queries
 // ==========================================
 async function loadFullMarketData(forceRefresh = false) {
     if (!forceRefresh) {
         const cached = getCachedMarketData();
-        if (cached) {
-            console.log('✅ Full market data loaded from cache');
-            return cached;
-        }
+        if (cached) return cached;
     }
 
-    const user = auth.currentUser;
-    if (!user) {
-        if (typeof showToast === 'function') showToast('Please login first', 'error');
+    if (typeof supabase === 'undefined' || !supabase) {
+        if (typeof showToast === 'function') showToast('Supabase market data service is unavailable.', 'error');
         return null;
     }
 
     try {
-        const tickers = typeof dseStocks !== 'undefined' ? dseStocks : [];
-        if (tickers.length === 0) {
+        const tickers = (typeof dseStocks !== 'undefined' && Array.isArray(dseStocks)) ? dseStocks :
+            ((Array.isArray(window.dseStocks)) ? window.dseStocks : []);
+        if (!tickers.length) {
             if (typeof showToast === 'function') showToast('No stock list available.', 'error');
             return [];
         }
 
-        const allData = [];
-        const batchSize = 10;
-        let processed = 0;
+        const BATCH = 50;
+        const liveMap = new Map();
+        const histMap = new Map();
+        const metaMap = new Map();
+        const start = new Date();
+        start.setDate(start.getDate() - 45);
+        const startDate = start.toISOString().slice(0,10);
 
-        for (let i = 0; i < tickers.length; i += batchSize) {
-            const batch = tickers.slice(i, i + batchSize);
-            const promises = batch.map(async (ticker) => {
-                try {
-                    const priceData = await getHistoricalPrices(ticker);
-                    let category = 'N/A';
-                    try {
-                        const snap = await db.collection('cse_detailed_data')
-                            .where('code', '==', ticker)
-                            .orderBy('date', 'desc')
-                            .limit(1)
-                            .get();
-                        if (!snap.empty) {
-                            category = snap.docs[0].data().category || 'N/A';
-                        }
-                    } catch (e) {}
-                    return {
-                        ticker: ticker,
-                        category: category,
-                        currentPrice: priceData.currentPrice,
-                        changes: priceData.changes
-                    };
-                } catch (err) {
-                    return null;
+        for (let i=0; i<tickers.length; i+=BATCH) {
+            const chunk = tickers.slice(i,i+BATCH);
+            try {
+                const { data, error } = await supabase.from('dse_live_data')
+                    .select('ticker,ltp,date,high,low')
+                    .in('ticker', chunk)
+                    .order('date', { ascending: false });
+                if (!error) (data||[]).forEach(r => {
+                    const t=String(r.ticker||'').toUpperCase();
+                    if (t && !liveMap.has(t) && Number(r.ltp)>0) liveMap.set(t, Number(r.ltp));
+                });
+            } catch(e) { console.warn('Market Watch live batch failed:',e); }
+            try {
+                const { data, error } = await supabase.from('history_dse')
+                    .select('ticker,date,ltp')
+                    .in('ticker', chunk)
+                    .gte('date', startDate)
+                    .order('date', { ascending: true });
+                if (!error) (data||[]).forEach(r => {
+                    const t=String(r.ticker||'').toUpperCase();
+                    if (!t) return;
+                    if (!histMap.has(t)) histMap.set(t, []);
+                    const v=Number(r.ltp);
+                    if (v>0) histMap.get(t).push({date:String(r.date).slice(0,10),ltp:v});
+                });
+            } catch(e) { console.warn('Market Watch history batch failed:',e); }
+            try {
+                const { data, error } = await supabase.from('stock_metadata')
+                    .select('ticker,category')
+                    .in('ticker', chunk);
+                if (!error) (data||[]).forEach(r => metaMap.set(String(r.ticker||'').toUpperCase(), r.category || 'N/A'));
+            } catch(e) { console.warn('Market Watch metadata batch failed:',e); }
+        }
+
+        const allData=[];
+        for (const rawTicker of tickers) {
+            const ticker=String(rawTicker).toUpperCase();
+            const rows=histMap.get(ticker)||[];
+            let currentPrice=liveMap.get(ticker)||0;
+            if (!currentPrice && rows.length) currentPrice=rows.at(-1).ltp;
+            if (!(currentPrice>0)) continue;
+            const byDate=new Map(rows.map(r=>[r.date,r.ltp]));
+            const changes={};
+            for (const days of [1,3,7,15,30]) {
+                const target=new Date(); target.setDate(target.getDate()-days);
+                let price=0;
+                for(let extra=0;extra<=7;extra++){
+                    const d=new Date(target); d.setDate(d.getDate()-extra);
+                    const v=byDate.get(d.toISOString().slice(0,10));
+                    if(Number.isFinite(v)&&v>0){price=v;break;}
                 }
-            });
-
-            const results = await Promise.all(promises);
-            const valid = results.filter(r => r !== null && r.currentPrice > 0);
-            allData.push(...valid);
-
-            processed += batch.length;
+                changes[`${days}d`]={price,changePct:price>0?((currentPrice-price)/price)*100:0};
+            }
+            allData.push({ticker,category:metaMap.get(ticker)||'N/A',currentPrice,changes});
         }
 
         setCachedMarketData(allData);
-        console.log(`✅ Full market data loaded: ${allData.length} stocks`);
-
+        console.log(`✅ Full market data loaded from Supabase: ${allData.length} stocks`);
         return allData;
-
-    } catch (error) {
-        console.error('Market data load error:', error);
-        if (typeof showToast === 'function') showToast('Error loading market data', 'error');
+    } catch(error) {
+        console.error('Market data load error:',error);
+        if(typeof showToast==='function') showToast('Error loading market data: '+error.message,'error');
         return null;
     }
 }

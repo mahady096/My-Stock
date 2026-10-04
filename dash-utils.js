@@ -9,283 +9,210 @@
 // ==========================================
 
 async function fetchPortfolioTimelineData(startDate = null, endDate = null, portfolioId = null) {
-    console.log('📥 fetchPortfolioTimelineData called', { portfolioId });
+    console.log('📥 fetchPortfolioTimelineData [v8] called', { portfolioId });
     const user = auth && auth.currentUser ? auth.currentUser : null;
-    if (!user) return [];
+    if (!user || typeof supabase === 'undefined' || !supabase) return [];
 
+    // Performance Summary needs up to 1Y. Charts can filter the returned range.
     const today = new Date();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(today.getDate() - 30);
-    const defaultStart = thirtyDaysAgo.toISOString().split('T')[0];
-    const defaultEnd = today.toISOString().split('T')[0];
+    const asLocalDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const oneYearAgo = new Date(today);
+    oneYearAgo.setDate(oneYearAgo.getDate() - 365);
+    const defaultStart = asLocalDate(oneYearAgo);
+    const defaultEnd = asLocalDate(today);
     const start = startDate || defaultStart;
     const end = endDate || defaultEnd;
+    const cacheKey = `timeline_v8_${user.uid}_${start}_${end}_${portfolioId || 'all'}`;
 
-    // v2: invalidate old timeline cache so closed-day zero values are not reused.
-    const cacheKey = `timeline_v2_${user.uid}_${start}_${end}_${portfolioId || 'all'}`;
     try {
-        const cached = await CacheManager.get(cacheKey, 1800000);
-        if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Date.now() - parsed.timestamp < 1800000) {
-                console.log('✅ Returning cached timeline data:', parsed.data.length);
-                return parsed.data;
-            }
-        }
+        const cached = await CacheManager.get(cacheKey, 900000);
+        if (cached && Array.isArray(cached)) return cached;
     } catch (e) {}
 
-    if (typeof db === 'undefined') return [];
-
     try {
-        let portfolioQuery = db.collection('portfolios').where('userId', '==', user.uid);
-        if (portfolioId && portfolioId !== 'grand' && portfolioId !== 'all') {
-            portfolioQuery = portfolioQuery.where('portfolioId', '==', portfolioId);
-        }
-        const portfolioSnap = await portfolioQuery.get();
+        const toDateKey = raw => {
+            if (!raw) return asLocalDate(new Date());
+            const value = String(raw);
+            if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+            const parsed = new Date(raw);
+            return Number.isNaN(parsed.getTime()) ? asLocalDate(new Date()) : asLocalDate(parsed);
+        };
+        const normalizePid = v => String(v ?? '').trim().toLowerCase();
+        const wantedPid = normalizePid(portfolioId);
+        const includePortfolio = row => {
+            const pid = normalizePid(row.portfolio_id);
+            if (!wantedPid || wantedPid === 'all' || wantedPid === 'grand') return true;
+            return wantedPid === 'main' ? (!pid || pid === 'main') : pid === wantedPid;
+        };
 
-        if (portfolioSnap.empty) return [];
+        // Supabase is the single source for portfolio/sales history.
+        const [{ data: pRows, error: pErr }, { data: sRows, error: sErr }] = await Promise.all([
+            supabase.from('portfolios').select('*').eq('user_id', user.uid),
+            supabase.from('sales_history').select('*').eq('user_id', user.uid)
+        ]);
+        if (pErr) throw pErr;
+        if (sErr) throw sErr;
 
-        const buyLots = [];
-        portfolioSnap.forEach(doc => {
-            const data = doc.data();
-            const perUnitCost = (data.quantity * data.buyPrice + (data.commission || 0)) / data.quantity;
-            let buyDate = data.date?.toDate?.() || data.date || new Date();
-            buyLots.push({
-                ticker: data.shareName,
-                qty: data.quantity,
-                buyPrice: data.buyPrice,
-                perUnitCost: perUnitCost,
-                date: buyDate,
-                buyDateStr: buyDate.toISOString().split('T')[0]
+        const portfolioRows = (pRows || []).filter(includePortfolio);
+        const salesRows = (sRows || []).filter(includePortfolio);
+        if (!portfolioRows.length) return [];
+
+        const buyLots = portfolioRows.map(row => {
+            const qty = Number(row.quantity) || 0;
+            const buyPrice = Number(row.buy_price) || 0;
+            const commission = Number(row.commission) || 0;
+            const rawDate = row.date || row.created_at;
+            return {
+                ticker: String(row.share_name ?? '').trim().toUpperCase(),
+                qty,
+                buyPrice,
+                perUnitCost: qty > 0 ? ((qty * buyPrice) + commission) / qty : 0,
+                date: toDateKey(rawDate)
+            };
+        }).filter(x => x.ticker && x.qty > 0 && x.buyPrice >= 0);
+
+        if (!buyLots.length) return [];
+        buyLots.sort((a,b) => a.date.localeCompare(b.date));
+
+        const sales = salesRows.map(row => {
+            const rawDate = row.date || row.created_at;
+            return {
+                ticker: String(row.share_name ?? '').trim().toUpperCase(),
+                qty: Number(row.quantity_sold) || 0,
+                date: toDateKey(rawDate)
+            };
+        }).filter(x => x.ticker && x.qty > 0);
+        sales.sort((a,b) => a.date.localeCompare(b.date));
+
+        const startObj = new Date(start + 'T00:00:00'); startObj.setHours(0,0,0,0);
+        const endObj = new Date(end + 'T23:59:59'); endObj.setHours(23,59,59,999);
+        // Fetch a short price lookback before the requested range for the first daily change.
+        // Holdings are reconstructed from all trades, so older price history is not required.
+        const historyStart = new Date(startObj);
+        historyStart.setDate(historyStart.getDate() - 14);
+        const historyStartStr = asLocalDate(historyStart);
+        const historyEndStr = asLocalDate(endObj);
+        const tickers = [...new Set(buyLots.map(x => x.ticker))];
+
+        // Fetch each ticker's history. A single query per ticker avoids the 1,000-row
+        // PostgREST response cap that previously truncated multi-ticker timelines.
+        const priceByTicker = new Map();
+        for (const ticker of tickers) {
+            const { data, error } = await supabase
+                .from('history_dse')
+                .select('ticker,date,ltp')
+                .eq('ticker', ticker)
+                .gte('date', historyStartStr)
+                .lte('date', historyEndStr)
+                .order('date', { ascending: true })
+                .limit(1000);
+            if (error) {
+                console.warn('history_dse timeline error:', ticker, error.message);
+                continue;
+            }
+            const series = [];
+            (data || []).forEach(row => {
+                const d = String(row.date || '').split('T')[0];
+                const price = Number(row.ltp);
+                if (/^\d{4}-\d{2}-\d{2}$/.test(d) && price > 0) series.push({date:d, price});
             });
-        });
-
-        let salesQuery = db.collection('sales_history').where('userId', '==', user.uid);
-        if (portfolioId && portfolioId !== 'grand' && portfolioId !== 'all') {
-            salesQuery = salesQuery.where('portfolioId', '==', portfolioId);
-        }
-        const salesSnap = await salesQuery.get();
-
-        const totalSoldMap = new Map();
-        salesSnap.forEach(doc => {
-            const data = doc.data();
-            totalSoldMap.set(data.shareName, (totalSoldMap.get(data.shareName) || 0) + data.quantitySold);
-        });
-
-        buyLots.sort((a, b) => a.date - b.date);
-        const firstBuyDate = buyLots[0].date;
-        const currentDate = new Date();
-        currentDate.setHours(0, 0, 0, 0);
-        let daysDiff = Math.ceil((currentDate - firstBuyDate) / (1000 * 60 * 60 * 24));
-        if (daysDiff < 1) daysDiff = 1;
-        const finalDays = Math.min(daysDiff, 365);
-
-        const allDates = [];
-        for (let i = 0; i <= finalDays; i++) {
-            const d = new Date(firstBuyDate);
-            d.setDate(firstBuyDate.getDate() + i);
-            allDates.push(d);
+            priceByTicker.set(ticker, series);
         }
 
-        const startObj = new Date(start);
-        const endObj = new Date(end);
-        startObj.setHours(0, 0, 0, 0);
-        endObj.setHours(23, 59, 59, 999);
+        // Resolve current price from the same source used by dashboard cards.
+        const latestMap = await getLatestAndPreviousPrices(tickers);
+        const currentPriceMap = new Map();
+        latestMap.forEach((v,k) => { if (Number(v.currentPrice) > 0) currentPriceMap.set(k, Number(v.currentPrice)); });
 
-        // 🔥 Supabase-first: সমস্ত প্রাইস ডেটা ফেচ
-        const uniqueTickers = [...new Set(buyLots.map(l => l.ticker))];
-        const startDateStr = allDates[0].toISOString().split('T')[0];
-        const endDateStr = allDates[allDates.length-1].toISOString().split('T')[0];
-        console.log(`📊 Fetching prices for ${uniqueTickers.length} tickers from ${startDateStr} to ${endDateStr}...`);
+        // Build trading-date set from history and add today as a live/current valuation
+        // point so the final chart point is exactly comparable to the dashboard card.
+        const dateSet = new Set();
+        priceByTicker.forEach(series => series.forEach(x => dateSet.add(x.date)));
+        const dates = [...dateSet].sort();
+        const todayStr = asLocalDate(today);
+        if (currentPriceMap.size) dateSet.add(todayStr);
+        const sortedDates = [...dateSet].filter(d => d >= historyStartStr && d <= historyEndStr).sort();
 
-        const priceMap = new Map();
-
-        // ১. Supabase history_dse থেকে ফেচ (প্রথম অগ্রাধিকার)
-        if (typeof supabase !== 'undefined' && supabase) {
-            const chunkSize = 10;
-            for (let i = 0; i < uniqueTickers.length; i += chunkSize) {
-                const chunk = uniqueTickers.slice(i, i + chunkSize);
-                try {
-                    const { data, error } = await supabase
-                        .from('history_dse')
-                        .select('ticker, date, ltp')
-                        .in('ticker', chunk)
-                        .gte('date', startDateStr)
-                        .lte('date', endDateStr)
-                        .order('date', { ascending: true });
-                    if (!error && data && data.length > 0) {
-                        data.forEach(item => {
-                            const price = parseFloat(item.ltp);
-                            const dateStr = String(item.date || '').split('T')[0];
-                            if (dateStr && dateStr.length === 10 && price > 0) {
-                                if (!priceMap.has(dateStr)) priceMap.set(dateStr, new Map());
-                                priceMap.get(dateStr).set(item.ticker, price);
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.warn('Supabase history_dse batch error:', e);
-                }
-            }
-        }
-
-        // ২. যদি Supabase-এ না থাকে, Firebase daily_prices ফ্যালব্যাক
-        if (priceMap.size === 0 && typeof db !== 'undefined') {
-            const chunkSize = 10;
-            for (let i = 0; i < uniqueTickers.length; i += chunkSize) {
-                const chunk = uniqueTickers.slice(i, i + chunkSize);
-                try {
-                    const snap = await db.collection('daily_prices')
-                        .where('ticker', 'in', chunk)
-                        .where('date', '>=', startDateStr)
-                        .where('date', '<=', endDateStr)
-                        .get();
-                    snap.forEach(doc => {
-                        const data = doc.data();
-                        const price = parseFloat(data.price) || parseFloat(data.close) || 0;
-                        const dateStr = String(data.date || '').split('T')[0];
-                        if (dateStr && dateStr.length === 10 && price > 0) {
-                            if (!priceMap.has(dateStr)) priceMap.set(dateStr, new Map());
-                            priceMap.get(dateStr).set(data.ticker, price);
-                        }
-                    });
-                } catch (e) {
-                    for (const ticker of chunk) {
-                        try {
-                            const snap2 = await db.collection('daily_prices')
-                                .where('ticker', '==', ticker)
-                                .where('date', '>=', startDateStr)
-                                .where('date', '<=', endDateStr)
-                                .get();
-                            snap2.forEach(doc => {
-                                const data = doc.data();
-                                const price = parseFloat(data.price) || parseFloat(data.close) || 0;
-                                const dateStr = String(data.date || '').split('T')[0];
-                                if (dateStr && dateStr.length === 10 && price > 0) {
-                                    if (!priceMap.has(dateStr)) priceMap.set(dateStr, new Map());
-                                    priceMap.get(dateStr).set(data.ticker, price);
-                                }
-                            });
-                        } catch (e2) {}
-                    }
-                }
-            }
-        }
-
-        console.log(`✅ Prices fetched, ${priceMap.size} dates with data.`);
-
-        // সর্বশেষ দিনের জন্য ড্যাশবোর্ডের প্রাইস ব্যবহার করুন
-        const todayStr = today.toISOString().split('T')[0];
-        const latestPrices = await getLatestAndPreviousPrices(uniqueTickers);
-        const latestPriceMap = new Map();
-        for (const [ticker, data] of latestPrices) {
-            if (data.currentPrice > 0) {
-                latestPriceMap.set(ticker, data.currentPrice);
-            }
-        }
-        if (latestPriceMap.size > 0) {
-            const todayMap = priceMap.get(todayStr) || new Map();
-            for (const [ticker, price] of latestPriceMap) {
-                todayMap.set(ticker, price);
-            }
-            priceMap.set(todayStr, todayMap);
-        }
-
-        console.log('⏳ Building timeline...');
         const dailyPortfolio = [];
-        let cumulativeLots = [];
-        const lastKnownPrices = new Map();
+        let lastPrice = new Map();
+        let previousRemainingByTicker = new Map();
+        let previousValue = null;
 
-        for (let idx = 0; idx < allDates.length; idx++) {
-            const currentDateObj = allDates[idx];
-            const dateStr = currentDateObj.toISOString().split('T')[0];
+        for (const dateStr of sortedDates) {
+            const soldByTicker = new Map();
+            for (const sale of sales) {
+                if (sale.date <= dateStr) soldByTicker.set(sale.ticker, (soldByTicker.get(sale.ticker)||0) + sale.qty);
+            }
 
-            // Build the portfolio state for this date from the original lots.
-            // Do not mutate buyLots with a persistent `added` flag; doing so can
-            // make a second/refresh calculation produce an empty timeline.
-            const activeLots = buyLots.filter(lot => {
-                const lotDate = new Date(lot.date);
-                if (isNaN(lotDate.getTime())) return false;
-                lotDate.setHours(0, 0, 0, 0);
-                return lotDate <= currentDateObj;
-            });
-
-            const tempSoldMap = new Map(totalSoldMap);
-            const tempLots = activeLots.map(lot => ({ ...lot, remainingQty: Number(lot.qty) || 0 }));
-
-            for (const lot of tempLots) {
-                let toSell = Number(tempSoldMap.get(lot.ticker) || 0);
-                if (toSell > 0 && lot.remainingQty > 0) {
-                    const taken = Math.min(lot.remainingQty, toSell);
-                    lot.remainingQty -= taken;
-                    toSell -= taken;
-                    tempSoldMap.set(lot.ticker, toSell);
+            const remainingByTicker = new Map();
+            // FIFO: apply sales dated on/before this day to buy lots dated on/before this day.
+            const lots = buyLots.filter(lot => lot.date <= dateStr).map(lot => ({...lot, remaining: lot.qty}));
+            for (const sale of sales.filter(x => x.date <= dateStr)) {
+                let left = sale.qty;
+                for (const lot of lots) {
+                    if (left <= 0) break;
+                    if (lot.ticker !== sale.ticker || lot.remaining <= 0) continue;
+                    const taken = Math.min(lot.remaining, left);
+                    lot.remaining -= taken; left -= taken;
                 }
             }
 
             let totalInvestment = 0;
-            const remainingStocks = [];
-            for (const lot of tempLots) {
-                if (lot.remainingQty > 0 && lot.perUnitCost > 0 && isFinite(lot.perUnitCost)) {
-                    totalInvestment += lot.remainingQty * lot.perUnitCost;
-                    remainingStocks.push({
-                        ticker: lot.ticker,
-                        qty: lot.remainingQty,
-                        avgCost: lot.perUnitCost
-                    });
+            for (const lot of lots) {
+                if (lot.remaining > 0) {
+                    totalInvestment += lot.remaining * lot.perUnitCost;
+                    remainingByTicker.set(lot.ticker, (remainingByTicker.get(lot.ticker)||0) + lot.remaining);
                 }
             }
+            if (!(totalInvestment > 0)) continue;
 
-            // No market data for this date = market closed / holiday.
-            // Never turn a missing market day into a zero-value chart point.
-            const dayPriceMap = priceMap.get(dateStr);
-            if (!dayPriceMap || dayPriceMap.size === 0) continue;
-
-            // Carry forward the last valid price for a ticker if that ticker is
-            // temporarily missing on an otherwise valid trading day.
-            for (const [ticker, price] of dayPriceMap.entries()) {
-                if (price > 0) lastKnownPrices.set(ticker, price);
+            // Keep prior-close prices before advancing the market prices for this date.
+            const priorPriceByTicker = new Map(lastPrice);
+            // Advance each ticker's last historical close up to this date.
+            for (const ticker of tickers) {
+                const series = priceByTicker.get(ticker) || [];
+                let candidate = null;
+                for (const item of series) {
+                    if (item.date > dateStr) break;
+                    candidate = item.price;
+                }
+                if (candidate > 0) lastPrice.set(ticker, candidate);
             }
+            if (dateStr === todayStr) currentPriceMap.forEach((price,ticker) => lastPrice.set(ticker,price));
 
             let totalCurrentValue = 0;
-            for (const stock of remainingStocks) {
-                // Prefer this day's close, then the most recent valid market price.
-                // If a ticker has no historical price yet, use its cost basis rather
-                // than zero. This keeps the timeline usable without fabricating a
-                // zero-value portfolio on partially populated trading days.
-                let price = dayPriceMap.get(stock.ticker);
-                if (!(price > 0)) price = lastKnownPrices.get(stock.ticker);
-                if (!(price > 0)) price = stock.avgCost;
-                if (price > 0) totalCurrentValue += stock.qty * price;
-            }
+            remainingByTicker.forEach((qty,ticker) => {
+                const price = lastPrice.get(ticker) || 0;
+                if (price > 0) totalCurrentValue += qty * price;
+            });
+            if (!(totalCurrentValue > 0)) continue;
 
-            if (totalInvestment > 0 && isFinite(totalInvestment)) {
-                dailyPortfolio.push({
-                    date: dateStr,
-                    totalInvestment,
-                    totalCurrentValue,
-                    dailyPL: totalCurrentValue - totalInvestment,
-                    dailyPLPercent: ((totalCurrentValue - totalInvestment) / totalInvestment) * 100
+            // Daily P&L is price movement on quantities held at the previous close.
+            // This excludes same-day purchases from being mistaken for profit and avoids
+            // treating a sale/purchase cash-flow change as a market gain/loss.
+            let dailyPL = 0;
+            if (previousValue != null) {
+                previousRemainingByTicker.forEach((qty, ticker) => {
+                    const priorPrice = Number(priorPriceByTicker.get(ticker)) || 0;
+                    const currentPrice = Number(lastPrice.get(ticker)) || 0;
+                    if (qty > 0 && priorPrice > 0 && currentPrice > 0) dailyPL += qty * (currentPrice - priorPrice);
                 });
             }
+            const dailyPLPercent = previousValue > 0 ? (dailyPL / previousValue) * 100 : 0;
+            dailyPortfolio.push({date:dateStr,totalInvestment,totalCurrentValue,dailyPL,dailyPLPercent});
+            previousValue = totalCurrentValue;
+            previousRemainingByTicker = new Map(remainingByTicker);
         }
 
-        console.log(`✅ Timeline complete: ${dailyPortfolio.length} entries`);
-
-        const filteredResult = dailyPortfolio.filter(item => {
-            const itemDate = new Date(item.date);
-            return itemDate >= startObj && itemDate <= endObj;
+        const result = dailyPortfolio.filter(x => {
+            const d = new Date(x.date + 'T00:00:00');
+            return d >= startObj && d <= endObj;
         });
-
-        try {
-            await CacheManager.set(cacheKey, filteredResult, 1800000);
-        } catch (e) {}
-
-        console.log(`✅ Returning ${filteredResult.length} entries`);
-        return filteredResult;
-
+        try { await CacheManager.set(cacheKey, result, 900000); } catch(e) {}
+        console.log(`✅ [v8] Timeline complete: ${result.length} entries`);
+        return result;
     } catch (error) {
-        console.error('❌ Error in fetchPortfolioTimelineData:', error);
+        console.error('❌ [v8] Error in fetchPortfolioTimelineData:', error);
         return [];
     }
 }
@@ -631,182 +558,28 @@ window.initAutoRefreshToggle = initAutoRefreshToggle;
 // 📊 পোর্টফোলিও হিস্টোরি (Value History)
 // ==========================================
 
-let currentHistoryMode = 'firebase';
+let currentHistoryMode = 'supabase';
 let currentHistoryData = [];
 
 async function loadPortfolioHistory() {
     const user = auth && auth.currentUser ? auth.currentUser : null;
-    if (!user) { console.log('No user'); return; }
+    if (!user) return;
     const tableBody = document.getElementById('history-table-body');
     if (!tableBody) return;
     tableBody.innerHTML = `<tr><td colspan="6">Loading...</td></tr>`;
-
     try {
-        console.log('📊 Loading portfolio history...');
-        let portfolioSnapshot, salesSnapshot;
-        if (typeof db !== 'undefined') {
-            portfolioSnapshot = await db.collection('portfolios').where('userId', '==', user.uid).get();
-            salesSnapshot = await db.collection('sales_history').where('userId', '==', user.uid).get();
-        } else {
-            tableBody.innerHTML = `<tr><td colspan="6">Firebase not available</td></tr>`;
-            return;
-        }
-
-        if (portfolioSnapshot.empty) {
-            tableBody.innerHTML = `<tr><td colspan="6">No transactions found. Start buying shares!</td></tr>`;
-            return;
-        }
-
-        const buyLots = [];
-        portfolioSnapshot.forEach(doc => {
-            const data = doc.data();
-            const totalCostWithCommission = (data.quantity * data.buyPrice) + (data.commission || 0);
-            let perUnitCost = totalCostWithCommission / data.quantity;
-            if (isNaN(perUnitCost) || !isFinite(perUnitCost)) perUnitCost = data.buyPrice;
-            let buyDate = null;
-            if (data.date) {
-                if (typeof data.date.toDate === 'function') buyDate = data.date.toDate();
-                else if (data.date instanceof Date) buyDate = data.date;
-                else if (typeof data.date === 'string') buyDate = new Date(data.date);
-                else if (data.date.seconds) buyDate = new Date(data.date.seconds * 1000);
-            }
-            if (!buyDate || isNaN(buyDate.getTime())) buyDate = new Date();
-            buyLots.push({
-                ticker: data.shareName,
-                qty: data.quantity,
-                buyPrice: data.buyPrice,
-                totalCostWithCommission,
-                perUnitCost,
-                date: buyDate,
-                buyDateStr: buyDate.toISOString().split('T')[0]
-            });
-        });
-
-        let firstBuyDate = new Date(buyLots[0].date);
-        for (const lot of buyLots) if (lot.date < firstBuyDate) firstBuyDate = lot.date;
-
-        const totalSoldMap = new Map();
-        salesSnapshot.forEach(doc => {
-            const data = doc.data();
-            totalSoldMap.set(data.shareName, (totalSoldMap.get(data.shareName) || 0) + data.quantitySold);
-        });
-
-        buyLots.sort((a, b) => a.date - b.date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        let daysDiff = Math.ceil((today - firstBuyDate) / (1000 * 60 * 60 * 24));
-        if (daysDiff < 1) daysDiff = 1;
-        const maxDays = 365;
-        const finalDays = Math.min(daysDiff, maxDays);
-
-        const allDates = [];
-        for (let i = 0; i <= finalDays; i++) {
-            const date = new Date(firstBuyDate);
-            date.setDate(firstBuyDate.getDate() + i);
-            allDates.push(date);
-        }
-
-        const dailyPortfolio = [];
-        let cumulativeLots = [];
-
-        for (let idx = 0; idx < allDates.length; idx++) {
-            const currentDate = allDates[idx];
-            const dateStr = currentDate.toISOString().split('T')[0];
-
-            for (const lot of buyLots) {
-                const lotDate = new Date(lot.date);
-                lotDate.setHours(0, 0, 0, 0);
-                if (lotDate <= currentDate && !lot.added) {
-                    cumulativeLots.push({ ...lot, remainingQty: lot.qty, added: true });
-                    lot.added = true;
-                }
-            }
-            const tempSoldMap = new Map(totalSoldMap);
-            let tempLots = cumulativeLots.map(lot => ({ ...lot, remainingQty: lot.remainingQty }));
-            for (const lot of tempLots) {
-                let toSell = tempSoldMap.get(lot.ticker) || 0;
-                if (toSell > 0 && lot.remainingQty > 0) {
-                    const taken = Math.min(lot.remainingQty, toSell);
-                    lot.remainingQty -= taken;
-                    toSell -= taken;
-                    tempSoldMap.set(lot.ticker, toSell);
-                }
-            }
-
-            let totalInvestment = 0;
-            const remainingStocks = [];
-            for (const lot of tempLots) {
-                if (lot.remainingQty > 0 && lot.perUnitCost > 0 && isFinite(lot.perUnitCost)) {
-                    totalInvestment += lot.remainingQty * lot.perUnitCost;
-                    remainingStocks.push({
-                        ticker: lot.ticker,
-                        qty: lot.remainingQty,
-                        avgCost: lot.perUnitCost
-                    });
-                }
-            }
-
-            let totalCurrentValue = 0;
-            const tickers = remainingStocks.map(s => s.ticker);
-            for (const stock of remainingStocks) {
-                let currentPrice = 0;
-                if (currentHistoryMode === 'live') {
-                    try {
-                        const res = await fetch(`${SCRAPER_BASE_URL}?symbol=${stock.ticker}`);
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data && data.ltp) currentPrice = data.ltp;
-                        }
-                    } catch (e) { /* ignore */ }
-                }
-                if (currentPrice === 0) {
-                    // Supabase history_dse (ticker ব্যবহার)
-                    if (typeof supabase !== 'undefined' && supabase) {
-                        try {
-                            const { data, error } = await supabase
-                                .from('history_dse')
-                                .select('ltp')
-                                .eq('ticker', stock.ticker)
-                                .eq('date', dateStr)
-                                .limit(1);
-                            if (!error && data && data.length > 0) {
-                                const val = parseFloat(data[0].ltp);
-                                if (val > 0) currentPrice = val;
-                            }
-                        } catch (e) { /* ignore */ }
-                    }
-                    if (currentPrice === 0) {
-                        const historicalPrice = await firebaseDataManager.getPriceByDate(stock.ticker, dateStr);
-                        currentPrice = historicalPrice || stock.avgCost;
-                    }
-                }
-                if (isNaN(currentPrice) || !isFinite(currentPrice)) currentPrice = stock.avgCost;
-                totalCurrentValue += stock.qty * currentPrice;
-            }
-
-            if (totalInvestment > 0 && isFinite(totalInvestment)) {
-                dailyPortfolio.push({
-                    date: dateStr,
-                    totalInvestment,
-                    totalCurrentValue,
-                    dailyPL: totalCurrentValue - totalInvestment,
-                    dailyPLPercent: ((totalCurrentValue - totalInvestment) / totalInvestment) * 100
-                });
-            }
-        }
-
-        const startDateInput = document.getElementById('history-start-date');
-        const endDateInput = document.getElementById('history-end-date');
-        let filteredData = [...dailyPortfolio];
-        if (startDateInput && startDateInput.value) filteredData = filteredData.filter(item => item.date >= startDateInput.value);
-        if (endDateInput && endDateInput.value) filteredData = filteredData.filter(item => item.date <= endDateInput.value);
-
-        currentHistoryData = filteredData;
-        renderHistoryTable(filteredData);
-        renderHistoryChart(filteredData);
-
+        const startInput = document.getElementById('history-start-date');
+        const endInput = document.getElementById('history-end-date');
+        const data = await fetchPortfolioTimelineData(
+            startInput?.value || null,
+            endInput?.value || null,
+            window.currentDashboardPortfolioId || null
+        );
+        currentHistoryData = data || [];
+        renderHistoryTable(currentHistoryData);
+        renderHistoryChart(currentHistoryData);
     } catch (error) {
-        console.error(error);
+        console.error('Portfolio history load error:', error);
         tableBody.innerHTML = `<tr><td colspan="6">Error loading data</td></tr>`;
     }
 }

@@ -13,6 +13,20 @@
     if (!Number.isFinite(n)) return '--';
     return Math.round(n).toLocaleString('en-US');
   };
+  // Display market volume/value in crore without changing the raw Supabase values.
+  // Volume: shares -> crore shares (1 crore = 10,000,000 shares).
+  // Value: market_summary stores total_value in million taka -> crore taka (1 crore = 10 million taka).
+  const formatVolumeCrore = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '--';
+    return `${(n / 10000000).toFixed(2)} cr`;
+  };
+
+  const formatValueCrore = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '--';
+    return `${(n / 10).toFixed(2)} cr`;
+  };
 
   const signed = (value, digits = 2) => {
     const n = Number(value);
@@ -64,13 +78,15 @@
       const positive = change >= 0;
       const condition = String(row.market_status || (positive ? 'BULLISH' : 'BEARISH')).toUpperCase();
 
+      // Canonical live DSEX source is market_summary, matching the authenticated dashboard.
+      // dsex_index remains the historical chart source.
       setText('landing-dsex', fmt(row.dsex, 2));
       setText('landing-change', `${signed(change, 2)} pts`);
       setText('landing-percent', `${signed(pct, 2)}%`);
       setText('landing-prev-close', fmt(row.previous_close, 2));
       setText('landing-trades', fmtInt(row.total_trades));
-      setText('landing-volume', fmtInt(row.total_volume));
-      setText('landing-value', fmt(row.total_value, 2));
+      setText('landing-volume', formatVolumeCrore(row.total_volume));
+      setText('landing-value', formatValueCrore(row.total_value));
       setText('landing-advanced', fmtInt(row.advanced));
       setText('landing-declined', fmtInt(row.declined));
       setText('landing-unchanged', fmtInt(row.unchanged));
@@ -80,8 +96,10 @@
       setText('landing-updated-head', updatedLabel);
       const marketPill = document.getElementById('landing-market-status-pill');
       if (marketPill) {
-        const statusText = String(row.market_status || 'CLOSED').toUpperCase();
-        const isOpen = statusText.includes('OPEN');
+        const parts = new Intl.DateTimeFormat('en-GB', { timeZone:'Asia/Dhaka', weekday:'short', hour:'2-digit', minute:'2-digit', hour12:false }).formatToParts(new Date());
+        const tp = Object.fromEntries(parts.map(x => [x.type,x.value]));
+        const mins = Number(tp.hour)*60 + Number(tp.minute);
+        const isOpen = ['Sun','Mon','Tue','Wed','Thu'].includes(tp.weekday) && mins >= 600 && mins < 870;
         marketPill.textContent = `${isOpen ? '● MARKET OPEN' : '● MARKET CLOSED'}`;
         marketPill.classList.toggle('is-open', isOpen);
       }

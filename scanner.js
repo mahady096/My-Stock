@@ -1,6 +1,6 @@
 // ==========================================
-// 🔍 scanner.js - সম্পূর্ণ ইরর-ফ্রি ভার্সন v7.1
-//    All Scanner (PSAR + RSI) - Supabase-first + Firebase-fallback
+// 🔍 scanner.js - Combined Scanner — final fixes v8
+//    All Scanner (PSAR + RSI) - Supabase-first
 //    RSI Indicator Section সহ
 //    ⚡ ব্যাচ কোয়েরি দিয়ে পারফরম্যান্স অপটিমাইজড
 //    🕐 ডায়নামিক ক্যাশ TTL (মার্কেট সময় অনুযায়ী)
@@ -30,7 +30,7 @@ if (typeof chunkArray === 'undefined') {
 // ==========================================
 // 📦 ক্যাশ ম্যানেজমেন্ট
 // ==========================================
-const ALL_SCANNER_CACHE_KEY = 'all_scanner_data';
+const ALL_SCANNER_CACHE_KEY = 'all_scanner_data_v8';
 const ALL_SCANNER_CACHE_TTL = 3600000; // ১ ঘন্টা
 
 function getScannerCacheTTL() {
@@ -119,6 +119,7 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
             if (typeof showToast === 'function') showToast('No stock list available.', 'error');
             return [];
         }
+        tickers = [...new Set(tickers.map(t => String(t ?? '').trim().toUpperCase()).filter(Boolean))];
 
         if (tickers.length === 0) {
             if (typeof showToast === 'function') showToast('Stock list is empty.', 'error');
@@ -132,81 +133,98 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
         const BATCH_SIZE = 10;
         let supabasePriceMap = new Map();
 
-        // ---------- ১. লাইভ প্রাইস ও ক্যাটাগরি (Supabase cse_market_data first) ----------
+        // ---------- ১. লাইভ LTP: Supabase dse_live_data PRIMARY, cse_market_data FALLBACK ----------
         if (typeof supabase !== 'undefined' && supabase) {
-            try {
-                const supabaseChunks = chunkArray(tickers, BATCH_SIZE);
-                for (const chunk of supabaseChunks) {
-                    try {
-                        const { data, error } = await supabase
-                            .from('cse_market_data')
-                            .select('ticker, ltp, high, low, category')
-                            .in('code', chunk)
-                            .order('date', { ascending: false });
-                        if (!error && data) {
-                            const seen = new Set();
-                            data.forEach(row => {
-                                if (!seen.has(row.code)) {
-                                    seen.add(row.code);
-                                    supabasePriceMap.set(row.code, {
-                                        ltp: parseFloat(row.ltp) || 0,
-                                        high: parseFloat(row.high) || 0,
-                                        low: parseFloat(row.low) || 0,
-                                        category: row.category || 'N/A'
-                                    });
-                                }
-                            });
-                        }
-                    } catch (e) {
-                        console.warn('Supabase cse_market_data batch fetch failed:', e);
+            const supabaseChunks = chunkArray(tickers, BATCH_SIZE);
+            for (const chunk of supabaseChunks) {
+                try {
+                    // DSE is the primary source for LTP.
+                    const { data, error } = await supabase
+                        .from('dse_live_data')
+                        .select('ticker, ltp, high, low')
+                        .in('ticker', chunk)
+                        .order('date', { ascending: false });
+                    if (!error && data) {
+                        const seen = new Set();
+                        data.forEach(row => {
+                            const code = String(row.ticker || '').toUpperCase();
+                            if (!code || seen.has(code)) return;
+                            const ltp = parseFloat(row.ltp) || 0;
+                            if (ltp > 0) {
+                                seen.add(code);
+                                supabasePriceMap.set(code, {
+                                    ltp,
+                                    high: parseFloat(row.high) || ltp,
+                                    low: parseFloat(row.low) || ltp,
+                                    category: 'DSE'
+                                });
+                            }
+                        });
                     }
+                } catch (e) {
+                    console.warn('Supabase dse_live_data batch fetch failed:', e);
                 }
-            } catch (e) {
-                console.warn('Supabase cse_market_data fetch error:', e);
+            }
+
+            // CSE is only used for tickers whose DSE LTP was not found.
+            const missing = tickers.filter(t => !supabasePriceMap.has(String(t).toUpperCase()));
+            for (const chunk of chunkArray(missing, BATCH_SIZE)) {
+                try {
+                    const { data, error } = await supabase
+                        .from('cse_market_data')
+                        .select('code, ltp, high, low, category')
+                        .in('code', chunk)
+                        .order('date', { ascending: false });
+                    if (!error && data) {
+                        const seen = new Set();
+                        data.forEach(row => {
+                            const code = String(row.code || '').toUpperCase();
+                            if (!code || seen.has(code) || supabasePriceMap.has(code)) return;
+                            const ltp = parseFloat(row.ltp) || 0;
+                            if (ltp > 0) {
+                                seen.add(code);
+                                supabasePriceMap.set(code, {
+                                    ltp,
+                                    high: parseFloat(row.high) || ltp,
+                                    low: parseFloat(row.low) || ltp,
+                                    category: row.category || 'CSE'
+                                });
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Supabase cse_market_data fallback failed:', e);
+                }
             }
         }
 
-        // ---------- ২. Firebase cse_detailed_data থেকে ক্যাটাগরি ফ্যালব্যাক ----------
-        if (supabasePriceMap.size === 0 && typeof db !== 'undefined') {
-            try {
-                const fbChunks = chunkArray(tickers, BATCH_SIZE);
-                for (const chunk of fbChunks) {
-                    try {
-                        const snap = await db.collection('cse_detailed_data')
-                            .where('code', 'in', chunk)
-                            .orderBy('date', 'desc')
-                            .limit(1)
-                            .get();
-                        if (!snap.empty) {
-                            snap.forEach(doc => {
-                                const data = doc.data();
-                                const code = data.code;
-                                if (code && !supabasePriceMap.has(code)) {
-                                    supabasePriceMap.set(code, {
-                                        ltp: parseFloat(data.ltp) || 0,
-                                        high: parseFloat(data.high) || 0,
-                                        low: parseFloat(data.low) || 0,
-                                        category: data.category || 'N/A'
-                                    });
-                                }
-                            });
-                        }
-                    } catch (e) {
-                        console.warn('Firebase cse_detailed_data category fallback failed:', e);
-                    }
-                }
-            } catch (e) {
-                console.warn('Firebase cse_detailed_data fetch error:', e);
-            }
-        }
+        // Firebase market-price fallback intentionally disabled; Supabase DSE/CSE are canonical.
 
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - 30);
         const startDateStr = startDate.toISOString().split('T')[0];
 
         let allHistoricData = [];
+        // ---------- ৩. Pre-calculated indicators → Supabase stock_metadata ----------
+        const indicatorMetaMap = new Map();
+        if (typeof supabase !== 'undefined' && supabase) {
+            try {
+                const metaChunks = chunkArray(tickers, BATCH_SIZE);
+                for (const chunk of metaChunks) {
+                    const { data, error } = await supabase
+                        .from('stock_metadata')
+                        .select('ticker,indicators,rsi,psar,last_updated')
+                        .in('ticker', chunk);
+                    if (!error && data) {
+                        data.forEach(row => indicatorMetaMap.set(String(row.ticker ?? '').trim().toUpperCase(), row));
+                    }
+                }
+            } catch (e) {
+                console.warn('Supabase stock_metadata fetch failed; scanner will use history calculation:', e);
+            }
+        }
 
-        // ---------- ৩. ঐতিহাসিক ডেটা (ATH/ATL/RSI/PSAR) → Supabase history_dse ----------
+        // ---------- ৪. ঐতিহাসিক ডেটা → Supabase history_dse (ATH/ATL/chart fallback) ----------
         if (typeof supabase !== 'undefined' && supabase) {
             try {
                 const supabaseHistChunks = chunkArray(tickers, BATCH_SIZE);
@@ -223,7 +241,7 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
                                 const ltp = parseFloat(item.ltp);
                                 if (ltp > 0) {
                                     allHistoricData.push({
-                                        code: item.code,
+                                        code: item.ticker,
                                         date: item.date,
                                         ltp: ltp,
                                         high: parseFloat(item.high) || ltp,
@@ -241,40 +259,7 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
             }
         }
 
-        // ---------- ৪. যদি history_dse-এ না থাকে, Firebase cse_detailed_data ফ্যালব্যাক ----------
-        if (allHistoricData.length === 0 && typeof db !== 'undefined') {
-            try {
-                const firebaseChunks = chunkArray(tickers, BATCH_SIZE);
-                for (const chunk of firebaseChunks) {
-                    try {
-                        const snap = await db.collection('cse_detailed_data')
-                            .where('code', 'in', chunk)
-                            .where('date', '>=', startDateStr)
-                            .orderBy('date', 'asc')
-                            .get();
-                        if (!snap.empty) {
-                            snap.forEach(doc => {
-                                const data = doc.data();
-                                const ltp = parseFloat(data.ltp);
-                                if (ltp > 0) {
-                                    allHistoricData.push({
-                                        code: data.code,
-                                        date: data.date,
-                                        ltp: ltp,
-                                        high: parseFloat(data.high) || ltp,
-                                        low: parseFloat(data.low) || ltp
-                                    });
-                                }
-                            });
-                        }
-                    } catch (e) {
-                        console.warn('Firebase cse_detailed_data fallback failed:', e);
-                    }
-                }
-            } catch (e) {
-                console.warn('Firebase cse_detailed_data fetch error:', e);
-            }
-        }
+        // Firebase historical price fallback intentionally disabled. Scanner uses Supabase history_dse.
 
         // গ্রুপিং
         const groupedData = {};
@@ -312,22 +297,37 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
             const batchPromises = batch.map(async (ticker) => {
                 try {
                     const priceData = groupedData[ticker] || [];
-                    if (priceData.length < 15) return null;
 
-                    // PSAR ক্যালকুলেট (indicators.js থেকে)
+                    // Pre-calculated indicators in stock_metadata are the primary source.
+                    // The history updater may only refresh the latest few trading days,
+                    // so a 15-day history requirement would incorrectly remove valid stocks
+                    // even when RSI/PSAR are already precomputed in stock_metadata.
+                    // Pre-calculated indicators are the primary source.
+                    // History calculation is retained only as a compatibility fallback.
                     let lastSAR = null;
                     let lastRSI = null;
-                    try {
-                        if (typeof calculateParabolicSAR === 'function') {
-                            const sarData = calculateParabolicSAR(priceData);
-                            lastSAR = sarData.length > 0 ? sarData[sarData.length - 1] : null;
+                    const meta = indicatorMetaMap.get(String(ticker ?? '').trim().toUpperCase());
+                    const pre = meta?.indicators || {};
+                    if (Number.isFinite(Number(pre.rsi14))) lastRSI = Number(pre.rsi14);
+                    else if (meta?.rsi && typeof meta.rsi === 'object' && Number.isFinite(Number(meta.rsi.value))) lastRSI = Number(meta.rsi.value);
+                    if (Number.isFinite(Number(pre.psar))) {
+                        lastSAR = { sar: Number(pre.psar), trend: pre.psarTrend || 'up' };
+                    } else if (Number.isFinite(Number(meta?.psar))) {
+                        lastSAR = { sar: Number(meta.psar), trend: 'up' };
+                    }
+                    if (lastRSI === null || lastSAR === null) {
+                        try {
+                            if (lastSAR === null && typeof calculateParabolicSAR === 'function') {
+                                const sarData = calculateParabolicSAR(priceData);
+                                lastSAR = sarData.length > 0 ? sarData[sarData.length - 1] : null;
+                            }
+                            if (lastRSI === null && typeof calculateRSI === 'function') {
+                                const rsiData = calculateRSI(priceData.map(p => p.ltp), 14);
+                                lastRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1].rsi : null;
+                            }
+                        } catch (indicatorError) {
+                            console.warn(`Indicator fallback calculation error for ${ticker}:`, indicatorError);
                         }
-                        if (typeof calculateRSI === 'function') {
-                            const rsiData = calculateRSI(priceData.map(p => p.ltp), 14);
-                            lastRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1].rsi : null;
-                        }
-                    } catch (indicatorError) {
-                        console.warn(`Indicator calculation error for ${ticker}:`, indicatorError);
                     }
 
                     // বর্তমান প্রাইস (Supabase থেকে, না থাকলে history_dse থেকে)
@@ -863,7 +863,7 @@ async function loadScreenerData(tab = 'buy', portfolioId = null) {
                             const { data, error } = await supabase
                                 .from('history_dse')
                                 .select('date, ltp, high, low')
-                                .eq('code', ticker)
+                                .eq('ticker', ticker)
                                 .gte('date', startDateStr)
                                 .order('date', { ascending: true });
                             if (!error && data && data.length > 0) {
@@ -879,38 +879,25 @@ async function loadScreenerData(tab = 'buy', portfolioId = null) {
                         }
                     }
 
-                    // ২. যদি history_dse-এ না থাকে, Firebase daily_prices ফ্যালব্যাক
-                    if (priceData.length === 0 && typeof db !== 'undefined') {
-                        try {
-                            const snap = await db.collection('daily_prices')
-                                .where('ticker', '==', ticker)
-                                .where('date', '>=', startDateStr)
-                                .orderBy('date', 'asc')
-                                .get();
-                            if (!snap.empty) {
-                                snap.forEach(doc => {
-                                    const data = doc.data();
-                                    const price = parseFloat(data.price) || parseFloat(data.close) || 0;
-                                    const high = parseFloat(data.high) || price;
-                                    const low = parseFloat(data.low) || price;
-                                    if (price > 0) {
-                                        priceData.push({ date: data.date, ltp: price, high: high, low: low });
-                                    }
-                                });
-                            }
-                        } catch (e) { /* ignore */ }
-                    }
+                    // Firebase price-history backup is intentionally disabled.
 
-                    if (priceData.length < 2) return null;
-                    let sarData = [];
-                    try {
-                        if (typeof calculateParabolicSAR === 'function') {
-                            sarData = calculateParabolicSAR(priceData);
+                    const { data: metaRow } = await supabase
+                        .from('stock_metadata')
+                        .select('indicators,psar')
+                        .eq('ticker', ticker)
+                        .maybeSingle();
+                    let lastSAR = null;
+                    const prePSAR = metaRow?.indicators?.psar;
+                    if (Number.isFinite(Number(prePSAR))) lastSAR = { sar: Number(prePSAR), trend: metaRow.indicators.psarTrend || 'up' };
+                    else if (Number.isFinite(Number(metaRow?.psar))) lastSAR = { sar: Number(metaRow.psar), trend: 'up' };
+                    if (!lastSAR && priceData.length >= 2 && typeof calculateParabolicSAR === 'function') {
+                        try {
+                            const sarData = calculateParabolicSAR(priceData);
+                            lastSAR = sarData.length > 0 ? sarData[sarData.length - 1] : null;
+                        } catch (indicatorError) {
+                            console.warn(`PSAR fallback calculation error for ${ticker}:`, indicatorError);
                         }
-                    } catch (indicatorError) {
-                        console.warn(`PSAR calculation error for ${ticker}:`, indicatorError);
                     }
-                    const lastSAR = sarData.length > 0 ? sarData[sarData.length - 1] : null;
                     if (currentPrice === 0) currentPrice = priceData[priceData.length - 1]?.ltp || 0;
                     return { 
                         ticker: ticker, 

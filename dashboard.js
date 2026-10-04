@@ -820,16 +820,11 @@ async function loadPortfolioHistory() {
             for (const stock of remainingStocks) {
                 let currentPrice = 0;
                 if (currentHistoryMode === 'live') {
-                    try {
-                        const res = await fetch(`${SCRAPER_BASE_URL}?symbol=${stock.ticker}`);
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data && data.ltp) currentPrice = data.ltp;
-                        }
-                    } catch (e) { /* ignore */ }
+                    try { currentPrice = await getUnifiedPrice(stock.ticker, true); } catch (e) { /* ignore */ }
                 }
                 if (currentPrice === 0) {
-                    const historicalPrice = await firebaseDataManager.getPriceByDate(stock.ticker, dateStr);
+                    const historicalRows = await fetchHistoricalData(stock.ticker, dateStr, dateStr);
+                    const historicalPrice = historicalRows?.[0]?.ltp || 0;
                     currentPrice = historicalPrice || stock.avgCost;
                 }
                 if (isNaN(currentPrice) || !isFinite(currentPrice)) currentPrice = stock.avgCost;
@@ -1780,91 +1775,45 @@ window.saveDeposit = async function() {
 // 📈 DSEX Indicator - dse_market_data থেকে
 // ==========================================
 async function updateDSEXIndicator() {
+    const valueElem = document.getElementById('dsex-value');
+    const changeElem = document.getElementById('dsex-change');
+    const statusElem = document.getElementById('market-status');
+    const lastUpdatedElem = document.getElementById('dsex-last-updated');
     try {
-        console.log('🔄 Fetching DSEX data from dse_market_data...');
-
-        if (typeof db === 'undefined') {
-            console.warn('Firebase not available');
-            return;
+        let row = null;
+        if (typeof supabase !== 'undefined' && supabase) {
+            const { data, error } = await supabase.from('market_summary')
+                .select('market_date,dsex,change,change_percent,previous_close,scraped_at')
+                .order('market_date', { ascending: false })
+                .limit(1);
+            if (!error && data?.length) row = data[0];
         }
-
-        let dsexValue = null;
-        let dsexDate = null;
-
-        const snapshot = await db.collection('dse_market_data')
-            .orderBy('date', 'desc')
-            .limit(1)
-            .get();
-
-        if (!snapshot.empty) {
-            const data = snapshot.docs[0].data();
-            const dsexStr = data.dsex_index || '0';
-            dsexValue = parseFloat(dsexStr.replace(/,/g, ''));
-            dsexDate = data.date;
+        // Keep Firebase only as a legacy recovery path; market DSEX is canonical in Supabase.
+        if (!row && typeof getLatestDSEXFromSupabase === 'function') {
+            const d = await getLatestDSEXFromSupabase();
+            if (d) row = { market_date: d.rawDate, dsex: d.value, change: d.change, change_percent: d.changePercent, scraped_at: d.date?.toISOString?.() };
         }
-
-        const valueElem = document.getElementById('dsex-value');
-        const changeElem = document.getElementById('dsex-change');
-
-        if (dsexValue !== null && !isNaN(dsexValue) && dsexValue > 0 && valueElem) {
-            valueElem.innerText = dsexValue.toFixed(2);
-
-            let prevValue = null;
-            try {
-                const prevSnapshot = await db.collection('dse_market_data')
-                    .orderBy('date', 'desc')
-                    .limit(2)
-                    .get();
-                if (prevSnapshot.docs.length > 1) {
-                    const prevData = prevSnapshot.docs[prevSnapshot.docs.length - 1].data();
-                    const prevStr = prevData.dsex_index || '0';
-                    prevValue = parseFloat(prevStr.replace(/,/g, ''));
-                }
-            } catch (e) { /* ignore */ }
-
-            if (prevValue && prevValue > 0 && changeElem) {
-                const pointChange = dsexValue - prevValue;
-                const percentChange = (pointChange / prevValue) * 100;
-                const sign = pointChange >= 0 ? '+' : '';
-                const color = pointChange >= 0 ? '#90ffb0' : '#ffaaaa';
-                changeElem.innerHTML = `
-                    <span style="color: ${color}; font-weight: bold;">
-                        ${sign}${pointChange.toFixed(2)}
-                    </span>
-                    <span style="color: ${color}; font-weight: bold; margin-left: 6px;">
-                        (${sign}${percentChange.toFixed(2)}%)
-                    </span>
-                `;
-                changeElem.style.color = color;
-            } else if (changeElem) {
-                changeElem.innerHTML = 'N/A (no previous)';
-                changeElem.style.color = '#94a3b8';
-            }
-        } else {
-            if (valueElem) valueElem.innerText = '--';
+        if (row) {
+            const value=Number(row.dsex), change=Number(row.change)||0, pct=Number(row.change_percent)||0;
+            if (Number.isFinite(value) && value>0 && valueElem) valueElem.innerText=value.toFixed(2);
             if (changeElem) {
-                changeElem.innerHTML = 'No data';
-                changeElem.style.color = '#94a3b8';
+                const sign=change>=0?'+':'';
+                const color=change>=0?'#90ffb0':'#ffaaaa';
+                changeElem.innerHTML=`<span style="color:${color};font-weight:bold;">${sign}${change.toFixed(2)}</span><span style="color:${color};font-weight:bold;margin-left:6px;">(${sign}${pct.toFixed(2)}%)</span>`;
+                changeElem.style.color=color;
             }
+            if(lastUpdatedElem) lastUpdatedElem.innerHTML=`Last updated: ${row.scraped_at ? new Date(row.scraped_at).toLocaleString('bn-BD',{timeZone:'Asia/Dhaka'}) : row.market_date}`;
+        } else {
+            if(valueElem) valueElem.innerText='--';
+            if(changeElem) changeElem.innerHTML='No data';
         }
-
-        const statusElem = document.getElementById('market-status');
-        if (statusElem) {
-            statusElem.innerHTML = '🟢 Market Open';
-            statusElem.style.color = '#90ffb0';
-        }
-
-        const lastUpdatedElem = document.getElementById('dsex-last-updated');
-        if (lastUpdatedElem && dsexDate) {
-            lastUpdatedElem.innerHTML = `Last updated: ${new Date(dsexDate).toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' })}`;
-        }
-
-    } catch (err) {
-        console.error('❌ DSEX Indicator error:', err);
-        const valueElem = document.getElementById('dsex-value');
-        if (valueElem) valueElem.innerText = 'Error';
-        const changeElem = document.getElementById('dsex-change');
-        if (changeElem) changeElem.innerHTML = '--';
+        const status=typeof getStockPulseMarketStatus==='function' ? getStockPulseMarketStatus() : {open:false,label:'🔴 Market Closed'};
+        if(statusElem){statusElem.innerHTML=status.label;statusElem.style.color=status.open?'#90ffb0':'#ffaaaa';}
+    } catch(err) {
+        console.error('❌ DSEX Indicator error:',err);
+        if(valueElem) valueElem.innerText='Error';
+        if(changeElem) changeElem.innerHTML='--';
+        if(lastUpdatedElem) lastUpdatedElem.innerHTML='Last updated: Error';
     }
 }
 

@@ -944,54 +944,59 @@ window.closeDividendModal = function() {
 // ৬. DSEX চার্ট মডাল
 // ==========================================
 
-window.openDSEXChartModal = async function() {
+async function openDSEXChartModal() {
     const modal = document.getElementById('dsex-chart-modal');
     if (!modal) return;
     modal.style.display = 'flex';
+
     const canvas = document.getElementById('dsex-history-chart');
     if (!canvas) return;
-    canvas.style.opacity = '0.5';
 
     try {
-        if (typeof db === 'undefined') {
-            throw new Error('Firebase not available');
-        }
-        const snapshot = await db.collection('dse_market_data')
-            .orderBy('date', 'asc')
-            .get();
-
-        if (snapshot.empty) {
-            throw new Error('No documents found in dse_market_data');
+        if (typeof supabase === 'undefined' || !supabase) {
+            throw new Error('Supabase is not available');
         }
 
-        const labels = [];
-        const dataPoints = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const dateStr = data.date;
-            const dsexStr = data.dsex_index || '0';
-            const dsexValue = parseFloat(dsexStr.replace(/,/g, ''));
-            if (dsexValue && !isNaN(dsexValue) && dsexValue > 0) {
-                labels.push(dateStr);
-                dataPoints.push(dsexValue);
-            }
-        });
+        // Canonical DSEX history source: Supabase dsex_index.
+        // Show the latest 30 available trading sessions.
+        const { data, error } = await supabase
+            .from('dsex_index')
+            .select('date,value,index_name')
+            .eq('index_name', 'DSEX')
+            .order('date', { ascending: false })
+            .limit(30);
 
-        if (dataPoints.length === 0) {
-            throw new Error('No valid DSEX values');
+        if (error) throw error;
+
+        const rows = (data || [])
+            .map(row => ({
+                date: String(row.date || '').split('T')[0],
+                value: Number(row.value)
+            }))
+            .filter(row => row.date && Number.isFinite(row.value) && row.value > 0)
+            .sort((a, b) => a.date.localeCompare(b.date));
+
+        if (rows.length === 0) {
+            throw new Error('No DSEX history found in Supabase');
         }
 
-        if (window.dsexChartInstance) window.dsexChartInstance.destroy();
+        const labels = rows.map(row => row.date);
+        const dataPoints = rows.map(row => row.value);
+
+        if (window.dsexChartInstance) {
+            window.dsexChartInstance.destroy();
+            window.dsexChartInstance = null;
+        }
 
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
         const textColor = isDark ? '#f1f5f9' : '#1e293b';
         const gridColor = isDark ? '#334155' : '#e2e8f0';
-
         const ctx = canvas.getContext('2d');
+
         window.dsexChartInstance = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: labels,
+                labels,
                 datasets: [{
                     label: 'DSEX Index',
                     data: dataPoints,
@@ -1006,7 +1011,8 @@ window.openDSEXChartModal = async function() {
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: {
                         position: 'top',
@@ -1014,35 +1020,38 @@ window.openDSEXChartModal = async function() {
                     },
                     tooltip: {
                         callbacks: {
-                            label: (ctx) => `DSEX: ${ctx.raw.toFixed(2)}`
+                            title: items => items?.[0]?.label || '',
+                            label: ctx => `DSEX: ${Number(ctx.raw).toFixed(2)}`
                         }
                     }
                 },
                 scales: {
                     x: {
-                        ticks: { color: textColor, maxRotation: 45 },
+                        ticks: { color: textColor, maxRotation: 45, minRotation: 30 },
                         grid: { color: gridColor },
                         title: { display: true, text: 'Date', color: textColor }
                     },
                     y: {
-                        ticks: { color: textColor, callback: (val) => val.toFixed(0) },
+                        ticks: { color: textColor, callback: value => Number(value).toFixed(0) },
                         grid: { color: gridColor },
                         title: { display: true, text: 'DSEX Value', color: textColor }
                     }
                 }
             }
         });
-        canvas.style.opacity = '1';
     } catch (err) {
         console.error('DSEX chart load failed:', err);
-        canvas.style.opacity = '1';
+        if (window.dsexChartInstance) {
+            window.dsexChartInstance.destroy();
+            window.dsexChartInstance = null;
+        }
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#ef4444';
         ctx.font = '14px sans-serif';
-        ctx.fillText('Error: ' + err.message, 50, 50);
+        ctx.fillText('DSEX chart error: ' + (err.message || err), 20, 40);
     }
-};
+}
 
 window.closeDSEXChartModal = function() {
     const modal = document.getElementById('dsex-chart-modal');

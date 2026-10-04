@@ -79,57 +79,8 @@ async function loadAllRecordData() {
                 console.warn('Supabase cse_market_data record date fetch failed:', e);
             }
         }
-
-        // ==========================================
-        // ২. যদি Supabase-এ না থাকে, Firebase cse_detailed_data ফ্যালব্যাক
-        // ==========================================
-        if (companyMap.size === 0 && typeof db !== 'undefined') {
-            try {
-                const snapshot = await db.collection('cse_detailed_data')
-                    .where('record_date', '!=', null)
-                    .get();
-                
-                for (const doc of snapshot.docs) {
-                    const data = doc.data();
-                    const code = data.code;
-                    if (!code) continue;
-                    
-                    const recordDateStr = data.record_date;
-                    const dividend = data.dividend || '-';
-                    const snapshotDate = data.date || doc.id.split('_')[0];
-                    const recordDateObj = parseRecordDate(recordDateStr);
-                    if (!recordDateObj) continue;
-                    
-                    const diffTime = recordDateObj - today;
-                    const daysDiff = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    
-                    if (!companyMap.has(code)) {
-                        companyMap.set(code, {
-                            code: code,
-                            recordDate: recordDateStr,
-                            recordDateObj: recordDateObj,
-                            dividend: dividend,
-                            snapshotDate: snapshotDate,
-                            daysDiff: daysDiff
-                        });
-                    } else {
-                        const existing = companyMap.get(code);
-                        if (snapshotDate > existing.snapshotDate) {
-                            companyMap.set(code, {
-                                code: code,
-                                recordDate: recordDateStr,
-                                recordDateObj: recordDateObj,
-                                dividend: dividend,
-                                snapshotDate: snapshotDate,
-                                daysDiff: daysDiff
-                            });
-                        }
-                    }
-                }
-            } catch (err) {
-                console.warn('Firebase cse_detailed_data fallback failed:', err);
-            }
-        }
+        // Firebase market-data fallback intentionally disabled; market data is Supabase-only.
+        // Map থেকে Array তে রূপান্তর
         
         // Map থেকে Array তে রূপান্তর
         allRecordData = Array.from(companyMap.values());

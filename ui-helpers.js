@@ -1343,6 +1343,11 @@ async function setupPushNotifications() {
         const registration = await navigator.serviceWorker.ready;
         
         // ২. Push Manager থেকে সাবস্ক্রিপশন চেক
+        if (!registration.pushManager || typeof registration.pushManager.getSubscription !== 'function') {
+            console.warn('Push API not available in this browser/context');
+            return null;
+        }
+
         let subscription = await registration.pushManager.getSubscription();
         
         // ৩. যদি সাবস্ক্রিপশন না থাকে, নতুন তৈরি করুন
@@ -1400,17 +1405,9 @@ async function saveFCMToken(token) {
             console.log('✅ FCM token saved to Firestore');
         }
         
-        // অথবা Supabase-এ সেভ
-        if (typeof supabase !== 'undefined' && supabase) {
-            await supabase
-                .from('users')
-                .upsert({
-                    user_id: user.uid,
-                    fcm_token: token,
-                    updated_at: new Date().toISOString()
-                }, { onConflict: 'user_id' });
-            console.log('✅ FCM token saved to Supabase');
-        }
+        // FCM token is an operational Firebase Messaging credential.
+        // Keep it in Firebase; it is intentionally not part of the Supabase
+        // user_registry schema or the user/business backup dataset.
     } catch (err) {
         console.warn('Failed to save FCM token:', err);
     }

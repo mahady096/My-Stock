@@ -396,83 +396,48 @@ async function getUnifiedPrice(ticker, forceRefresh = false) {
     }
 
     // -----------------------------------------------------
-    // ৩. ডেটাবেস থেকে ফেচ (Supabase → Firebase)
-    // Production never substitutes stale demo prices for missing market data.
-    // -----------------------------------------------------
+    // ৩. ডেটাবেস থেকে ফেচ — Supabase DSE primary, Supabase CSE fallback.
+    // Firebase is intentionally NOT a live market-price source.
     let price = 0;
-    const sources = [];
 
-    // ৩.১ Supabase cse_market_data (প্রথম)
+    // ৩.১ Supabase dse_live_data — PRIMARY
     if (typeof supabase !== 'undefined' && supabase) {
-        sources.push(
-            supabase
-                .from('cse_market_data')
-                .select('ltp')
-                .eq('code', ticker)
-                .order('date', { ascending: false })
-                .limit(1)
-                .then(({ data, error }) => {
-                    if (!error && data && data.length > 0) {
-                        const val = parseFloat(data[0].ltp);
-                        if (!isNaN(val) && val > 0) return val;
-                    }
-                    return null;
-                })
-                .catch(() => null)
-        );
-    }
-
-    // ৩.২ Supabase dse_live_data (দ্বিতীয়)
-    if (typeof supabase !== 'undefined' && supabase) {
-        sources.push(
-            supabase
+        try {
+            const { data, error } = await supabase
                 .from('dse_live_data')
                 .select('ltp')
                 .eq('ticker', ticker)
                 .order('date', { ascending: false })
-                .limit(1)
-                .then(({ data, error }) => {
-                    if (!error && data && data.length > 0) {
-                        const val = parseFloat(data[0].ltp);
-                        if (!isNaN(val) && val > 0) return val;
-                    }
-                    return null;
-                })
-                .catch(() => null)
-        );
-    }
-
-    // ৩.৩ Firebase daily_prices (ফ্যালব্যাক)
-    if (typeof db !== 'undefined' && db) {
-        sources.push(
-            db
-                .collection('daily_prices')
-                .where('ticker', '==', ticker)
-                .orderBy('date', 'desc')
-                .limit(1)
-                .get()
-                .then((snap) => {
-                    if (!snap.empty) {
-                        const data = snap.docs[0].data();
-                        const val = parseFloat(data.price) || parseFloat(data.close) || 0;
-                        if (val > 0) return val;
-                    }
-                    return null;
-                })
-                .catch(() => null)
-        );
-    }
-
-    // ৩.৪ সমস্ত সোর্স থেকে রেজাল্ট সংগ্রহ
-    if (sources.length > 0) {
-        const results = await Promise.all(sources);
-        for (const result of results) {
-            if (result && result > 0) {
-                price = result;
-                break;
+                .limit(1);
+            if (!error && data && data.length > 0) {
+                const val = parseFloat(data[0].ltp);
+                if (!isNaN(val) && val > 0) price = val;
             }
+        } catch (e) {
+            console.warn(`DSE live price fetch failed for ${ticker}:`, e);
         }
     }
+
+    // ৩.২ Supabase cse_market_data — FALLBACK
+    if (price <= 0 && typeof supabase !== 'undefined' && supabase) {
+        try {
+            const { data, error } = await supabase
+                .from('cse_market_data')
+                .select('ltp')
+                .eq('code', ticker)
+                .order('date', { ascending: false })
+                .limit(1);
+            if (!error && data && data.length > 0) {
+                const val = parseFloat(data[0].ltp);
+                if (!isNaN(val) && val > 0) price = val;
+            }
+        } catch (e) {
+            console.warn(`CSE market price fallback failed for ${ticker}:`, e);
+        }
+    }
+
+    // ৩.৩ Legacy Firebase daily_prices fallback is deliberately disabled.
+    // Stock prices can always be re-scraped into Supabase from DSE/CSE.
 
     // ৩.৫ Optional demo fallback (OFF by default in production)
     if (price === 0 && CONFIG?.DEFAULTS?.ALLOW_DEMO_PRICE_FALLBACK === true) {
@@ -634,10 +599,41 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
 
     // ---------- ২.১ Supabase থেকে ব্যাচে ডেটা ----------
     if (typeof supabase !== 'undefined' && supabase) {
-        const supabaseChunks = chunkArray(missingTickers, 10);
-        
-        // ২.১.১ cse_market_data (CSE) - বর্তমান প্রাইস + High/Low
-        for (const chunk of supabaseChunks) {
+        // ২.১.১ DSE live data — PRIMARY
+        const dseChunks = chunkArray(missingTickers, 10);
+        for (const chunk of dseChunks) {
+            try {
+                const { data, error } = await supabase
+                    .from('dse_live_data')
+                    .select('ticker, ltp, high, low, date')
+                    .in('ticker', chunk)
+                    .order('date', { ascending: false });
+                if (!error && data) {
+                    const seen = new Set();
+                    data.forEach(row => {
+                        const code = String(row.ticker || '').toUpperCase();
+                        if (!code || seen.has(code)) return;
+                        seen.add(code);
+                        const val = parseFloat(row.ltp) || 0;
+                        if (val > 0) {
+                            fetchedData.set(code, {
+                                currentPrice: val,
+                                currentDate: row.date,
+                                high: parseFloat(row.high) || 0,
+                                low: parseFloat(row.low) || 0
+                            });
+                        }
+                    });
+                }
+            } catch (e) { console.warn('Supabase dse_live batch error:', e); }
+        }
+
+        // ২.১.২ CSE market data — FALLBACK only for missing DSE prices
+        const stillMissing = missingTickers.filter(t => {
+            const key = String(t).toUpperCase();
+            return !fetchedData.has(key) || !(fetchedData.get(key)?.currentPrice > 0);
+        });
+        for (const chunk of chunkArray(stillMissing, 10)) {
             try {
                 const { data, error } = await supabase
                     .from('cse_market_data')
@@ -647,118 +643,26 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
                 if (!error && data) {
                     const seen = new Set();
                     data.forEach(row => {
-                        if (!seen.has(row.code)) {
-                            seen.add(row.code);
-                            const val = parseFloat(row.ltp) || 0;
-                            if (val > 0) {
-                                if (!fetchedData.has(row.code)) {
-                                    fetchedData.set(row.code, { 
-                                        currentPrice: 0, 
-                                        currentDate: null,
-                                        high: 0,
-                                        low: 0
-                                    });
-                                }
-                                const cur = fetchedData.get(row.code);
-                                if (!cur.currentPrice || cur.currentPrice === 0) {
-                                    cur.currentPrice = val;
-                                    cur.currentDate = row.date;
-                                    cur.high = parseFloat(row.high) || 0;
-                                    cur.low = parseFloat(row.low) || 0;
-                                }
-                            }
+                        const code = String(row.code || '').toUpperCase();
+                        if (!code || seen.has(code)) return;
+                        seen.add(code);
+                        const val = parseFloat(row.ltp) || 0;
+                        if (val > 0 && (!fetchedData.has(code) || !(fetchedData.get(code)?.currentPrice > 0))) {
+                            fetchedData.set(code, {
+                                currentPrice: val,
+                                currentDate: row.date,
+                                high: parseFloat(row.high) || 0,
+                                low: parseFloat(row.low) || 0
+                            });
                         }
                     });
                 }
             } catch (e) { console.warn('Supabase cse_market batch error:', e); }
         }
-
-        // ২.১.২ dse_live_data (DSE) – শুধু যাদের CSE প্রাইস নেই
-        const stillMissing = missingTickers.filter(t => !fetchedData.has(t) || fetchedData.get(t).currentPrice === 0);
-        if (stillMissing.length > 0) {
-            const dseChunks = chunkArray(stillMissing, 10);
-            for (const chunk of dseChunks) {
-                try {
-                    const { data, error } = await supabase
-                        .from('dse_live_data')
-                        .select('ticker, ltp, high, low, date')
-                        .in('ticker', chunk)
-                        .order('date', { ascending: false });
-                    if (!error && data) {
-                        const seen = new Set();
-                        data.forEach(row => {
-                            if (!seen.has(row.ticker)) {
-                                seen.add(row.ticker);
-                                const val = parseFloat(row.ltp) || 0;
-                                if (val > 0) {
-                                    if (!fetchedData.has(row.ticker)) {
-                                        fetchedData.set(row.ticker, { 
-                                            currentPrice: 0, 
-                                            currentDate: null,
-                                            high: 0,
-                                            low: 0
-                                        });
-                                    }
-                                    const cur = fetchedData.get(row.ticker);
-                                    if (!cur.currentPrice || cur.currentPrice === 0) {
-                                        cur.currentPrice = val;
-                                        cur.currentDate = row.date;
-                                        cur.high = parseFloat(row.high) || 0;
-                                        cur.low = parseFloat(row.low) || 0;
-                                    }
-                                }
-                            }
-                        });
-                    }
-                } catch (e) { console.warn('Supabase dse_live batch error:', e); }
-            }
-        }
     }
 
-    // ---------- ২.২ Firebase থেকে ব্যাচে ডেটা (Supabase না পেলে) ----------
-    if (typeof db !== 'undefined' && db) {
-        const stillMissingFB = missingTickers.filter(t => !fetchedData.has(t) || fetchedData.get(t).currentPrice === 0);
-        if (stillMissingFB.length > 0) {
-            const fbChunks = chunkArray(stillMissingFB, 10);
-            for (const chunk of fbChunks) {
-                try {
-                    // daily_prices থেকে বর্তমান প্রাইস
-                    const snap = await db.collection('daily_prices')
-                        .where('ticker', 'in', chunk)
-                        .orderBy('date', 'desc')
-                        .get();
-                    if (!snap.empty) {
-                        const seen = new Set();
-                        snap.forEach(doc => {
-                            const data = doc.data();
-                            if (!seen.has(data.ticker)) {
-                                seen.add(data.ticker);
-                                const val = parseFloat(data.price) || parseFloat(data.close) || 0;
-                                if (val > 0) {
-                                    if (!fetchedData.has(data.ticker)) {
-                                        fetchedData.set(data.ticker, { 
-                                            currentPrice: 0, 
-                                            currentDate: null,
-                                            high: 0,
-                                            low: 0
-                                        });
-                                    }
-                                    const cur = fetchedData.get(data.ticker);
-                                    if (!cur.currentPrice || cur.currentPrice === 0) {
-                                        cur.currentPrice = val;
-                                        cur.currentDate = data.date;
-                                        // Firebase daily_prices-এ high/low নেই, তাই 0
-                                        cur.high = 0;
-                                        cur.low = 0;
-                                    }
-                                }
-                            }
-                        });
-                    }
-                } catch (e) { console.warn('Firebase daily_prices batch error:', e); }
-            }
-        }
-    }
+    // ---------- ২.২ Firebase market-price backup intentionally skipped ----------
+    // Stock LTP is always sourced from Supabase DSE first, then Supabase CSE.
 
     // ---------- ২.৩ আগের দিনের প্রাইস (Previous Price) ফেচ ----------
     // যাদের currentPrice আছে, তাদের জন্য previousPrice বের করি
@@ -813,52 +717,8 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
             }
         }
 
-        // Firebase daily_prices থেকে (Supabase না পেলে)
-        const stillMissingPrev = tickersWithCurrent.filter(t => {
-            const info = fetchedData.get(t);
-            return !info.previousPrice || info.previousPrice === 0;
-        });
-        if (stillMissingPrev.length > 0 && typeof db !== 'undefined' && db) {
-            const fbChunks = chunkArray(stillMissingPrev, 10);
-            for (const chunk of fbChunks) {
-                try {
-                    const snap = await db.collection('daily_prices')
-                        .where('ticker', 'in', chunk)
-                        .where('date', '>=', startDateStr)
-                        .orderBy('date', 'asc')
-                        .get();
-                    if (!snap.empty) {
-                        const tickerDataMap = {};
-                        snap.forEach(doc => {
-                            const data = doc.data();
-                            if (!tickerDataMap[data.ticker]) tickerDataMap[data.ticker] = [];
-                            tickerDataMap[data.ticker].push(data);
-                        });
-                        for (const [ticker, rows] of Object.entries(tickerDataMap)) {
-                            const currentInfo = fetchedData.get(ticker);
-                            if (!currentInfo || !currentInfo.currentDate) continue;
-                            const currentDateObj = new Date(currentInfo.currentDate);
-                            let bestPrev = null;
-                            for (const row of rows) {
-                                const rowDate = new Date(row.date);
-                                if (rowDate < currentDateObj) {
-                                    if (!bestPrev || rowDate > new Date(bestPrev.date)) {
-                                        bestPrev = row;
-                                    }
-                                }
-                            }
-                            if (bestPrev) {
-                                const val = parseFloat(bestPrev.price) || parseFloat(bestPrev.close) || 0;
-                                if (val > 0) {
-                                    currentInfo.previousPrice = val;
-                                    currentInfo.previousDate = bestPrev.date;
-                                }
-                            }
-                        }
-                    }
-                } catch (e) { console.warn('Firebase previous price batch error:', e); }
-            }
-        }
+        // Firebase daily_prices fallback intentionally disabled.
+        // Supabase history_dse is the canonical previous-price source.
     }
 
     // ---------- ২.৪ যাদের কোনো ডেটা পাওয়া যায়নি, তাদের জন্য হার্ডকোডেড ফ্যালব্যাক ----------
@@ -958,6 +818,22 @@ const dseStocks = [
     "UNILEVERCL", "UNIONBANK", "UNIONCAP", "UNIONINS", "UNIQUEHRL", "UNITEDFIN", "UNITEDINS", "UPGDCL", "USMANIAGL", "UTTARABANK",
     "UTTARAFIN", "VAMLBDMF1", "VAMLRBBF", "VFSTDL", "WALTONHIL", "WATACHEM", "WMSHIPYARD", "YPL", "ZAHEENSPIN", "ZAHINTEX"
 ];
+
+// ==========================================
+// 🕒 DSE market status (Dhaka time)
+// ==========================================
+function getStockPulseMarketStatus() {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Dhaka', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false
+    }).formatToParts(new Date());
+    const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
+    const day = p.weekday;
+    const mins = Number(p.hour) * 60 + Number(p.minute);
+    const tradingDay = ['Sun','Mon','Tue','Wed','Thu'].includes(day);
+    const open = tradingDay && mins >= 600 && mins < 870; // 10:00–14:30 BST
+    return { open, label: open ? '🟢 Market Open' : '🔴 Market Closed', day, minutes: mins };
+}
+window.getStockPulseMarketStatus = getStockPulseMarketStatus;
 
 // ==========================================
 // 📈 Supabase history_dse থেকে ঐতিহাসিক ডেটা ফেচ (হেলপার)
@@ -1337,7 +1213,9 @@ async function savePortfolioToBoth(userId, data) {
         }
     }
 
-    if (typeof db !== 'undefined' && db) {
+    // Firebase is backup-only. Do not write a second live copy when Supabase succeeds.
+    // If the primary write fails, keep the emergency fallback so the user's action is not lost.
+    if (!supabaseSuccess && typeof db !== 'undefined' && db) {
         try {
             await db.collection('portfolios').add({
                 userId: userId,
@@ -1348,10 +1226,11 @@ async function savePortfolioToBoth(userId, data) {
                 commissionPercent: payload.commission_percent,
                 portfolioId: payload.portfolio_id,
                 date: data.date ? new Date(data.date) : new Date(),
-                createdAt: new Date()
+                createdAt: new Date(),
+                backupReason: 'supabase_write_failed'
             });
             firebaseSuccess = true;
-        } catch (e) { console.warn('Firebase insert failed:', e); }
+        } catch (e) { console.warn('Firebase emergency fallback insert failed:', e); }
     }
 
     return { supabaseSuccess, firebaseSuccess, supabaseError };
@@ -1402,7 +1281,8 @@ async function saveSalesToBoth(userId, data) {
         }
     }
 
-    if (typeof db !== 'undefined' && db) {
+    // Firebase is backup-only. Only use it as an emergency write fallback.
+    if (!supabaseSuccess && typeof db !== 'undefined' && db) {
         try {
             await db.collection('sales_history').add({
                 userId: userId,
@@ -1416,10 +1296,11 @@ async function saveSalesToBoth(userId, data) {
                 netReceived: payload.net_received,
                 portfolioId: payload.portfolio_id,
                 date: data.date ? new Date(data.date) : new Date(),
-                createdAt: new Date()
+                createdAt: new Date(),
+                backupReason: 'supabase_write_failed'
             });
             firebaseSuccess = true;
-        } catch (e) { console.warn('Firebase sales insert failed:', e); }
+        } catch (e) { console.warn('Firebase emergency sales fallback failed:', e); }
     }
 
     return { supabaseSuccess, firebaseSuccess, supabaseError };
@@ -1444,7 +1325,8 @@ async function saveDividendToBoth(userId, data) {
         } catch (e) { console.warn('Supabase dividend insert failed:', e); }
     }
 
-    if (typeof db !== 'undefined' && db) {
+    // Firebase is backup-only; use it only if the Supabase write failed.
+    if (!supabaseSuccess && typeof db !== 'undefined' && db) {
         try {
             await db.collection('dividend_records').add({
                 userId: userId,
@@ -1453,10 +1335,11 @@ async function saveDividendToBoth(userId, data) {
                 cashAmount: data.cashAmount || 0,
                 portfolioId: data.portfolioId || 'main',
                 createdAt: new Date(),
-                updatedAt: new Date()
+                updatedAt: new Date(),
+                backupReason: 'supabase_write_failed'
             });
             firebaseSuccess = true;
-        } catch (e) { console.warn('Firebase dividend insert failed:', e); }
+        } catch (e) { console.warn('Firebase emergency dividend fallback failed:', e); }
     }
 
     return { supabaseSuccess, firebaseSuccess };
@@ -1488,7 +1371,6 @@ function safeParseDate(value) {
 // DSE প্রাইস ফেচ (Supabase dse_live_data → Firebase daily_prices)
 async function getDSEPrice(ticker) {
     if (!ticker) return 0;
-    // ১. Supabase dse_live_data
     if (typeof supabase !== 'undefined' && supabase) {
         try {
             const { data, error } = await supabase
@@ -1502,19 +1384,16 @@ async function getDSEPrice(ticker) {
                 if (!isNaN(val) && val > 0) return val;
             }
         } catch (e) {}
-    }
-    // ২. Firebase daily_prices (ফলব্যাক)
-    if (typeof db !== 'undefined' && db) {
         try {
-            const snap = await db.collection('daily_prices')
-                .where('ticker', '==', ticker)
-                .orderBy('date', 'desc')
-                .limit(1)
-                .get();
-            if (!snap.empty) {
-                const data = snap.docs[0].data();
-                const val = parseFloat(data.price) || parseFloat(data.close) || 0;
-                if (val > 0) return val;
+            const { data, error } = await supabase
+                .from('cse_market_data')
+                .select('ltp')
+                .eq('code', ticker)
+                .order('date', { ascending: false })
+                .limit(1);
+            if (!error && data && data.length > 0) {
+                const val = parseFloat(data[0].ltp);
+                if (!isNaN(val) && val > 0) return val;
             }
         } catch (e) {}
     }
@@ -1524,7 +1403,6 @@ async function getDSEPrice(ticker) {
 // CSE প্রাইস ফেচ (Supabase cse_market_data → Firebase cse_detailed_data)
 async function getCSEPrice(ticker) {
     if (!ticker) return 0;
-    // ১. Supabase cse_market_data
     if (typeof supabase !== 'undefined' && supabase) {
         try {
             const { data, error } = await supabase
@@ -1539,25 +1417,9 @@ async function getCSEPrice(ticker) {
             }
         } catch (e) {}
     }
-    // ২. Firebase cse_detailed_data (ফলব্যাক)
-    if (typeof db !== 'undefined' && db) {
-        try {
-            const snap = await db.collection('cse_detailed_data')
-                .where('code', '==', ticker)
-                .orderBy('date', 'desc')
-                .limit(1)
-                .get();
-            if (!snap.empty) {
-                const data = snap.docs[0].data();
-                const val = parseFloat(data.ltp) || 0;
-                if (val > 0) return val;
-            }
-        } catch (e) {}
-    }
     return 0;
 }
 
-// P/E Ratio ফেচ (stock_metadata → cse_detailed_data)
 async function getPERatio(ticker) {
     if (!ticker) return null;
     
@@ -1651,6 +1513,8 @@ function debounce(func, wait = 300) {
 function clearAllScannerCache() {
     if (typeof sessionStorage !== 'undefined') {
         sessionStorage.removeItem('all_scanner_data');
+        sessionStorage.removeItem('all_scanner_data_v7');
+        sessionStorage.removeItem('all_scanner_data_v8');
     }
     console.log('🔄 All scanner cache cleared');
 }
@@ -1794,36 +1658,34 @@ function getPortfolioName(portfolioId, meta) {
 // 📡 NEW API SERVICE (bd-stock-api)
 // ==========================================
 
-const STOCK_API_BASE = 'https://bd-stock-api-an3n.vercel.app/v1/dse';
+const STOCK_API_BASE = null; // Deprecated: market data is now Supabase-only.
 
-/**
- * সব কোম্পানির লেটেস্ট ডেটা ফেচ করুন
- */
 async function fetchAllLatestStocks() {
+    if (typeof supabase === 'undefined' || !supabase) return [];
     try {
-        const response = await fetch(`${STOCK_API_BASE}/latest`);
-        const data = await response.json();
-        if (data.success) return data.data;
-        return [];
+        const { data, error } = await supabase.from('dse_live_data')
+            .select('*').order('date', { ascending: false }).limit(5000);
+        if (error) throw error;
+        return data || [];
     } catch (error) {
-        console.error('Error fetching latest stocks:', error);
+        console.error('Supabase dse_live_data fetch failed:', error);
         return [];
     }
 }
 
-/**
- * টিকার নাম দিয়ে ডেটা ফেচ করুন (dsexdata)
- */
 async function fetchStockByTicker(ticker) {
+    if (!ticker || typeof supabase === 'undefined' || !supabase) return [];
     try {
-        const response = await fetch(`${STOCK_API_BASE}/dsexdata`);
-        const data = await response.json();
-        if (data.success) {
-            return data.data.filter(item => item['TRADING CODE'] === ticker);
-        }
-        return [];
+        const { data, error } = await supabase.from('dse_live_data')
+            .select('*').eq('ticker', ticker).order('date', { ascending: false }).limit(1);
+        if (error) throw error;
+        if (data?.length) return data;
+        const fallback = await supabase.from('cse_market_data').select('*')
+            .eq('code', ticker).order('date', { ascending: false }).limit(1);
+        if (fallback.error) throw fallback.error;
+        return fallback.data || [];
     } catch (error) {
-        console.error(`Error fetching stock ${ticker}:`, error);
+        console.error(`Supabase stock fetch failed for ${ticker}:`, error);
         return [];
     }
 }
@@ -1955,14 +1817,16 @@ async function supabaseFetch(path, options = {}) {
  * ঐতিহাসিক ডেটা ফেচ করুন
  */
 async function fetchHistoricalData(ticker, startDate, endDate) {
+    if (!ticker || typeof supabase === 'undefined' || !supabase) return [];
     try {
-        const url = `${STOCK_API_BASE}/historical?start=${startDate}&end=${endDate}&code=${ticker}`;
-        const response = await fetch(url);
-        const data = await response.json();
-        if (data.success) return data.data;
-        return [];
+        const { data, error } = await supabase.from('history_dse')
+            .select('ticker,date,ltp,high,low,open,ycp,volume,trade,value_mn')
+            .eq('ticker', ticker).gte('date', startDate).lte('date', endDate)
+            .order('date', { ascending: true });
+        if (error) throw error;
+        return data || [];
     } catch (error) {
-        console.error(`Error fetching historical data for ${ticker}:`, error);
+        console.error(`Supabase history_dse fetch failed for ${ticker}:`, error);
         return [];
     }
 }

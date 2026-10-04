@@ -74,22 +74,22 @@ class DataService {
         // Firebase is only a recovery/mirror fallback.
         if (typeof db !== 'undefined' && db) {
             try {
-                const snap = await db.collection('portfolios')
-                    .where('userId', '==', userId)
+                const snap = await db.collection('backup_portfolios')
+                    .where('user_id', '==', userId)
                     .get();
                 snap.forEach(doc => {
                     const data = doc.data();
                     portfolioData.push({
                         id: doc.id,
-                        userId: data.userId,
-                        shareName: data.shareName,
+                        userId: data.user_id,
+                        shareName: data.share_name,
                         quantity: data.quantity,
-                        buyPrice: data.buyPrice,
+                        buyPrice: data.buy_price,
                         commission: data.commission || 0,
-                        commissionPercent: data.commissionPercent || 0,
-                        portfolioId: data.portfolioId || 'main',
-                        date: data.date?.toDate?.()?.toISOString?.()?.split('T')[0] || null,
-                        createdAt: data.createdAt?.toDate?.()?.toISOString?.() || null
+                        commissionPercent: data.commission_percent || 0,
+                        portfolioId: data.portfolio_id || 'main',
+                        date: data.date || null,
+                        createdAt: data.created_at || null
                     });
                 });
             } catch (e) {
@@ -157,25 +157,25 @@ class DataService {
         // Firebase is only a recovery/mirror fallback.
         if (typeof db !== 'undefined' && db) {
             try {
-                const snap = await db.collection('sales_history')
-                    .where('userId', '==', userId)
+                const snap = await db.collection('backup_sales_history')
+                    .where('user_id', '==', userId)
                     .get();
                 snap.forEach(doc => {
                     const data = doc.data();
                     salesData.push({
                         id: doc.id,
-                        userId: data.userId,
-                        shareName: data.shareName,
-                        quantitySold: data.quantitySold || 0,
-                        buyPrice: data.buyPrice || 0,
-                        sellPrice: data.sellPrice || 0,
-                        profitOrLoss: data.profitOrLoss || 0,
+                        userId: data.user_id,
+                        shareName: data.share_name,
+                        quantitySold: data.quantity_sold || 0,
+                        buyPrice: data.buy_price || 0,
+                        sellPrice: data.sell_price || 0,
+                        profitOrLoss: data.profit_or_loss || 0,
                         commission: data.commission || 0,
-                        commissionPercent: data.commissionPercent || 0,
-                        netReceived: data.netReceived || 0,
-                        portfolioId: data.portfolioId || 'main',
-                        date: data.date?.toDate?.()?.toISOString?.()?.split('T')[0] || null,
-                        createdAt: data.createdAt?.toDate?.()?.toISOString?.() || null
+                        commissionPercent: data.commission_percent || 0,
+                        netReceived: data.net_received || 0,
+                        portfolioId: data.portfolio_id || 'main',
+                        date: data.date || null,
+                        createdAt: data.created_at || null
                     });
                 });
             } catch (e) {

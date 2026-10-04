@@ -51,4 +51,5 @@
   };
 
   console.log('✅ Supabase client initialized once (Firebase JWT bridge ready)');
+  if (typeof window.installStockPulseSupabaseCompat === 'function') window.installStockPulseSupabaseCompat();
 })();

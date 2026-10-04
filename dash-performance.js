@@ -408,7 +408,7 @@ async function updatePerformanceSummary() {
         if (!timelineData || timelineData.length < 2) {
             console.warn('⚠️ No timeline data, trying to refresh cache...');
             if (typeof CacheManager !== 'undefined') {
-                CacheManager.remove(`timeline_${user.uid}_*`);
+                CacheManager.remove(`timeline_v7_${user.uid}_*`);
             }
             timelineData = await fetchPortfolioTimelineData();
         }
@@ -506,57 +506,34 @@ async function updatePerformanceSummary() {
 
         let benchmarkReturns = { today: 0, '5d': null, '15d': null, '30d': null, '3m': null, '6m': null, '1y': null };
         try {
-            if (typeof db !== 'undefined') {
-                const snapshot = await db.collection('dse_market_data')
-                    .orderBy('date', 'asc')
-                    .limit(1000)
-                    .get();
-
-                if (!snapshot.empty) {
-                    const dsexData = [];
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        const dsexStr = data.dsex_index || '0';
-                        const dsexValue = parseFloat(dsexStr.replace(/,/g, ''));
-                        if (dsexValue && !isNaN(dsexValue) && dsexValue > 0) {
-                            dsexData.push({
-                                date: new Date(data.date),
-                                value: dsexValue
-                            });
+            if (typeof supabase !== 'undefined' && supabase) {
+                const { data: dsexRows, error: dsexError } = await supabase
+                    .from('dsex_index')
+                    .select('index_name,date,value')
+                    .eq('index_name', 'DSEX')
+                    .order('date', { ascending: true })
+                    .limit(1000);
+                if (!dsexError && dsexRows && dsexRows.length > 1) {
+                    const dsexData = dsexRows.map(r => ({ date: new Date(String(r.date).split('T')[0] + 'T00:00:00'), value: Number(r.value) }))
+                        .filter(x => x.value > 0 && !isNaN(x.date.getTime()));
+                    const latestDSEX = dsexData[dsexData.length - 1]?.value || 0;
+                    const previousDSEX = dsexData[dsexData.length - 2]?.value || 0;
+                    if (latestDSEX > 0 && previousDSEX > 0) benchmarkReturns.today = ((latestDSEX - previousDSEX) / previousDSEX) * 100;
+                    for (const period of periods) {
+                        if (period.days === 0) continue;
+                        const target = new Date();
+                        target.setDate(target.getDate() - period.days);
+                        target.setHours(0,0,0,0);
+                        let past = null;
+                        for (let i=dsexData.length-1;i>=0;i--) {
+                            if (dsexData[i].date <= target) { past = dsexData[i].value; break; }
                         }
-                    });
-
-                    if (dsexData.length > 1) {
-                        dsexData.sort((a, b) => a.date - b.date);
-                        const latestDSEX = dsexData[dsexData.length - 1].value;
-
-                        if (dsexData.length >= 2) {
-                            const yesterdayDSEX = dsexData[dsexData.length - 2].value;
-                            if (yesterdayDSEX > 0) {
-                                benchmarkReturns.today = ((latestDSEX - yesterdayDSEX) / yesterdayDSEX) * 100;
-                            }
-                        }
-
-                        for (const period of periods) {
-                            if (period.days === 0) continue;
-                            const targetDate = new Date();
-                            targetDate.setDate(targetDate.getDate() - period.days);
-                            let pastDSEX = null;
-                            for (let i = dsexData.length - 1; i >= 0; i--) {
-                                if (dsexData[i].date <= targetDate) {
-                                    pastDSEX = dsexData[i].value;
-                                    break;
-                                }
-                            }
-                            if (pastDSEX && pastDSEX > 0) {
-                                benchmarkReturns[period.name] = ((latestDSEX - pastDSEX) / pastDSEX) * 100;
-                            }
-                        }
+                        if (past > 0 && latestDSEX > 0) benchmarkReturns[period.name] = ((latestDSEX - past) / past) * 100;
                     }
                 }
             }
         } catch (err) {
-            console.warn('DSEX benchmark error (using 0):', err);
+            console.warn('DSEX benchmark Supabase error:', err);
         }
 
         updateCell('dash-bench-today', benchmarkReturns.today);
@@ -615,87 +592,41 @@ async function updateDSEXIndicator() {
     const changeElem = document.getElementById('dsex-change');
     const statusElem = document.getElementById('market-status');
     const lastUpdatedElem = document.getElementById('dsex-last-updated');
-
     try {
-        const dsexData = await getLatestDSEXFromSupabase();
-        let dsexValue = null;
-        let dsexDate = null;
-        let pointChange = 0;
-        let percentChange = 0;
-
-        if (dsexData && dsexData.value > 0) {
-            dsexValue = dsexData.value;
-            dsexDate = dsexData.date;
-            pointChange = dsexData.change || 0;
-            percentChange = dsexData.changePercent || 0;
-        } else {
-            if (typeof db !== 'undefined') {
-                const snapshot = await db.collection('dse_market_data')
-                    .orderBy('date', 'desc')
-                    .limit(2)
-                    .get();
-                if (!snapshot.empty) {
-                    const docs = snapshot.docs;
-                    const latestData = docs[0].data();
-                    const prevData = docs.length > 1 ? docs[1].data() : null;
-                    const dsexStr = latestData.dsex_index || '0';
-                    dsexValue = parseFloat(dsexStr.replace(/,/g, ''));
-                    dsexDate = latestData.date ? new Date(latestData.date) : null;
-                    
-                    if (prevData) {
-                        const prevStr = prevData.dsex_index || '0';
-                        const prevValue = parseFloat(prevStr.replace(/,/g, ''));
-                        if (prevValue > 0) {
-                            pointChange = dsexValue - prevValue;
-                            percentChange = (pointChange / prevValue) * 100;
-                        }
-                    }
-                }
-            }
+        let row = null;
+        if (typeof supabase !== 'undefined' && supabase) {
+            const { data, error } = await supabase.from('market_summary')
+                .select('market_date,dsex,change,change_percent,previous_close,scraped_at')
+                .order('market_date', { ascending: false })
+                .limit(1);
+            if (!error && data?.length) row = data[0];
         }
-
-        if (dsexValue !== null && !isNaN(dsexValue) && dsexValue > 0) {
-            if (valueElem) valueElem.innerText = dsexValue.toFixed(2);
-
+        // Keep Firebase only as a legacy recovery path; market DSEX is canonical in Supabase.
+        if (!row && typeof getLatestDSEXFromSupabase === 'function') {
+            const d = await getLatestDSEXFromSupabase();
+            if (d) row = { market_date: d.rawDate, dsex: d.value, change: d.change, change_percent: d.changePercent, scraped_at: d.date?.toISOString?.() };
+        }
+        if (row) {
+            const value=Number(row.dsex), change=Number(row.change)||0, pct=Number(row.change_percent)||0;
+            if (Number.isFinite(value) && value>0 && valueElem) valueElem.innerText=value.toFixed(2);
             if (changeElem) {
-                const sign = pointChange >= 0 ? '+' : '';
-                const color = pointChange >= 0 ? '#90ffb0' : '#ffaaaa';
-                changeElem.innerHTML = `
-                    <span style="color: ${color}; font-weight: bold;">
-                        ${sign}${pointChange.toFixed(2)}
-                    </span>
-                    <span style="color: ${color}; font-weight: bold; margin-left: 6px;">
-                        (${sign}${percentChange.toFixed(2)}%)
-                    </span>
-                `;
-                changeElem.style.color = color;
+                const sign=change>=0?'+':'';
+                const color=change>=0?'#90ffb0':'#ffaaaa';
+                changeElem.innerHTML=`<span style="color:${color};font-weight:bold;">${sign}${change.toFixed(2)}</span><span style="color:${color};font-weight:bold;margin-left:6px;">(${sign}${pct.toFixed(2)}%)</span>`;
+                changeElem.style.color=color;
             }
+            if(lastUpdatedElem) lastUpdatedElem.innerHTML=`Last updated: ${row.scraped_at ? new Date(row.scraped_at).toLocaleString('bn-BD',{timeZone:'Asia/Dhaka'}) : row.market_date}`;
         } else {
-            if (valueElem) valueElem.innerText = '--';
-            if (changeElem) {
-                changeElem.innerHTML = 'No data';
-                changeElem.style.color = '#94a3b8';
-            }
+            if(valueElem) valueElem.innerText='--';
+            if(changeElem) changeElem.innerHTML='No data';
         }
-
-        if (statusElem) {
-            statusElem.innerHTML = '🟢 Market Open';
-            statusElem.style.color = '#90ffb0';
-        }
-
-        if (lastUpdatedElem) {
-            if (dsexDate) {
-                lastUpdatedElem.innerHTML = `Last updated: ${dsexDate.toLocaleString('bn-BD', { timeZone: 'Asia/Dhaka' })}`;
-            } else {
-                lastUpdatedElem.innerHTML = 'Last updated: N/A';
-            }
-        }
-
-    } catch (err) {
-        console.error('❌ DSEX Indicator error:', err);
-        if (valueElem) valueElem.innerText = 'Error';
-        if (changeElem) changeElem.innerHTML = '--';
-        if (lastUpdatedElem) lastUpdatedElem.innerHTML = 'Last updated: Error';
+        const status=typeof getStockPulseMarketStatus==='function' ? getStockPulseMarketStatus() : {open:false,label:'🔴 Market Closed'};
+        if(statusElem){statusElem.innerHTML=status.label;statusElem.style.color=status.open?'#90ffb0':'#ffaaaa';}
+    } catch(err) {
+        console.error('❌ DSEX Indicator error:',err);
+        if(valueElem) valueElem.innerText='Error';
+        if(changeElem) changeElem.innerHTML='--';
+        if(lastUpdatedElem) lastUpdatedElem.innerHTML='Last updated: Error';
     }
 }
 

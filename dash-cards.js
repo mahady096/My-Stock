@@ -68,7 +68,7 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
     window.currentDashboardPortfolioId = portfolioId;
 
     // ---------- ক্যাশ চেক ----------
-    const cacheKey = `dashboard_v2_${user.uid}_${portfolioId || 'all'}`;
+    const cacheKey = `dashboard_v3_${user.uid}_${portfolioId || 'all'}`;
     if (!forceRefresh) {
         try {
             const cached = sessionStorage.getItem(cacheKey);
@@ -172,38 +172,24 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
             dashGLPct.style.color = totalPct >= 0 ? '#90ffb0' : '#ffaaaa';
         }
 
-        // ডেইলি G/L – আগের দিনের প্রাইস দিয়ে হিসাব (Supabase-first)
-        if (unifiedData && unifiedData.stockDetails.length > 0) {
-            const tickers = unifiedData.stockDetails.map(s => s.ticker);
-            const priceMapDaily = await getLatestAndPreviousPrices(tickers);
-            let dailyGL = 0, dailyPct = 0;
-            for (const stock of unifiedData.stockDetails) {
-                const priceData = priceMapDaily.get(stock.ticker);
-                const currentPrice = priceData?.currentPrice || 0;
-                const prevPrice = priceData?.previousPrice || 0;
-                const qty = stock.totalQty || 0;
-                if (prevPrice > 0 && qty > 0) {
-                    dailyGL += qty * (currentPrice - prevPrice);
-                }
-            }
+        // Daily P/L card and chart share the same timeline calculation.
+        // It measures market price movement on previous-close holdings, not trade cash flow.
+        if (unifiedData && unifiedData.stockDetails.length > 0 && typeof fetchPortfolioTimelineData === 'function') {
+            const timeline = await fetchPortfolioTimelineData(null, null, portfolioId);
+            const latestPoint = timeline && timeline.length ? timeline[timeline.length - 1] : null;
+            const dailyGL = latestPoint ? Number(latestPoint.dailyPL) || 0 : 0;
+            const dailyPct = latestPoint ? Number(latestPoint.dailyPLPercent) || 0 : 0;
             if (dashDaily) {
                 dashDaily.innerHTML = `${dailyGL >= 0 ? '+' : ''}৳${dailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
                 dashDaily.style.color = dailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
             }
-            if (dashDailyPct && totalInvestment > 0) {
-                dailyPct = (dailyGL / totalInvestment) * 100;
+            if (dashDailyPct) {
                 dashDailyPct.innerHTML = `${dailyPct >= 0 ? '+' : ''}${dailyPct.toFixed(2)}%`;
                 dashDailyPct.style.color = dailyPct >= 0 ? '#90ffb0' : '#ffaaaa';
             }
         } else {
-            if (dashDaily) {
-                dashDaily.innerHTML = '৳0.00';
-                dashDaily.style.color = '#94a3b8';
-            }
-            if (dashDailyPct) {
-                dashDailyPct.innerHTML = '0.00%';
-                dashDailyPct.style.color = '#94a3b8';
-            }
+            if (dashDaily) { dashDaily.innerHTML = '৳0.00'; dashDaily.style.color = '#94a3b8'; }
+            if (dashDailyPct) { dashDailyPct.innerHTML = '0.00%'; dashDailyPct.style.color = '#94a3b8'; }
         }
 
         currentPortfolioTotalValue = totalCurrentValue;
@@ -520,19 +506,6 @@ async function getDailyIncomeData(userId) {
                 if (data) salesData = data;
             } catch (e) { /* ignore */ }
         }
-        if (salesData.length === 0 && typeof db !== 'undefined') {
-            const snapshot = await db.collection('sales_history')
-                .where('userId', '==', userId)
-                .get();
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                salesData.push({
-                    profit_or_loss: data.profitOrLoss || 0,
-                    date: data.date?.toDate?.()?.toISOString?.() || new Date().toISOString()
-                });
-            });
-        }
-
         const dailyMap = new Map();
         salesData.forEach(item => {
             const date = new Date(item.date);
@@ -761,26 +734,6 @@ async function loadDailySuggestion() {
                         .order('date', { ascending: true });
                     if (!error && data && data.length > 0) {
                         priceData = data;
-                    }
-                }
-
-                // Firebase ফ্যালব্যাক
-                if (priceData.length === 0 && typeof db !== 'undefined') {
-                    const snap = await db.collection('daily_prices')
-                        .where('ticker', '==', ticker)
-                        .where('date', '>=', startDateStr)
-                        .orderBy('date', 'asc')
-                        .get();
-                    if (!snap.empty) {
-                        snap.forEach(doc => {
-                            const d = doc.data();
-                            const price = parseFloat(d.price) || parseFloat(d.close) || 0;
-                            const high = parseFloat(d.high) || price;
-                            const low = parseFloat(d.low) || price;
-                            if (price > 0) {
-                                priceData.push({ date: d.date, ltp: price, high: high, low: low, volume: 0 });
-                            }
-                        });
                     }
                 }
 
