@@ -1283,7 +1283,7 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                         <div>
                             <h3 style="margin: 0; font-size: 16px;">📊 Portfolio Performance Dashboard</h3>
-                            <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.9;">Real-time analysis from Firebase data</p>
+                            <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.9;">Real-time analysis from Supabase data</p>
                         </div>
                         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
                             <button id="btn-refresh-portfolio-analysis" onclick="refreshPortfolioAnalysis()" 
@@ -1342,11 +1342,11 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                         <div class="card-percent" id="summary-total-gl-pct">(0.00%)</div>
                         <div class="card-footer">Overall Return</div>
                     </div>
-                    <div class="premium-card card-5" id="card-total-income" onclick="openDepositModal()" title="Total Income (Deposit + Realized Profit)">
+                    <div class="premium-card card-5" id="summary-card-total-income" onclick="openDepositModal()" title="Total Income (Deposit + Realized Profit)">
                         <div class="card-icon">💰</div>
                         <div class="card-label"><span>💵</span> TOTAL INCOME</div>
-                        <div class="card-value" id="dash-total-income">৳0.00</div>
-                        <div class="card-percent" id="dash-total-income-pct">(0.00%)</div>
+                        <div class="card-value" id="summary-total-income">৳0.00</div>
+                        <div class="card-percent" id="summary-total-income-pct">(0.00%)</div>
                         <div class="card-footer">Deposit + Realized Profit</div>
                     </div>
                 </div>

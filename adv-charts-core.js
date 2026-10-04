@@ -74,48 +74,199 @@ async function requireAdvancedChartsProAccess() {
         window.location.replace('./pro.html');
         return false;
     };
+    try {
+        if (!window.StockPulsePlan || !window.auth) {
+            console.error('🔒 Pro route blocked: required auth/subscription services are unavailable.');
+            return redirectToPro();
+        }
+        const user = await new Promise((resolve) => {
+            let settled = false;
+            const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+            if (window.auth.currentUser) { finish(window.auth.currentUser); return; }
+            let unsubscribe = () => {};
+            try {
+                unsubscribe = window.auth.onAuthStateChanged((nextUser) => {
+                    try { unsubscribe(); } catch (_) {}
+                    finish(nextUser);
+                });
+            } catch (_) { finish(null); return; }
+            setTimeout(() => { try { unsubscribe(); } catch (_) {} finish(window.auth.currentUser || null); }, 10000);
+        });
+        if (!user) return redirectToPro();
 
-    // Fail closed: if the subscription manager is missing, never expose the Pro page.
-    if (!window.StockPulsePlan || !window.auth) {
-        console.error('🔒 Pro route blocked: required auth/subscription services are unavailable.');
+        // Establish Firebase -> Supabase JWT before reading subscriptions.
+        if (typeof window.syncSupabaseAuth === 'function') await window.syncSupabaseAuth(true);
+
+        const plan = await window.StockPulsePlan.load(true);
+        if (!plan || plan.plan !== 'pro' || plan.status !== 'active' ||
+            (plan.expiresAt && new Date(plan.expiresAt).getTime() <= Date.now())) {
+            console.warn('🔒 Advanced Charts blocked: active Pro subscription not found.');
+            return redirectToPro();
+        }
+        if (guard) guard.style.display = 'none';
+        return true;
+    } catch (error) {
+        console.error('🔒 Pro access check failed:', error);
         return redirectToPro();
     }
+}
 
-    // Firebase Auth restores its session asynchronously. Wait for the first
-    // definitive auth state instead of treating a temporary null user as Free.
-    const user = await new Promise((resolve) => {
-        let settled = false;
-        const finish = (value) => {
-            if (settled) return;
-            settled = true;
-            resolve(value);
-        };
-        if (window.auth.currentUser) {
-            finish(window.auth.currentUser);
-            return;
-        }
-        let unsubscribe = () => {};
-        unsubscribe = window.auth.onAuthStateChanged((nextUser) => {
-            try { unsubscribe(); } catch (_) {}
-            finish(nextUser);
+function initAdvancedChartsPage() {
+    if (window.__StockPulseAdvancedChartsInitialized) return;
+    window.__StockPulseAdvancedChartsInitialized = true;
+    if (typeof dseStocks !== 'undefined') advStockList = dseStocks;
+    else if (window.dseStocks) advStockList = window.dseStocks;
+
+    const loadBtn = document.getElementById('adv-chart-load');
+    if (loadBtn) loadBtn.addEventListener('click', () => loadAdvancedChart());
+    const searchInput = document.getElementById('adv-chart-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', handleSearchInput);
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const ticker = this.value.trim().toUpperCase();
+                if (ticker && advStockList.includes(ticker)) {
+                    advCurrentTicker = ticker;
+                    const suggestions = document.getElementById('adv-chart-suggestions');
+                    if (suggestions) suggestions.style.display = 'none';
+                    loadAdvancedChart(ticker);
+                }
+            }
         });
-        // Do not fail open if Firebase cannot restore auth state.
-        setTimeout(() => {
-            try { unsubscribe(); } catch (_) {}
-            finish(window.auth.currentUser || null);
-        }, 10000);
-    });
+    }
+    const dataSource = document.getElementById('adv-data-source');
+    if (dataSource) dataSource.addEventListener('change', function() { advDataSource = this.value; if (advChartData) loadAdvancedChart(); });
+    const periodSelect = document.getElementById('adv-chart-period');
+    if (periodSelect) periodSelect.addEventListener('change', function() { advCurrentPeriod = this.value === 'all' ? 'all' : parseInt(this.value); if (advChartData) loadAdvancedChart(); });
 
-    if (!user) {
-        console.warn('🔒 Pro route blocked: user is not authenticated.');
-        return redirectToPro();
+    document.querySelectorAll('.indicator-btn').forEach(btn => btn.addEventListener('click', function() {
+        const indicator = this.dataset.indicator;
+        const active = this.classList.contains('active');
+        this.classList.toggle('active', !active);
+        advActiveIndicators[indicator] = !active;
+        if (advChartData) {
+            if (currentChartType === 'line') renderAdvancedChart(advChartData); else renderCandlestickChart(advChartData);
+            generateSuggestion(advChartData);
+        }
+    }));
+
+    const lineBtn = document.getElementById('toggle-chart-type');
+    const candleBtn = document.getElementById('toggle-chart-type-candle');
+    if (lineBtn && candleBtn) {
+        lineBtn.addEventListener('click', function() {
+            currentChartType = 'line'; this.classList.add('active'); candleBtn.classList.remove('active');
+            document.getElementById('line-chart-wrapper')?.style && (document.getElementById('line-chart-wrapper').style.display = 'block');
+            document.getElementById('candlestick-wrapper')?.style && (document.getElementById('candlestick-wrapper').style.display = 'none');
+            if (advChartData) renderAdvancedChart(advChartData);
+        });
+        candleBtn.addEventListener('click', function() {
+            currentChartType = 'candle'; this.classList.add('active'); lineBtn.classList.remove('active');
+            document.getElementById('line-chart-wrapper')?.style && (document.getElementById('line-chart-wrapper').style.display = 'none');
+            document.getElementById('candlestick-wrapper')?.style && (document.getElementById('candlestick-wrapper').style.display = 'block');
+            if (advChartData) renderCandlestickChart(advChartData);
+        });
+        document.getElementById('line-chart-wrapper')?.style && (document.getElementById('line-chart-wrapper').style.display = 'block');
+        document.getElementById('candlestick-wrapper')?.style && (document.getElementById('candlestick-wrapper').style.display = 'none');
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const tickerFromURL = params.get('ticker');
+    if (tickerFromURL) {
+        const input = document.getElementById('adv-chart-search'); if (input) input.value = tickerFromURL;
+        advCurrentTicker = tickerFromURL.toUpperCase();
+    }
+    loadAdvancedChart(tickerFromURL || advCurrentTicker);
+    if (typeof loadSavedTheme === 'function') loadSavedTheme();
+}
+
+async function loadAdvancedChart(ticker) {
+    const searchInput = document.getElementById('adv-chart-search');
+    const finalTicker = ticker || (searchInput ? searchInput.value.trim().toUpperCase() || advCurrentTicker : advCurrentTicker);
+    
+    if (!finalTicker) {
+        showToast('Please enter a share name', 'warning');
+        return;
+    }
+    if (!advStockList.includes(finalTicker)) {
+        showToast('Share not found. Please select from suggestions.', 'warning');
+        return;
+    }
+
+    advCurrentTicker = finalTicker;
+    const titleEl = document.getElementById('adv-chart-title');
+    if (titleEl) titleEl.innerText = `${finalTicker} - Price History`;
+
+    const footerSource = document.getElementById('footer-source');
+    if (footerSource) {
+        const sourceSelect = document.getElementById('adv-data-source');
+        footerSource.innerText = sourceSelect ? sourceSelect.selectedOptions[0].text : 'Database';
+    }
+
+    const source = document.getElementById('adv-data-source')?.value || 'database';
+    const period = advCurrentPeriod === 'all' ? 'all' : advCurrentPeriod;
+    const cacheKey = `chart_${finalTicker}_${source}_${period}`;
+    const CACHE_TTL = source === 'live' ? 120000 : 600000; // লাইভের জন্য ২ মিনিট
+
+    const cachedData = await CacheManager.get(cacheKey, CACHE_TTL);
+    if (cachedData && cachedData.actualPrices && cachedData.actualPrices.length > 0) {
+        console.log(`📊 Chart data loaded from cache for ${finalTicker} (${source})`);
+        advChartData = cachedData;
+        updateStockInfo(advChartData);
+        if (currentChartType === 'line') renderAdvancedChart(advChartData);
+        else renderCandlestickChart(advChartData);
+        generateSuggestion(advChartData);
+        // Run deep analysis after cached chart data is rendered.
+        // Without this call the loader stays on 'Analyzing...' forever on initial load.
+        setTimeout(runDeepAnalysis, 300);
+        showToast(`📊 Loaded ${finalTicker} from cache`, 'info');
+        const updateTime = document.getElementById('adv-chart-update-time');
+        if (updateTime) updateTime.innerText = new Date().toLocaleString();
+        const suggestionTime = document.getElementById('suggestion-time');
+        if (suggestionTime) suggestionTime.innerText = new Date().toLocaleString();
+        return;
     }
 
     try {
-        // Establish the Firebase -> Supabase authorization bridge before
-        // reading the subscription. A direct URL must never rely on cached UI state.
-        if (typeof window.syncSupabaseAuth === 'function') {
-            await window.syncSupabaseAuth(true);
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - (period === 'all' ? 365 : period));
+        const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = new Date().toISOString().split('T')[0];
+
+        let priceData = [], labels = [], highData = [], lowData = [];
+        volumeData = [];
+
+        if (source === 'database') {
+            // ==========================================
+            // ১. Database (Supabase history_dse)
+            // ==========================================
+            if (typeof supabase !== 'undefined' && supabase) {
+                try {
+                    let query = supabase
+                        .from('history_dse')
+                        .select('date, ltp, high, low, volume')
+                        .eq('ticker', finalTicker)
+                        .gte('date', startDateStr)
+                        .order('date', { ascending: true });
+                    
+                    const { data, error } = await query;
+                    if (!error && data && data.length > 0) {
+                        data.forEach(row => {
+                            const price = parseFloat(row.ltp);
+                            const high = parseFloat(row.high) || price;
+                            const low = parseFloat(row.low) || price;
+                            if (price > 0) {
+                                labels.push(row.date);
+                                priceData.push(price);
+                                highData.push(high);
+                                lowData.push(low);
+                                volumeData.push(Number(row.volume) || 0);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Supabase history_dse fetch failed:', e);
+                }
+            }
         }
 
         if (priceData.length === 0) {
@@ -123,6 +274,7 @@ async function requireAdvancedChartsProAccess() {
             return;
         }
 
+        // অ্যাভারেজ বাই প্রাইস (গ্র্যান্ড পোর্টফোলিও থেকে)
         let avgBuyPrice = 0;
         const user = auth?.currentUser;
         if (user) {
@@ -135,6 +287,7 @@ async function requireAdvancedChartsProAccess() {
             } catch (e) { /* ignore */ }
         }
 
+        // ফরকাস্ট
         const forecast = arimaForecast(priceData, 5);
         let forecastLabels = [], forecastValues = [];
         if (forecast) {
@@ -164,8 +317,8 @@ async function requireAdvancedChartsProAccess() {
             currentPrice: priceData[priceData.length - 1] || 0,
             highData,
             lowData,
-            volumeData: volumeData,
-            dataSource: source
+            dataSource: source,
+            volumeData
         };
 
         CacheManager.set(cacheKey, chartData, CACHE_TTL);
@@ -173,20 +326,16 @@ async function requireAdvancedChartsProAccess() {
 
         advChartData = chartData;
         updateStockInfo(advChartData);
-        if (currentChartType === 'line') {
-            renderAdvancedChart(advChartData);
-        } else {
-            renderCandlestickChart(advChartData);
-        }
+        if (currentChartType === 'line') renderAdvancedChart(advChartData);
+        else renderCandlestickChart(advChartData);
         generateSuggestion(advChartData);
+        // Start the deep VWAP + Volume Profile analysis after the main chart is ready.
+        setTimeout(runDeepAnalysis, 300);
 
         const updateTime = document.getElementById('adv-chart-update-time');
         if (updateTime) updateTime.innerText = new Date().toLocaleString();
         const suggestionTime = document.getElementById('suggestion-time');
         if (suggestionTime) suggestionTime.innerText = new Date().toLocaleString();
-
-        // ডিপ অ্যানালাইসিস রান করুন
-        setTimeout(runDeepAnalysis, 500);
 
     } catch (error) {
         console.error('Chart load error:', error);
@@ -731,7 +880,7 @@ function renderAdvancedChart(data) {
                     }
                 },
                 zoom: {
-                    pan: { enabled: true, mode: 'x', modifierKey: 'shift' },
+                    pan: { enabled: true, mode: 'x' },
                     zoom: { wheel: { enabled: true, speed: 0.05 }, pinch: { enabled: true }, mode: 'x' },
                     limits: { x: { minRange: 5 } }
                 }
@@ -878,7 +1027,8 @@ function renderRSIChart(rsiData, isDark, canvas) {
                 legend: {
                     display: true,
                     labels: { color: textColor, boxWidth: 12, font: { size: 10 } }
-                }
+                },
+                zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true, speed: 0.08 }, pinch: { enabled: true }, mode: 'x' } }
             },
             scales: {
                 x: {
@@ -992,7 +1142,8 @@ function renderStochasticChart(stochData, isDark, canvas) {
                 legend: {
                     display: true,
                     labels: { color: textColor, boxWidth: 12, font: { size: 10 } }
-                }
+                },
+                zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true, speed: 0.08 }, pinch: { enabled: true }, mode: 'x' } }
             },
             scales: {
                 x: {
@@ -1700,3 +1851,10 @@ window.runDeepAnalysis = runDeepAnalysis;
 //   - renderCandlestickChart
 
 console.log('✅ adv-charts-core.js loaded successfully (duplicate-free, error-free)');
+
+// 🔒 Direct URL protection: verify Pro first, then initialize the page.
+window.addEventListener('DOMContentLoaded', async () => {
+    const allowed = await requireAdvancedChartsProAccess();
+    if (allowed) initAdvancedChartsPage();
+});
+window.requireAdvancedChartsProAccess = requireAdvancedChartsProAccess;

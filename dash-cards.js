@@ -381,17 +381,16 @@ async function updateTotalIncomeCard() {
         const totalIncome = totalCurrentValue - deposit;
         const profitPercent = deposit > 0 ? (totalIncome / deposit) * 100 : 0;
 
+        const incomeText = `৳${totalIncome.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        const pctText = `(${totalIncome >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%)`;
+        const incomeColor = totalIncome >= 0 ? '#90ffb0' : '#ffaaaa';
         const incomeElem = document.getElementById('dash-total-income');
         const pctElem = document.getElementById('dash-total-income-pct');
+        const summaryIncomeElem = document.getElementById('summary-total-income');
+        const summaryPctElem = document.getElementById('summary-total-income-pct');
 
-        if (incomeElem) {
-            incomeElem.innerText = `৳${totalIncome.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-            incomeElem.style.color = totalIncome >= 0 ? '#90ffb0' : '#ffaaaa';
-        }
-        if (pctElem) {
-            pctElem.innerText = `(${totalIncome >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%)`;
-            pctElem.style.color = totalIncome >= 0 ? '#90ffb0' : '#ffaaaa';
-        }
+        [incomeElem, summaryIncomeElem].filter(Boolean).forEach(el => { el.innerText = incomeText; el.style.color = incomeColor; });
+        [pctElem, summaryPctElem].filter(Boolean).forEach(el => { el.innerText = pctText; el.style.color = incomeColor; });
     } catch (error) {
         console.error('❌ Error in updateTotalIncomeCard:', error);
     }

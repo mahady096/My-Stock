@@ -203,7 +203,7 @@ async function loadAdvancedChart(ticker) {
     const cacheKey = `chart_${finalTicker}_${source}_${period}`;
     const CACHE_TTL = source === 'live' ? 120000 : 600000; // লাইভের জন্য ২ মিনিট
 
-    const cachedData = CacheManager.get(cacheKey, CACHE_TTL);
+    const cachedData = await CacheManager.get(cacheKey, CACHE_TTL);
     if (cachedData && cachedData.actualPrices && cachedData.actualPrices.length > 0) {
         console.log(`📊 Chart data loaded from cache for ${finalTicker} (${source})`);
         advChartData = cachedData;

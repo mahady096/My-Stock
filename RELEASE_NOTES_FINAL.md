@@ -14,3 +14,12 @@
 - Desktop mouse-wheel zoom and pan enabled.
 - Advanced Charts already using chartjs-plugin-zoom now also receive the global interaction defaults for charts without local zoom settings.
 - Added `chart-zoom.js` as the single shared chart interaction layer.
+
+
+## v18 QA fixes — 2026-10-04
+- Fixed asynchronous CacheManager reads in both Advanced Charts implementations and current/previous price lookup.
+- Removed a missing `firebase-app-placeholder.js` reference from the admin page.
+- Removed duplicate dashboard income element IDs and synchronized the Portfolio Analysis income card.
+- Added Advanced Charts mobile interaction scripts to the service-worker static cache and bumped cache namespace to v6.2.2.
+- Reworded Portfolio Analysis data-source text to reflect Supabase primary market data.
+- Full JavaScript syntax audit: 44/44 JS files pass `node --check`.

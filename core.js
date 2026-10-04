@@ -561,7 +561,7 @@ async function getLatestAndPreviousPrices(tickers, forceRefresh = false) {
     if (!forceRefresh) {
         for (const ticker of tickers) {
             const cacheKey = `price_detail_${ticker}`;
-            const cached = CacheManager.get(cacheKey, TTL);
+            const cached = await CacheManager.get(cacheKey, TTL);
             if (cached && typeof cached === 'object' && cached.currentPrice > 0) {
                 resultMap.set(ticker, {
                     currentPrice: cached.currentPrice,
