@@ -455,6 +455,9 @@
             }
         }
     </style>
+<style id="stockpulse-chart-touch-css">
+canvas { touch-action: none !important; -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; overscroll-behavior: contain !important; }
+</style>
 </head>
 <body>
     <!-- 🔒 Pro route guard: keep Advanced Charts hidden until auth + subscription are verified. -->
@@ -719,6 +722,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+    <script src="chart-zoom.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- IndexedDB cache dependency: must load before cache-helper.js -->
     <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>

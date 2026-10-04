@@ -258,64 +258,6 @@ async function loadAdvancedChart(ticker) {
                     console.warn('Supabase history_dse fetch failed:', e);
                 }
             }
-
-            // Firebase ফ্যালব্যাক (যদি Supabase না পাওয়া যায়)
-            if (priceData.length === 0 && typeof db !== 'undefined') {
-                try {
-                    let query = db.collection('daily_prices')
-                        .where('ticker', '==', finalTicker)
-                        .where('date', '>=', startDateStr)
-                        .orderBy('date', 'asc');
-                    
-                    const snap = await query.get();
-                    if (!snap.empty) {
-                        snap.forEach(doc => {
-                            const data = doc.data();
-                            const price = parseFloat(data.price) || parseFloat(data.close) || 0;
-                            const high = parseFloat(data.high) || price;
-                            const low = parseFloat(data.low) || price;
-                            if (price > 0) {
-                                labels.push(data.date);
-                                priceData.push(price);
-                                highData.push(high);
-                                lowData.push(low);
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.warn('Firebase daily_prices fallback failed:', e);
-                }
-            }
-        } else {
-            // ==========================================
-            // ২. Live API (bd-stock-api)
-            // ==========================================
-            const apiUrl = `https://bd-stock-api-an3n.vercel.app/v1/dse/historical?start=${startDateStr}&end=${endDateStr}&code=${finalTicker}`;
-            
-            try {
-                const response = await fetch(apiUrl);
-                const result = await response.json();
-                
-                if (result.success && result.data && result.data.length > 0) {
-                    result.data.forEach(item => {
-                        const price = parseFloat(item['LTP*']);
-                        const high = parseFloat(item['HIGH']) || price;
-                        const low = parseFloat(item['LOW']) || price;
-                        if (price > 0) {
-                            labels.push(item['DATE']);
-                            priceData.push(price);
-                            highData.push(high);
-                            lowData.push(low);
-                        }
-                    });
-                    console.log(`✅ Live API loaded ${priceData.length} records for ${finalTicker}`);
-                } else {
-                    showToast('No live data available for this period', 'warning');
-                }
-            } catch (error) {
-                console.error('Live API fetch error:', error);
-                showToast('Failed to load live data: ' + error.message, 'error');
-            }
         }
 
         if (priceData.length === 0) {
