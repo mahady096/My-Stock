@@ -1811,7 +1811,7 @@ async function generateDeepAnalysis(data) {
 
     } catch (error) {
         console.error('Deep analysis error:', error);
-        document.getElementById('deep-analysis-loader').innerHTML = `❌ Error: ${error.message}`;
+        document.getElementById('deep-analysis-loader').innerHTML = `❌ Error: ${spEscapeHtml(error.message)}`;
     }
 }
 

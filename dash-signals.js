@@ -292,8 +292,8 @@ async function loadSignalData() {
 
     } catch (error) {
         console.error('❌ Signal load error:', error);
-        buyContainer.innerHTML = `<div style="text-align: center; padding: 20px; color: red;">Error: ${error.message}</div>`;
-        sellContainer.innerHTML = `<div style="text-align: center; padding: 20px; color: red;">Error: ${error.message}</div>`;
+        buyContainer.innerHTML = `<div style="text-align: center; padding: 20px; color: red;">Error: ${spEscapeHtml(error.message)}</div>`;
+        sellContainer.innerHTML = `<div style="text-align: center; padding: 20px; color: red;">Error: ${spEscapeHtml(error.message)}</div>`;
     }
 }
 

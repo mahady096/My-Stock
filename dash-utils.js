@@ -608,9 +608,9 @@ function renderHistoryTable(data) {
         totalCurrentValue += item.totalCurrentValue;
         html += `<tr>
             <td>${formatDate(item.date)}</td>
-            <td style="text-align:right;">৳${item.totalInvestment.toLocaleString('bn-BD', {minimumFractionDigits:2})}</td>
-            <td style="text-align:right;">৳${item.totalCurrentValue.toLocaleString('bn-BD', {minimumFractionDigits:2})}</td>
-            <td style="text-align:right; ${item.dailyPL>=0?'color:#10b981':'color:#ef4444'}">${item.dailyPL>=0?'+':''}৳${item.dailyPL.toLocaleString('bn-BD', {minimumFractionDigits:2})}</td>
+            <td style="text-align:right;">৳${item.totalInvestment.toLocaleString('en-IN', {minimumFractionDigits:2})}</td>
+            <td style="text-align:right;">৳${item.totalCurrentValue.toLocaleString('en-IN', {minimumFractionDigits:2})}</td>
+            <td style="text-align:right; ${item.dailyPL>=0?'color:#10b981':'color:#ef4444'}">${item.dailyPL>=0?'+':''}৳${item.dailyPL.toLocaleString('en-IN', {minimumFractionDigits:2})}</td>
             <td style="text-align:right; ${item.dailyPLPercent>=0?'color:#10b981':'color:#ef4444'}">${item.dailyPLPercent>=0?'+':''}${item.dailyPLPercent.toFixed(2)}%</td>
             <td style="text-align:center;">${item.dailyPL>=0?'✅':'📉'}</td>
         </tr>`;
@@ -623,10 +623,10 @@ function renderHistoryTable(data) {
     const footerValue = document.getElementById('history-footer-value');
     const footerPL = document.getElementById('history-footer-pl');
     const footerPLPct = document.getElementById('history-footer-plpct');
-    if (footerInvest) footerInvest.innerHTML = `৳${totalInvestment.toLocaleString('bn-BD', {minimumFractionDigits:2})}`;
-    if (footerValue) footerValue.innerHTML = `৳${totalCurrentValue.toLocaleString('bn-BD', {minimumFractionDigits:2})}`;
+    if (footerInvest) footerInvest.innerHTML = `৳${totalInvestment.toLocaleString('en-IN', {minimumFractionDigits:2})}`;
+    if (footerValue) footerValue.innerHTML = `৳${totalCurrentValue.toLocaleString('en-IN', {minimumFractionDigits:2})}`;
     if (footerPL) {
-        footerPL.innerHTML = `${finalPL>=0?'+':''}৳${finalPL.toLocaleString('bn-BD', {minimumFractionDigits:2})}`;
+        footerPL.innerHTML = `${finalPL>=0?'+':''}৳${finalPL.toLocaleString('en-IN', {minimumFractionDigits:2})}`;
         footerPL.style.color = finalPL >= 0 ? '#10b981' : '#ef4444';
     }
     if (footerPLPct) {
@@ -665,7 +665,7 @@ function renderHistoryChart(data) {
                 legend: { position: 'top', labels: { color: textColor } },
                 tooltip: {
                     callbacks: {
-                        label: (ctx) => `${ctx.dataset.label}: ৳${ctx.raw.toLocaleString('bn-BD', {minimumFractionDigits:2})}`
+                        label: (ctx) => `${ctx.dataset.label}: ৳${ctx.raw.toLocaleString('en-IN', {minimumFractionDigits:2})}`
                     }
                 }
             },

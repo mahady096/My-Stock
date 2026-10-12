@@ -24,6 +24,17 @@
     const ZoomPlugin = window.ChartZoom;
     if (!ChartCtor || !ZoomPlugin) return false;
     try { ChartCtor.register(ZoomPlugin); } catch (_) {}
+    // Apply zoom/pan defaults to every Chart.js chart unless a chart overrides them.
+    // This is deliberately done after registering the plugin and avoids wrapping Chart().
+    try {
+      if (ChartCtor.defaults && ChartCtor.defaults.plugins) {
+        ChartCtor.defaults.plugins.zoom = Object.assign({}, zoomDefaults, ChartCtor.defaults.plugins.zoom || {});
+        ChartCtor.defaults.plugins.zoom.pan = Object.assign({}, zoomDefaults.pan, (ChartCtor.defaults.plugins.zoom || {}).pan || {});
+        ChartCtor.defaults.plugins.zoom.zoom = Object.assign({}, zoomDefaults.zoom, (ChartCtor.defaults.plugins.zoom || {}).zoom || {});
+        ChartCtor.defaults.plugins.zoom.zoom.wheel = Object.assign({}, zoomDefaults.zoom.wheel, (((ChartCtor.defaults.plugins.zoom || {}).zoom || {}).wheel) || {});
+        ChartCtor.defaults.plugins.zoom.zoom.pinch = Object.assign({}, zoomDefaults.zoom.pinch, (((ChartCtor.defaults.plugins.zoom || {}).zoom || {}).pinch) || {});
+      }
+    } catch (err) { console.warn('[StockPulse] Could not set global chart zoom defaults:', err); }
     window.StockPulseChartZoom = {
       defaults: zoomDefaults,
       applyCanvasTouchSupport,

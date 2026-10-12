@@ -161,14 +161,13 @@ async function loadDeepAnalysisPage() {
                     try {
                         const { data, error } = await supabase
                             .from('cse_market_data')
-                            .select('category, record_date, eps')
+                            .select('category, record_date')
                             .eq('code', ticker)
                             .order('date', { ascending: false })
                             .limit(1);
                         if (!error && data && data.length > 0) {
                             category = data[0].category || 'N/A';
                             recordDate = data[0].record_date || null;
-                            eps = data[0].eps !== undefined && data[0].eps !== null ? parseFloat(data[0].eps) : null;
                         }
                     } catch (e) {
                         console.warn(`cse_market_data fetch failed for ${ticker}:`, e);
@@ -187,12 +186,14 @@ async function loadDeepAnalysisPage() {
                             const data = snap.docs[0].data();
                             category = data.category || 'N/A';
                             recordDate = data.record_date || null;
-                            eps = data.eps !== undefined && data.eps !== null ? parseFloat(data.eps) : null;
                         }
                     } catch (e) {
                         console.warn(`Firebase cse_detailed_data fallback failed for ${ticker}:`, e);
                     }
                 }
+
+                // EPS শুধু daily_closing_prices থেকে
+                try { if (typeof window.getEPS === 'function') eps = await window.getEPS(ticker); } catch (e) { /* ignore */ }
 
                 return { ticker, category, recordDate, ath, atl, rsi, psar, eps };
             } catch (e) {
@@ -336,7 +337,7 @@ async function loadDeepAnalysisPage() {
 
     } catch (error) {
         console.error('Deep analysis error:', error);
-        tbody.innerHTML = `<tr><td colspan="21" style="text-align:center; padding:40px; color:red;">❌ Error loading data: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="21" style="text-align:center; padding:40px; color:red;">❌ Error loading data: ${spEscapeHtml(error.message)}</td></tr>`;
         if (updateTime) updateTime.innerText = new Date().toLocaleString();
     }
 }

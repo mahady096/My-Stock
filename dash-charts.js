@@ -105,7 +105,7 @@ async function renderDashboardHistoryChart(startDate = null, endDate = null) {
                             label: (ctx) => {
                                 const val = ctx.raw;
                                 if (val === null || val === undefined) return null;
-                                return `${ctx.dataset.label}: ৳${val.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                                return `${ctx.dataset.label}: ৳${val.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
                             }
                         }
                     }

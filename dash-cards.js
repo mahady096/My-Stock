@@ -160,10 +160,10 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
         const dashDailyPct = document.getElementById('dash-total-daily-pct');
         const dashGLPct = document.getElementById('dash-total-gl-pct');
 
-        if (dashTotalValue) dashTotalValue.innerHTML = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-        if (dashTotalCost) dashTotalCost.innerHTML = `৳${totalInvestment.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        if (dashTotalValue) dashTotalValue.innerHTML = `৳${totalCurrentValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        if (dashTotalCost) dashTotalCost.innerHTML = `৳${totalInvestment.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
         if (dashTotalGL) {
-            dashTotalGL.innerHTML = `${totalProfitLoss >= 0 ? '+' : ''}৳${totalProfitLoss.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+            dashTotalGL.innerHTML = `${totalProfitLoss >= 0 ? '+' : ''}৳${totalProfitLoss.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
             dashTotalGL.style.color = totalProfitLoss >= 0 ? '#90ffb0' : '#ffaaaa';
         }
         if (dashGLPct && totalInvestment > 0) {
@@ -180,7 +180,7 @@ async function loadDashboardData(portfolioId = null, forceRefresh = false) {
             const dailyGL = latestPoint ? Number(latestPoint.dailyPL) || 0 : 0;
             const dailyPct = latestPoint ? Number(latestPoint.dailyPLPercent) || 0 : 0;
             if (dashDaily) {
-                dashDaily.innerHTML = `${dailyGL >= 0 ? '+' : ''}৳${dailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+                dashDaily.innerHTML = `${dailyGL >= 0 ? '+' : ''}৳${dailyGL.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
                 dashDaily.style.color = dailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
             }
             if (dashDailyPct) {
@@ -286,11 +286,11 @@ function updateDashboardCards(data) {
     const dashDaily = document.getElementById('dash-total-daily');
     const dashDailyPct = document.getElementById('dash-total-daily-pct');
 
-    if (dashTotalValue) dashTotalValue.innerHTML = `৳${(data.totalCurrentValue || 0).toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-    if (dashTotalCost) dashTotalCost.innerHTML = `৳${(data.totalInvestment || 0).toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    if (dashTotalValue) dashTotalValue.innerHTML = `৳${(data.totalCurrentValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    if (dashTotalCost) dashTotalCost.innerHTML = `৳${(data.totalInvestment || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
     const pl = (data.totalCurrentValue || 0) - (data.totalInvestment || 0);
     if (dashTotalGL) {
-        dashTotalGL.innerHTML = `${pl >= 0 ? '+' : ''}৳${pl.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        dashTotalGL.innerHTML = `${pl >= 0 ? '+' : ''}৳${pl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
         dashTotalGL.style.color = pl >= 0 ? '#90ffb0' : '#ffaaaa';
     }
     if (dashGLPct && data.totalInvestment > 0) {
@@ -299,7 +299,7 @@ function updateDashboardCards(data) {
         dashGLPct.style.color = pct >= 0 ? '#90ffb0' : '#ffaaaa';
     }
     if (data.dailyGL !== undefined && dashDaily) {
-        dashDaily.innerHTML = `${data.dailyGL >= 0 ? '+' : ''}৳${data.dailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        dashDaily.innerHTML = `${data.dailyGL >= 0 ? '+' : ''}৳${data.dailyGL.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
         dashDaily.style.color = data.dailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
     }
     if (data.dailyPct !== undefined && dashDailyPct && data.totalInvestment > 0) {
@@ -331,10 +331,10 @@ function updateDashboardCardsFromAnalysis(totalCost, totalValue, dailyGL, totalG
     const dashGL = document.getElementById('dash-total-gl');
     const dashGLPct = document.getElementById('dash-total-gl-pct');
 
-    if (dashValue) dashValue.innerHTML = `৳${totalValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-    if (dashCost) dashCost.innerHTML = `৳${totalCost.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    if (dashValue) dashValue.innerHTML = `৳${totalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    if (dashCost) dashCost.innerHTML = `৳${totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
     if (dashDaily) {
-        dashDaily.innerHTML = `${dailyGL >= 0 ? '+' : ''}৳${dailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        dashDaily.innerHTML = `${dailyGL >= 0 ? '+' : ''}৳${dailyGL.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
         dashDaily.style.color = dailyGL >= 0 ? '#90ffb0' : '#ffaaaa';
     }
     if (dashDailyPct && totalCost > 0) {
@@ -343,7 +343,7 @@ function updateDashboardCardsFromAnalysis(totalCost, totalValue, dailyGL, totalG
         dashDailyPct.style.color = dailyPct >= 0 ? '#90ffb0' : '#ffaaaa';
     }
     if (dashGL) {
-        dashGL.innerHTML = `${totalGL >= 0 ? '+' : ''}৳${totalGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        dashGL.innerHTML = `${totalGL >= 0 ? '+' : ''}৳${totalGL.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
         dashGL.style.color = totalGL >= 0 ? '#90ffb0' : '#ffaaaa';
     }
     if (dashGLPct && totalCost > 0) {
@@ -381,7 +381,7 @@ async function updateTotalIncomeCard() {
         const totalIncome = totalCurrentValue - deposit;
         const profitPercent = deposit > 0 ? (totalIncome / deposit) * 100 : 0;
 
-        const incomeText = `৳${totalIncome.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        const incomeText = `৳${totalIncome.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
         const pctText = `(${totalIncome >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%)`;
         const incomeColor = totalIncome >= 0 ? '#90ffb0' : '#ffaaaa';
         const incomeElem = document.getElementById('dash-total-income');
@@ -432,8 +432,8 @@ window.openDepositModal = async function() {
         const incomePctElem = document.getElementById('deposit-income-pct');
 
         if (depositInput) depositInput.value = deposit;
-        if (realizedProfit) realizedProfit.innerHTML = `৳${totalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-        if (totalIncomeElem) totalIncomeElem.innerHTML = `৳${totalIncome.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        if (realizedProfit) realizedProfit.innerHTML = `৳${totalCurrentValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        if (totalIncomeElem) totalIncomeElem.innerHTML = `৳${totalIncome.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
         if (incomePctElem) incomePctElem.innerText = `${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%`;
 
         const today = new Date();
@@ -612,7 +612,7 @@ async function loadIncomeChartAndTable(userId, startDate = null, endDate = null)
         });
     } catch (error) {
         console.error('Error loading income chart:', error);
-        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:15px; color:red;">Error loading data: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:15px; color:red;">Error loading data: ${spEscapeHtml(error.message)}</td></tr>`;
     }
 }
 
@@ -909,7 +909,7 @@ async function loadDailySuggestion() {
 
     } catch (error) {
         console.error('Daily Suggestion error:', error);
-        loader.innerHTML = `❌ Error: ${error.message}`;
+        loader.innerHTML = `❌ Error: ${spEscapeHtml(error.message)}`;
     }
 }
 

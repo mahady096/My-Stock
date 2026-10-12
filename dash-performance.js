@@ -153,6 +153,9 @@ async function loadPortfolioAnalysisTable(userId, portfolioId = null, forceRefre
 
                 portfolioDataForSorting.push({
                     ticker,
+                    market: priceData?.market || null,
+                    dsePrice: priceData?.dsePrice || (priceData?.market === 'D' ? priceData.currentPrice : 0),
+                    csePrice: priceData?.csePrice || 0,
                     avgBuyPrice,
                     totalRemainingQty,
                     totalCost,
@@ -204,7 +207,7 @@ async function loadPortfolioAnalysisTable(userId, portfolioId = null, forceRefre
             const lastDataElement = document.getElementById('last-data-count');
             if (lastDataElement) {
                 lastDataElement.innerText =
-                    `৳${grandTotalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })} (${grandTotalRemainingQty} shares)`;
+                    `৳${grandTotalCurrentValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (${grandTotalRemainingQty} shares)`;
             }
 
             const lastUpdateElement = document.getElementById('last-updated-time');
@@ -277,16 +280,17 @@ function renderPortfolioAnalysis(portfolioData) {
         grandTotalGL = 0;
 
     for (const item of portfolioData) {
-        const { ticker, avgBuyPrice, totalRemainingQty, totalCost, currentPrice, dailyChange, totalGL, totalGLPcnt,
+        const { ticker, market, dsePrice, csePrice, avgBuyPrice, totalRemainingQty, totalCost, currentPrice, dailyChange, totalGL, totalGLPcnt,
             totalStockDailyGL, totalStockDailyPcnt, activeLotsForDisplay, livePriceClass, dailyGlClass, totalGlClass,
             blockId, commissionPercent } = item;
+        const showCsePremium = dsePrice > 0 && csePrice > dsePrice;
         const currentValue = totalRemainingQty * currentPrice;
         const commissionInfo = commissionPercent > 0 ? `<span style="font-size:9px; opacity:0.7;"> (inc. ${commissionPercent}% comm.)</span>` : '';
 
         finalHtml += `<div class="stock-block" id="parent-${blockId}">
             <div class="stock-main-row" onclick="toggleBullLot('${blockId}'); openStockDetailModal('${ticker}');">
                 <div class="bull-col-code">
-                    <div class="ticker-title" style="color:#2563eb; text-decoration:underline; cursor:pointer;">${ticker}</div>
+                    <div class="ticker-title" style="color:#2563eb; text-decoration:underline; cursor:pointer;">${ticker}${showCsePremium ? ` <span title="CSE price is higher than DSE" style="display:inline-block; margin-left:3px; padding:1px 4px; border-radius:4px; background:#e0f2fe; color:#0369a1; font-size:10px; font-weight:700; text-decoration:none;">C (৳${csePrice.toFixed(2)})</span>` : ''}</div>
                     <div class="${livePriceClass}" style="font-weight:600;">৳${currentPrice.toFixed(2)} <span style="font-size:11px;">(${dailyChange >= 0 ? '+' : ''}${dailyChange.toFixed(2)})</span></div>
                     <div style="color:#64748b; font-size:12px;">৳${avgBuyPrice.toFixed(2)}${commissionInfo} x ${totalRemainingQty} shares</div>
                     <span class="toggle-text" id="btn-${blockId}">+ Show All</span>
@@ -333,10 +337,10 @@ function renderPortfolioAnalysis(portfolioData) {
     const summaryGL = document.getElementById('summary-total-gl');
     const summaryGLPct = document.getElementById('summary-total-gl-pct');
 
-    if (summaryValue) summaryValue.innerHTML = `৳${grandTotalCurrentValue.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
-    if (summaryCost) summaryCost.innerHTML = `৳${grandTotalCost.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+    if (summaryValue) summaryValue.innerHTML = `৳${grandTotalCurrentValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    if (summaryCost) summaryCost.innerHTML = `৳${grandTotalCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
     if (summaryDaily) {
-        summaryDaily.innerHTML = `${grandTotalDailyGL >= 0 ? '+' : ''}৳${grandTotalDailyGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        summaryDaily.innerHTML = `${grandTotalDailyGL >= 0 ? '+' : ''}৳${grandTotalDailyGL.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
         summaryDaily.style.color = grandTotalDailyGL >= 0 ? '#10b981' : '#ef4444';
     }
     if (summaryDailyPct && grandTotalCost > 0) {
@@ -345,7 +349,7 @@ function renderPortfolioAnalysis(portfolioData) {
         summaryDailyPct.style.color = dailyPct >= 0 ? '#10b981' : '#ef4444';
     }
     if (summaryGL) {
-        summaryGL.innerHTML = `${grandTotalGL >= 0 ? '+' : ''}৳${grandTotalGL.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`;
+        summaryGL.innerHTML = `${grandTotalGL >= 0 ? '+' : ''}৳${grandTotalGL.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
         summaryGL.style.color = grandTotalGL >= 0 ? '#10b981' : '#ef4444';
     }
     if (summaryGLPct && grandTotalCost > 0) {
@@ -508,14 +512,22 @@ async function updatePerformanceSummary() {
         try {
             if (typeof supabase !== 'undefined' && supabase) {
                 const { data: dsexRows, error: dsexError } = await supabase
-                    .from('dsex_index')
-                    .select('index_name,date,value')
-                    .eq('index_name', 'DSEX')
-                    .order('date', { ascending: true })
+                    .from('market_summary')
+                    .select('market_date,dsex,scraped_at')
+                    .not('dsex', 'is', null)
+                    .order('market_date', { ascending: true })
+                    .order('scraped_at', { ascending: true })
                     .limit(1000);
                 if (!dsexError && dsexRows && dsexRows.length > 1) {
-                    const dsexData = dsexRows.map(r => ({ date: new Date(String(r.date).split('T')[0] + 'T00:00:00'), value: Number(r.value) }))
-                        .filter(x => x.value > 0 && !isNaN(x.date.getTime()));
+                    // One valid DSEX value per trading day, from market_summary only.
+                    const byDate = new Map();
+                    dsexRows.forEach(r => {
+                        const day = String(r.market_date || r.scraped_at || '').split('T')[0];
+                        const value = Number(r.dsex);
+                        if (day && Number.isFinite(value) && value >= 1000 && value <= 10000) byDate.set(day, value);
+                    });
+                    const dsexData = [...byDate.entries()].sort((a,b) => a[0].localeCompare(b[0]))
+                        .map(([day,value]) => ({ date: new Date(day + 'T00:00:00'), value }));
                     const latestDSEX = dsexData[dsexData.length - 1]?.value || 0;
                     const previousDSEX = dsexData[dsexData.length - 2]?.value || 0;
                     if (latestDSEX > 0 && previousDSEX > 0) benchmarkReturns.today = ((latestDSEX - previousDSEX) / previousDSEX) * 100;
