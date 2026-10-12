@@ -368,7 +368,7 @@ window.openStockDetailModal = async function(ticker) {
                 try {
                     const { data, error } = await supabase
                         .from('stock_metadata')
-                        .select('ath, ath_date, atl, atl_date, category, record_date, dividend, eps')
+                        .select('ath, ath_date, atl, atl_date, category, record_date, dividend')
                         .eq('ticker', ticker)
                         .limit(1);
                     if (!error && data && data.length > 0) {
@@ -380,7 +380,6 @@ window.openStockDetailModal = async function(ticker) {
                         category = meta.category || 'N/A';
                         recordDate = meta.record_date || '-';
                         dividend = meta.dividend || '-';
-                        eps = meta.eps !== undefined && meta.eps !== null ? parseFloat(meta.eps) : null;
                         foundInSupabase = true;
                     }
                 } catch (e) {
@@ -401,7 +400,6 @@ window.openStockDetailModal = async function(ticker) {
                         category = data.category || 'N/A';
                         recordDate = data.record_date || '-';
                         dividend = data.dividend || '-';
-                        eps = data.eps !== undefined && data.eps !== null ? parseFloat(data.eps) : null;
                     }
                 } catch (e) {
                     console.warn('Firebase stock_metadata read failed:', e);
@@ -432,9 +430,7 @@ window.openStockDetailModal = async function(ticker) {
                 }
             }
 
-            // EPS, Dividend, Record Date
-            const epsSpan = document.getElementById('adv-eps');
-            if (epsSpan) epsSpan.innerText = eps !== null && eps > 0 ? `৳${eps.toFixed(2)}` : '-';
+            // EPS ও P/E এখন fundamentals.js থেকে (শুধু cse_market_data)
 
             const divSpan = document.getElementById('adv-dividend-percent');
             const recSpan = document.getElementById('adv-record-date');
@@ -467,16 +463,8 @@ window.openStockDetailModal = async function(ticker) {
             console.warn('Metadata fetch failed:', e); 
         }
 
-        // ---------- ১১. P/E Ratio ----------
-        const peRatio = await getPERatio(ticker);
-        const peSpan = document.getElementById('adv-pe');
-        if (peSpan) {
-            if (peRatio !== null && peRatio > 0) {
-                peSpan.innerText = peRatio.toFixed(2);
-            } else {
-                peSpan.innerText = '-';
-            }
-        }
+        // ---------- ১১. EPS ও P/E (cse_market_data only) ----------
+        if (typeof loadFundamentalsIntoModal === 'function') loadFundamentalsIntoModal(ticker);
 
         // ---------- ১২. চার্ট লোড ----------
         if (typeof loadPriceHistoryChart === 'function') loadPriceHistoryChart(ticker);
@@ -712,7 +700,7 @@ window.openGainHistoryModal = async function(ticker) {
         if (timeSpan) timeSpan.innerText = new Date().toLocaleString('bn-BD');
     } catch (error) {
         console.error('Gain history error:', error);
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; color: red;">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; color: red;">Error: ${spEscapeHtml(error.message)}</td></tr>`;
         if (summary) summary.innerText = '❌ Error loading data';
     }
 };
@@ -944,112 +932,125 @@ window.closeDividendModal = function() {
 // ৬. DSEX চার্ট মডাল
 // ==========================================
 
-async function openDSEXChartModal() {
+let dsexModalDays = 30;
+
+// DSEX history — same data source and plausibility rules as the landing-page chart:
+// public.market_summary (dsex, market_date, scraped_at).
+async function openDSEXChartModal(days) {
     const modal = document.getElementById('dsex-chart-modal');
     if (!modal) return;
     modal.style.display = 'flex';
+    if (Number.isFinite(days)) dsexModalDays = days;
+
+    modal.querySelectorAll('.dsex-ranges button').forEach(btn =>
+        btn.classList.toggle('on', Number(btn.dataset.days) === dsexModalDays));
 
     const canvas = document.getElementById('dsex-history-chart');
+    const statsEl = document.getElementById('dsex-modal-stats');
+    const msgEl = document.getElementById('dsex-modal-msg');
     if (!canvas) return;
+    if (msgEl) { msgEl.hidden = true; msgEl.textContent = ''; }
+
+    const destroy = () => { if (window.dsexChartInstance) { window.dsexChartInstance.destroy(); window.dsexChartInstance = null; } };
+    const fail = text => {
+        destroy();
+        if (statsEl) statsEl.innerHTML = '';
+        canvas.style.visibility = 'hidden';
+        if (msgEl) { msgEl.hidden = false; msgEl.textContent = text; }
+    };
 
     try {
-        if (typeof supabase === 'undefined' || !supabase) {
-            throw new Error('Supabase is not available');
-        }
+        if (typeof supabase === 'undefined' || !supabase) throw new Error('Supabase is not available');
+        if (typeof Chart === 'undefined') throw new Error('Chart library not loaded');
 
-        // Canonical DSEX history source: Supabase dsex_index.
-        // Show the latest 30 available trading sessions.
         const { data, error } = await supabase
-            .from('dsex_index')
-            .select('date,value,index_name')
-            .eq('index_name', 'DSEX')
-            .order('date', { ascending: false })
-            .limit(30);
-
+            .from('market_summary')
+            .select('dsex, market_date, scraped_at')
+            .not('dsex', 'is', null)
+            .order('market_date', { ascending: false })
+            .order('scraped_at', { ascending: false })
+            .limit(600);
         if (error) throw error;
 
-        const rows = (data || [])
-            .map(row => ({
-                date: String(row.date || '').split('T')[0],
-                value: Number(row.value)
-            }))
-            .filter(row => row.date && Number.isFinite(row.value) && row.value > 0)
+        // one value per trading day (latest scrape wins), plausible index values only
+        const byDate = new Map();
+        (data || []).forEach(r => {
+            const v = Number(r.dsex);
+            const d = String(r.market_date || r.scraped_at || '').split('T')[0];
+            if (!d || !Number.isFinite(v) || v < 1000 || v > 10000) return;
+            if (!byDate.has(d)) byDate.set(d, v);          // rows arrive newest-scrape first
+        });
+        let rows = [...byDate.entries()].map(([date, value]) => ({ date, value }))
             .sort((a, b) => a.date.localeCompare(b.date));
 
-        if (rows.length === 0) {
-            throw new Error('No DSEX history found in Supabase');
+        // drop single-day spikes (bad scrapes): >10% away from the median of the neighbouring sessions
+        const med = arr => { const s = [...arr].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+        rows = rows.filter((r, i) => {
+            const near = rows.slice(Math.max(0, i - 3), i + 4).filter((_, k) => k !== Math.min(i, 3)).map(x => x.value);
+            if (near.length < 3) return true;
+            return Math.abs(r.value - med(near)) / med(near) <= 0.10;
+        });
+        rows = rows.slice(-dsexModalDays);
+        if (!rows.length) throw new Error('No DSEX history found');
+
+        const vals = rows.map(r => r.value);
+        const last = vals[vals.length - 1], first = vals[0];
+        const diff = last - first, pct = first ? (diff / first) * 100 : 0;
+        if (statsEl) {
+            statsEl.innerHTML =
+                `<div><span>Latest</span><b>${last.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>` +
+                `<div><span>Change</span><b class="${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '+' : ''}${diff.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)</b></div>` +
+                `<div><span>High</span><b>${Math.max(...vals).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>` +
+                `<div><span>Low</span><b>${Math.min(...vals).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>`;
         }
 
-        const labels = rows.map(row => row.date);
-        const dataPoints = rows.map(row => row.value);
-
-        if (window.dsexChartInstance) {
-            window.dsexChartInstance.destroy();
-            window.dsexChartInstance = null;
-        }
-
+        destroy();
+        canvas.style.visibility = 'visible';
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-        const textColor = isDark ? '#f1f5f9' : '#1e293b';
-        const gridColor = isDark ? '#334155' : '#e2e8f0';
+        const tick = isDark ? '#94a3b8' : '#64748b';
+        const grid = isDark ? 'rgba(148,163,184,.12)' : 'rgba(100,116,139,.15)';
         const ctx = canvas.getContext('2d');
+        const grad = ctx.createLinearGradient(0, 0, 0, canvas.parentElement.clientHeight || 300);
+        grad.addColorStop(0, 'rgba(99,102,241,.40)');
+        grad.addColorStop(1, 'rgba(99,102,241,0)');
+        const labels = rows.map(r => {
+            const d = new Date(r.date + 'T00:00:00');
+            return Number.isNaN(d.getTime()) ? r.date : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
 
         window.dsexChartInstance = new Chart(ctx, {
             type: 'line',
             data: {
                 labels,
                 datasets: [{
-                    label: 'DSEX Index',
-                    data: dataPoints,
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59,130,246,0.1)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.2,
-                    pointRadius: 3,
-                    pointHoverRadius: 5
+                    label: 'DSEX', data: vals, fill: true, backgroundColor: grad,
+                    borderColor: '#6366f1', borderWidth: 2.5, tension: 0.35,
+                    pointRadius: rows.length > 45 ? 0 : 2, pointHoverRadius: 6,
+                    pointBackgroundColor: '#6366f1', pointBorderColor: isDark ? '#0f172a' : '#fff', pointBorderWidth: 1.5
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
+                responsive: true, maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: { color: textColor }
-                    },
+                    legend: { display: false },
                     tooltip: {
+                        displayColors: false,
                         callbacks: {
-                            title: items => items?.[0]?.label || '',
-                            label: ctx => `DSEX: ${Number(ctx.raw).toFixed(2)}`
+                            title: items => rows[items[0].dataIndex] ? rows[items[0].dataIndex].date : '',
+                            label: c => ` DSEX: ${Number(c.parsed.y).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                         }
                     }
                 },
                 scales: {
-                    x: {
-                        ticks: { color: textColor, maxRotation: 45, minRotation: 30 },
-                        grid: { color: gridColor },
-                        title: { display: true, text: 'Date', color: textColor }
-                    },
-                    y: {
-                        ticks: { color: textColor, callback: value => Number(value).toFixed(0) },
-                        grid: { color: gridColor },
-                        title: { display: true, text: 'DSEX Value', color: textColor }
-                    }
+                    x: { grid: { display: false }, ticks: { color: tick, maxTicksLimit: 7, maxRotation: 0 } },
+                    y: { grid: { color: grid }, ticks: { color: tick, callback: v => Number(v).toLocaleString() }, grace: '6%' }
                 }
             }
         });
     } catch (err) {
         console.error('DSEX chart load failed:', err);
-        if (window.dsexChartInstance) {
-            window.dsexChartInstance.destroy();
-            window.dsexChartInstance = null;
-        }
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#ef4444';
-        ctx.font = '14px sans-serif';
-        ctx.fillText('DSEX chart error: ' + (err.message || err), 20, 40);
+        fail('DSEX chart error: ' + (err.message || err));
     }
 }
 

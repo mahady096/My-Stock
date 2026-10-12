@@ -783,10 +783,19 @@ async function triggerScraperDirect() {
     const btn = document.getElementById('btn-trigger-scraper');
     const status = document.getElementById('scraper-status');
     
-    // ইউজার লগইন চেক
-    const user = auth.currentUser;
+    // UI visibility is not a security boundary: enforce the same admin check here.
+    const user = (typeof auth !== 'undefined' && auth) ? auth.currentUser : null;
     if (!user) {
         showToast('Please login first', 'error');
+        return;
+    }
+    if (!window.StockPulseAdmin || !window.StockPulseAdmin.isAdmin(user)) {
+        if (btn) btn.hidden = true;
+        showToast('⛔ Admin access required to run the scraper.', 'error');
+        return;
+    }
+    if (!btn || btn.hidden) {
+        showToast('⛔ Scraper control is available to admins only.', 'error');
         return;
     }
 

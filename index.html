@@ -818,20 +818,31 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                     <span>StockPulse provides portfolio tracking and technical signals. Data can be delayed or unavailable. Signals are informational and are not financial advice.</span>
                 </div>
 
+                <div class="dashboard-action-toolbar" aria-label="Dashboard controls">
+                    <div class="dashboard-action-title">
+                        <span class="dashboard-action-eyebrow">MARKET DATA</span>
+                        <strong>Dashboard Tools</strong>
+                        <small>Refresh prices or run the scraper.</small>
+                    </div>
+                    <div class="dashboard-action-controls">
+                        <button id="btn-manual-reload" class="dashboard-action-btn refresh-action" onclick="manualReloadDashboard()">
+                            <span aria-hidden="true">↻</span> Manual Refresh
+                        </button>
+                        <label class="dashboard-auto-refresh" for="autoRefreshToggle">
+                            <span class="switch"><input type="checkbox" id="autoRefreshToggle" checked><span class="slider"></span></span>
+                            <span><b>Auto Refresh</b><small>Every 30 min</small></span>
+                        </label>
+                        <button id="btn-trigger-scraper" class="dashboard-action-btn scraper-action" onclick="triggerScraperDirect()" hidden aria-hidden="true" title="Admin only">
+                            <span aria-hidden="true">⚙</span> Run Scraper
+                        </button>
+                    </div>
+                    <div class="dashboard-action-status"><span id="next-refresh-timer"></span><span id="scraper-status">Ready</span></div>
+                </div>
+
                 <div class="data-source-indicator" id="data-source-indicator">
                     <div class="source-info">
                         <span class="source-icon" id="source-icon">💾</span>
                         <span class="source-text" id="source-text">Firebase Mode</span>
-                    </div>
-                    <div class="data-info-bar" style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-secondary); padding: 10px 20px; border-radius: 12px; margin: 10px 0; border: 1px solid var(--border-color); flex-wrap: wrap; gap: 10px;">
-                        <div>
-                            <span style="font-weight: bold;">📅 Previous Data Date:</span>
-                            <span id="previous-data-date" style="color: var(--text-muted);">-</span>
-                        </div>
-                        <div>
-                            <span style="font-weight: bold;">🕐 Last Updated:</span>
-                            <span id="last-updated-time" style="color: var(--text-muted);">-</span>
-                        </div>
                     </div>
                     <div id="dsex-indicator" class="dsex-card" 
                         onclick="openDSEXChartModal()"
@@ -899,58 +910,36 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
 </div>
                 </div>
 
-                <div class="manual-reload-container" style="display: flex; justify-content: space-between; align-items: center; margin: 15px 0;">
-                    <div class="auto-refresh-control" style="display: flex; align-items: center; gap: 15px;">
-                        <label class="switch">
-                            <input type="checkbox" id="autoRefreshToggle" checked>
-                            <span class="slider"></span>
-                        </label>
-                        <span style="font-size: 13px; color: var(--text-secondary);">🔄 Auto Refresh (30 min)</span>
-                        <span id="next-refresh-timer" style="font-size: 11px; color: var(--text-muted);"></span>
-                    </div>
-                  <button id="btn-manual-reload" onclick="manualReloadDashboard()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
-    🔄 Manual Refresh
-</button>
-<div style="margin: 20px 0;">
-    <button id="btn-trigger-scraper" onclick="triggerScraperDirect()" 
-            style="background: #6366f1; color: white; border: none; 
-                   padding: 12px 24px; border-radius: 30px; font-weight: bold; cursor: pointer;">
-        🔄 Run Scraper Now
-    </button>
-    <span id="scraper-status" style="margin-left: 12px; font-size: 14px;">Ready</span>
-</div>
-                </div>
-                
                 <div class="portfolio-summary-cards">
                     <div class="premium-card card-1" id="card-total-value" onclick="openDashboardCardHistory('value')" role="button" tabindex="0" aria-label="Show last 30 days chart" style="cursor:pointer;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDashboardCardHistory('value')}" title="Current Portfolio Value">
-                        <div class="card-icon">💰</div>
-                        <div class="card-label"><span>📊</span> TOTAL VALUE</div>
+                        <div class="card-icon" aria-hidden="true">📊</div>
+                        <div class="card-label">Total value</div>
                         <div class="card-value" id="dash-total-value">৳0.00</div>
                         <div class="card-footer">Current Portfolio Value</div>
                     </div>
                     <div class="premium-card card-2" id="card-total-cost" onclick="openDashboardCardHistory('investment')" role="button" tabindex="0" aria-label="Show last 30 days chart" style="cursor:pointer;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDashboardCardHistory('investment')}" title="Total Money Invested">
-                        <div class="card-icon">📈</div>
-                        <div class="card-label"><span>💰</span> TOTAL INVESTMENT</div>
+                        <div class="card-icon" aria-hidden="true">🏦</div>
+                        <div class="card-label">Total investment</div>
                         <div class="card-value" id="dash-total-cost">৳0.00</div>
                         <div class="card-footer">Including Commission</div>
                     </div>
                     <div class="premium-card card-3" id="card-daily-pl" onclick="openDashboardCardHistory('dailyPL')" role="button" tabindex="0" aria-label="Show last 30 days chart" style="cursor:pointer;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDashboardCardHistory('dailyPL')}" title="Today's Gain/Loss">
-                        <div class="card-icon">📉</div>
-                        <div class="card-label"><span>⚡</span> DAILY P/L</div>
+                        <div class="card-icon" aria-hidden="true">⚡</div>
+                        <div class="card-label">Daily P/L</div>
                         <div class="card-value" id="dash-total-daily">৳0.00</div>
                         <div class="card-percent" id="dash-total-daily-pct">(0.00%)</div>
                         <div class="card-footer">Today's Change</div>
                     </div>
                     <div class="premium-card card-4" id="card-total-pl" onclick="openDashboardCardHistory('totalPL')" role="button" tabindex="0" aria-label="Show last 30 days chart" style="cursor:pointer;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDashboardCardHistory('totalPL')}" title="Overall Gain/Loss">
-                        <div class="card-icon">🎯</div>
-                        <div class="card-label"><span>🏆</span> TOTAL P/L</div>
+                        <div class="card-icon" aria-hidden="true">🏆</div>
+                        <div class="card-label">Total P/L</div>
                         <div class="card-value" id="dash-total-gl">৳0.00</div>
                         <div class="card-percent" id="dash-total-gl-pct">(0.00%)</div>
                         <div class="card-footer">Overall Return</div>
                     </div>
                     <div class="premium-card card-5" id="card-total-income" onclick="openDepositModal()" title="Total Income (Deposit + Realized Profit)">
-                        <div class="card-icon">💰</div>
-                        <div class="card-label"><span>💵</span> TOTAL INCOME</div>
+                        <div class="card-icon" aria-hidden="true">💵</div>
+                        <div class="card-label">Total income</div>
                         <div class="card-value" id="dash-total-income">৳0.00</div>
                         <div class="card-percent" id="dash-total-income-pct">(0.00%)</div>
                         <div class="card-footer">Deposit + Realized Profit</div>
@@ -1317,34 +1306,34 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                 </div>
                 <div class="portfolio-summary-cards" style="margin: 15px;">
                     <div class="premium-card card-1">
-                        <div class="card-icon">💰</div>
-                        <div class="card-label">TOTAL VALUE</div>
+                        <div class="card-icon" aria-hidden="true">📊</div>
+                        <div class="card-label">Total value</div>
                         <div class="card-value" id="summary-total-value">৳0.00</div>
                         <div class="card-footer">Current Portfolio Value</div>
                     </div>
                     <div class="premium-card card-2">
-                        <div class="card-icon">📈</div>
-                        <div class="card-label">TOTAL COST</div>
+                        <div class="card-icon" aria-hidden="true">🏦</div>
+                        <div class="card-label">Total investment</div>
                         <div class="card-value" id="summary-total-cost">৳0.00</div>
                         <div class="card-footer">Including Commission</div>
                     </div>
                     <div class="premium-card card-3">
-                        <div class="card-icon">📉</div>
-                        <div class="card-label">DAILY P/L</div>
+                        <div class="card-icon" aria-hidden="true">⚡</div>
+                        <div class="card-label">Daily P/L</div>
                         <div class="card-value" id="summary-total-daily">৳0.00</div>
                         <div class="card-percent" id="summary-total-daily-pct">(0.00%)</div>
                         <div class="card-footer">Today's Change</div>
                     </div>
                     <div class="premium-card card-4">
-                        <div class="card-icon">🎯</div>
-                        <div class="card-label">TOTAL P/L</div>
+                        <div class="card-icon" aria-hidden="true">🏆</div>
+                        <div class="card-label">Total P/L</div>
                         <div class="card-value" id="summary-total-gl">৳0.00</div>
                         <div class="card-percent" id="summary-total-gl-pct">(0.00%)</div>
                         <div class="card-footer">Overall Return</div>
                     </div>
                     <div class="premium-card card-5" id="summary-card-total-income" onclick="openDepositModal()" title="Total Income (Deposit + Realized Profit)">
-                        <div class="card-icon">💰</div>
-                        <div class="card-label"><span>💵</span> TOTAL INCOME</div>
+                        <div class="card-icon" aria-hidden="true">💵</div>
+                        <div class="card-label">Total income</div>
                         <div class="card-value" id="summary-total-income">৳0.00</div>
                         <div class="card-percent" id="summary-total-income-pct">(0.00%)</div>
                         <div class="card-footer">Deposit + Realized Profit</div>
@@ -1435,8 +1424,12 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                             <input type="text" id="trade-ticker" placeholder="Share Name (e.g., GP, SQURPHARMA)" autocomplete="off">
                             <div id="suggestion-box" class="suggestion-list hidden"></div>
                         </div>
-                        <input type="number" id="trade-qty" placeholder="Quantity">
-                        <input type="number" id="trade-price" placeholder="Price">
+                        <input type="number" id="trade-qty" placeholder="Quantity" min="1" step="1">
+                        <input type="number" id="trade-price" placeholder="Price" min="0" step="0.01">
+                        <label class="bonus-share-toggle" for="bonus-share-toggle">
+                            <input type="checkbox" id="bonus-share-toggle">
+                            <span><strong>🎁 Bonus / Stock Dividend</strong><small>Bonus shares have a buy price of ৳0.</small></span>
+                        </label>
                         <div style="margin: 10px 0;">
                             <label style="font-size: 12px; color: #64748b;">📅 Transaction Date</label>
                             <input type="date" id="trade-date" style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 4px;">
@@ -2052,39 +2045,43 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                     </select>
                 </div>
                 <div style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; margin-bottom: 25px; box-shadow: var(--card-shadow); border-left: 4px solid #10b981;">
-                    <h4 style="color: #10b981; margin-top: 0; margin-bottom: 15px;">📈 Buy Suggestion (Gain ≥ 50%)</h4>
+                    <h4 style="color: #10b981; margin-top: 0; margin-bottom: 15px;">📈 Buy Suggestion (Loss ≥ 50%)</h4>
                     <div style="overflow-x: auto;">
                         <table id="suggestion-buy-table" style="width: 100%; font-size: 13px; border-collapse: collapse;">
                             <thead>
                                 <tr style="background: var(--bg-tertiary);">
                                     <th style="padding: 10px; text-align: left;">Share Name</th>
-                                    <th style="padding: 10px; text-align: right;">Avg Buy (৳)</th>
-                                    <th style="padding: 10px; text-align: right;">Share Qty</th>
-                                    <th style="padding: 10px; text-align: right;">Unrealized Gain (৳)</th>
-                                    <th style="padding: 10px; text-align: right;">Unrealized (%)</th>
+                                    <th style="padding: 10px; text-align: center;">Lot / Buy Date</th>
+                                    <th style="padding: 10px; text-align: right;">Buy Price (৳)</th>
+                                    <th style="padding: 10px; text-align: right;">Lot Qty</th>
+                                    <th style="padding: 10px; text-align: right;">Current (৳)</th>
+                                    <th style="padding: 10px; text-align: right;">P/L (৳)</th>
+                                    <th style="padding: 10px; text-align: right;">P/L (%)</th>
                                 </tr>
                             </thead>
                             <tbody id="suggestion-buy-body">
-                                <tr><td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">Loading...</td></tr>
+                                <tr><td colspan="7" style="text-align: center; padding: 30px; color: var(--text-muted);">Loading...</td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
                 <div style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow); border-left: 4px solid #ef4444;">
-                    <h4 style="color: #ef4444; margin-top: 0; margin-bottom: 15px;">📉 Sell Suggestion (Loss ≤ -50%)</h4>
+                    <h4 style="color: #ef4444; margin-top: 0; margin-bottom: 15px;">📉 Sell Suggestion (Gain ≥ 50%)</h4>
                     <div style="overflow-x: auto;">
                         <table id="suggestion-sell-table" style="width: 100%; font-size: 13px; border-collapse: collapse;">
                             <thead>
                                 <tr style="background: var(--bg-tertiary);">
                                     <th style="padding: 10px; text-align: left;">Share Name</th>
-                                    <th style="padding: 10px; text-align: right;">Avg Buy (৳)</th>
-                                    <th style="padding: 10px; text-align: right;">Share Qty</th>
-                                    <th style="padding: 10px; text-align: right;">Unrealized Loss (৳)</th>
-                                    <th style="padding: 10px; text-align: right;">Unrealized (%)</th>
+                                    <th style="padding: 10px; text-align: center;">Lot / Buy Date</th>
+                                    <th style="padding: 10px; text-align: right;">Buy Price (৳)</th>
+                                    <th style="padding: 10px; text-align: right;">Lot Qty</th>
+                                    <th style="padding: 10px; text-align: right;">Current (৳)</th>
+                                    <th style="padding: 10px; text-align: right;">P/L (৳)</th>
+                                    <th style="padding: 10px; text-align: right;">P/L (%)</th>
                                 </tr>
                             </thead>
                             <tbody id="suggestion-sell-body">
-                                <tr><td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">Loading...</td></tr>
+                                <tr><td colspan="7" style="text-align: center; padding: 30px; color: var(--text-muted);">Loading...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -2497,7 +2494,7 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                 <span onclick="closeAdvancedModal()" style="cursor: pointer; font-size: 32px; line-height: 1; color: var(--text-muted);">&times;</span>
             </div>
             <div class="adv-card-grid">
-                <div class="adv-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 16px; border-radius: 16px; color: white;">
+                <div class="adv-card" style="background: linear-gradient(135deg, #3730a3 0%, #581c87 100%); padding: 16px; border-radius: 16px; color: #ffffff;">
                     <div style="font-size: 12px; opacity: 0.8;">LTP (৳)</div>
                     <div style="font-size: 28px; font-weight: 700;" id="adv-ltp">-</div>
                     <div style="font-size: 13px; margin-top: 4px;" id="adv-change">Change: -</div>
@@ -2507,7 +2504,7 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                         <span>CSE: ৳<span id="adv-cse-price">-</span></span>
                     </div>
                 </div>
-                <div class="adv-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 16px; border-radius: 16px; color: white;">
+                <div class="adv-card" style="background: linear-gradient(135deg, #9d174d 0%, #be123c 100%); padding: 16px; border-radius: 16px; color: #ffffff;">
                     <div style="font-size: 12px; opacity: 0.8;">Today's Range</div>
                     <div style="font-size: 22px; font-weight: 700;" id="adv-highlow">- / -</div>
                     <div style="display: flex; justify-content: space-between; margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 10px;">
@@ -2523,32 +2520,32 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                         </div>
                     </div>
                 </div>
-                <div class="adv-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 16px; border-radius: 16px; color: white;">
+                <div class="adv-card" style="background: linear-gradient(135deg, #075985 0%, #0e7490 100%); padding: 16px; border-radius: 16px; color: #ffffff;">
                     <div style="font-size: 12px; opacity: 0.8;">Previous Close</div>
                     <div style="font-size: 24px; font-weight: 700;" id="adv-prev-close">-</div>
                     <div style="font-size: 11px; margin-top: 4px; opacity: 0.8;" id="adv-prev-date">as on: -</div>
                 </div>
-                <div class="adv-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 16px; border-radius: 16px; color: #0f172a;">
+                <div class="adv-card" style="background: linear-gradient(135deg, #047857 0%, #0f766e 100%); padding: 16px; border-radius: 16px; color: #ffffff;">
                     <div style="font-size: 12px; opacity: 0.8;">My Holdings</div>
                     <div style="font-size: 26px; font-weight: 700;" id="adv-holdings-qty">-</div>
                     <div style="font-size: 13px; margin-top: 4px;">Avg Buy: ৳<span id="adv-avg-buy">-</span></div>
                 </div>
             </div>
             <div class="adv-card-grid-3">
-                <div class="adv-card" style="background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); padding: 16px; border-radius: 16px; color: white; cursor: pointer;" onclick="openGainHistoryModal(document.getElementById('adv-modal-ticker')?.innerText)">
+                <div class="adv-card" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); padding: 16px; border-radius: 16px; color: #ffffff; cursor: pointer; border: 1px solid rgba(255,255,255,0.14);" onclick="openGainHistoryModal(document.getElementById('adv-modal-ticker')?.innerText)">
                     <div style="font-size: 12px; opacity: 0.8;">Total Gain/Loss</div>
                     <div style="font-size: 24px; font-weight: 700;" id="adv-gain-amount">-</div>
                     <div style="font-size: 14px; margin-top: 4px;" id="adv-gain-percent">-</div>
                 </div>
-                <div class="adv-card" style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); padding: 16px; border-radius: 16px; color: #1e293b;">
-                    <div style="font-size: 12px; opacity: 0.8;">EPS (৳)</div>
-                    <div style="font-size: 24px; font-weight: 700;" id="adv-eps">-</div>
-                    <div style="font-size: 11px; margin-top: 4px;">Earnings Per Share</div>
+                <div class="adv-card adv-fund adv-fund-eps" role="button" tabindex="0" aria-label="Show EPS history chart" onclick="openFundamentalHistory('eps')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFundamentalHistory('eps')}">
+                    <div class="fund-lbl">EPS (৳) <span class="fund-chev">History ›</span></div>
+                    <div class="fund-val" id="adv-eps">-</div>
+                    <div class="fund-meta" id="adv-eps-date">Earnings per share</div>
                 </div>
-                <div class="adv-card" style="background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); padding: 16px; border-radius: 16px; color: #1e293b;">
-                    <div style="font-size: 12px; opacity: 0.8;">P/E Ratio</div>
-                    <div style="font-size: 24px; font-weight: 700;" id="adv-pe">-</div>
-                    <div style="font-size: 11px; margin-top: 4px;">Price to Earnings</div>
+                <div class="adv-card adv-fund adv-fund-pe" role="button" tabindex="0" aria-label="Show P/E ratio history chart" onclick="openFundamentalHistory('pe')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFundamentalHistory('pe')}">
+                    <div class="fund-lbl">P/E Ratio <span class="fund-chev">History ›</span></div>
+                    <div class="fund-val" id="adv-pe">-</div>
+                    <div class="fund-meta" id="adv-pe-date">Price to earnings</div>
                 </div>
             </div>
             <div style="background: var(--bg-tertiary); border-radius: 16px; margin-bottom: 20px; overflow: hidden; border: 1px solid var(--border-color);">
@@ -2728,13 +2725,21 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
 
     <!-- 📈 DSEX চার্ট মডাল -->
     <div id="dsex-chart-modal" class="modal" style="display:none;">
-        <div class="modal-content" style="max-width: 800px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
-                <h3 style="margin:0;">📈 DSEX Index History</h3>
-                <span onclick="closeDSEXChartModal()" style="cursor: pointer; font-size: 28px; line-height: 1; color: var(--text-muted);">&times;</span>
+        <div class="modal-content dsex-sheet" style="max-width: 800px;">
+            <div class="dsex-head">
+                <h3>📈 DSEX Index History</h3>
+                <button type="button" class="dsex-close" onclick="closeDSEXChartModal()" aria-label="Close">&times;</button>
             </div>
-            <div style="position:relative; height:400px;">
+            <div class="dsex-ranges" role="tablist">
+                <button type="button" data-days="7" onclick="openDSEXChartModal(7)">7D</button>
+                <button type="button" data-days="30" class="on" onclick="openDSEXChartModal(30)">30D</button>
+                <button type="button" data-days="90" onclick="openDSEXChartModal(90)">90D</button>
+                <button type="button" data-days="250" onclick="openDSEXChartModal(250)">1Y</button>
+            </div>
+            <div class="fund-stats" id="dsex-modal-stats"></div>
+            <div class="dsex-chart-box">
                 <canvas id="dsex-history-chart"></canvas>
+                <div class="fund-empty" id="dsex-modal-msg" hidden></div>
             </div>
         </div>
     </div>
@@ -2872,13 +2877,16 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.js"></script>
+    <!-- Hammer.js is required by chartjs-plugin-zoom for touch/pinch gestures. -->
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
     <script src="chart-zoom.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="indicators.js" defer></script>
 <script src="config.js" defer></script>
 <script src="firebase-config.js" defer></script>
+<script src="admin-scraper-control.js" defer></script>
 <script src="supabase-config.js" defer></script>
 <script src="supabase-market-compat.js" defer></script>
 <script src="data-service.js" defer></script>
@@ -2898,6 +2906,8 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
 
 <!-- dashboard ফাইল -->
 <script src="dash-cards.js" defer></script>
+<script src="fundamentals.js" defer></script>
+<script src="premium-charts.js" defer></script>
 <script src="dash-performance.js" defer></script>
 <script src="dash-charts.js" defer></script>
 <script src="dash-signals.js" defer></script>

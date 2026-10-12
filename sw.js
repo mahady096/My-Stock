@@ -24,10 +24,10 @@ const VAPID_PUBLIC_KEY = 'BJvVefLaxMNoMclXOJ_lNNGfTiYtT0e30u2MtEd9fNYN6OqW6SrIkz
 //    নতুন নামগুলো ছাড়া বাকি সব পুরনো ক্যাশ ডিলিট করে দেবে, ফলে
 //    ইউজাররা নতুন (ফিক্সড) কোড পাবে, পুরনো ক্যাশড বাগ-যুক্ত JS না
 // ==========================================
-const CACHE_NAME = 'stockpulse-v6.2.2';
-const STATIC_CACHE = 'static-v6.2.2';
-const API_CACHE = 'api-v6.2.2';
-const DYNAMIC_CACHE = 'dynamic-v6.2.2';
+const CACHE_NAME = 'stockpulse-v6.3.4';
+const STATIC_CACHE = 'static-v6.3.4';
+const API_CACHE = 'api-v6.3.4';
+const DYNAMIC_CACHE = 'dynamic-v6.3.4';
 
 // ==========================================
 // 📦 ক্যাশে রাখার ফাইলসমূহ
@@ -38,7 +38,6 @@ const urlsToCache = [
   '/adv-charts.html',
   '/style.css',
   '/manifest.json',
-  '/favicon.ico',
   
   // কোর JS ফাইল
   '/config.js',
@@ -56,6 +55,8 @@ const urlsToCache = [
   
   // ড্যাশবোর্ড
   '/dash-cards.js',
+  '/fundamentals.js',
+  '/premium-charts.js',
   '/dash-performance.js',
   '/dash-charts.js',
   '/dash-signals.js',
@@ -92,11 +93,8 @@ const urlsToCache = [
   // আইকন
   '/icons/icon-72x72.png',
   '/icons/icon-96x96.png',
-  '/icons/icon-128x128.png',
   '/icons/icon-144x144.png',
-  '/icons/icon-152x152.png',
   '/icons/icon-192x192.png',
-  '/icons/icon-384x384.png',
   '/icons/icon-512x512.png'
 ];
 
@@ -109,7 +107,7 @@ self.addEventListener('install', event => {
     caches.open(STATIC_CACHE)
       .then(cache => {
         console.log('[SW] Caching static assets...');
-        return cache.addAll(urlsToCache);
+        return Promise.all(urlsToCache.map(u => cache.add(u).catch(e => console.warn('[SW] skip', u, e && e.message))));
       })
       .catch(err => {
         console.error('[SW] Cache addAll failed:', err);

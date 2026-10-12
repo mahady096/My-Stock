@@ -45,6 +45,7 @@
     // DOM এলিমেন্টগুলো নিরাপদে রেফারেন্স
     const tickerInput = document.getElementById('trade-ticker');
     const priceInput = document.getElementById('trade-price');
+    const bonusShareToggle = document.getElementById('bonus-share-toggle');
     const suggestionBox = document.getElementById('suggestion-box');
     const tradeDateInput = document.getElementById('trade-date');
     const qtyInput = document.getElementById('trade-qty');
@@ -52,6 +53,23 @@
     const buyPortfolioSelect = document.getElementById('buy-portfolio-select');
 
     if (tradeDateInput) tradeDateInput.value = getBangladeshDateString();
+
+    // Bonus/stock-dividend shares are recorded as a separate zero-cost lot.
+    if (bonusShareToggle && priceInput) {
+        bonusShareToggle.addEventListener('change', () => {
+            if (bonusShareToggle.checked) {
+                priceInput.value = '0';
+                priceInput.readOnly = true;
+                priceInput.min = '0';
+                priceInput.placeholder = 'Bonus share price: ৳0';
+            } else {
+                priceInput.readOnly = false;
+                priceInput.value = '';
+                priceInput.min = '0.01';
+                priceInput.placeholder = 'Price';
+            }
+        });
+    }
 
     // ==========================================
     // ১. Buy সাজেশন – ডিবাউন্স সহ
@@ -132,12 +150,18 @@
                 if (typeof showToast === 'function') showToast("Please fill all fields correctly", "warning");
                 return;
             }
+            // 🛡️ টিকার ফরম্যাট ভ্যালিডেশন (শুধু অক্ষর, সংখ্যা, . _ & -)
+            if (!/^[A-Z0-9._&-]{1,20}$/.test(shareName)) {
+                if (typeof showToast === 'function') showToast("Invalid share code. Use letters and numbers only.", "warning");
+                return;
+            }
 
             // ✅ ফিক্স: সংখ্যা ভ্যালিড কিনা যাচাই (NaN হলে আটকে দেওয়া)
             const quantity = Number(quantityRaw);
             const price = Number(priceRaw);
-            if (isNaN(quantity) || quantity <= 0 || isNaN(price) || price <= 0) {
-                if (typeof showToast === 'function') showToast("Please enter valid quantity and price (numbers > 0).", "warning");
+            const isBonusShare = !!(bonusShareToggle && bonusShareToggle.checked);
+            if (isNaN(quantity) || quantity <= 0 || !Number.isFinite(price) || price < 0 || (price === 0 && !isBonusShare)) {
+                if (typeof showToast === 'function') showToast("Enter a valid quantity and a price above zero, or select Bonus / Stock Dividend for zero-cost shares.", "warning");
                 return;
             }
 
@@ -172,8 +196,8 @@
                 <div class="confirm-summary-grid">
                     <span>Stock</span><strong>${shareName}</strong>
                     <span>Quantity</span><strong>${quantity}</strong>
-                    <span>Price</span><strong>৳${price.toFixed(2)}</strong>
-                    <span>Trade value</span><strong>৳${totalAmount.toFixed(2)}</strong>
+                    <span>${isBonusShare ? 'Share type' : 'Price'}</span><strong>${isBonusShare ? 'Bonus / Stock Dividend' : `৳${price.toFixed(2)}`}</strong>
+                    <span>${isBonusShare ? 'Recorded cost' : 'Trade value'}</span><strong>৳${totalAmount.toFixed(2)}</strong>
                     <span>Commission</span><strong>৳${commissionAmount.toFixed(2)} (${commissionPercent}%)</strong>
                     <span class="total-label">Total payable</span><strong class="total-value">৳${totalWithCommission.toFixed(2)}</strong>
                 </div>`;
@@ -227,7 +251,8 @@
                     // ফর্ম রিসেট
                     if (tickerInput) tickerInput.value = "";
                     if (qtyInput) qtyInput.value = "";
-                    if (priceInput) priceInput.value = "";
+                    if (priceInput) { priceInput.value = ""; priceInput.readOnly = false; priceInput.placeholder = 'Price'; priceInput.min = '0.01'; }
+                    if (bonusShareToggle) bonusShareToggle.checked = false;
                     if (tradeDateInput) tradeDateInput.value = getTodayDate();
                 } else {
                     if (typeof showToast === 'function') showToast("Failed to save purchase in both databases!", "error");

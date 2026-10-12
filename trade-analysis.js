@@ -329,7 +329,7 @@
             }
         } catch (err) {
             console.error('Statement error:', err);
-            if (statementTableBody) statementTableBody.innerHTML = `<tr><td colspan="7">Error loading data. <br> ${err.message}</td></tr>`;
+            if (statementTableBody) statementTableBody.innerHTML = `<tr><td colspan="7">Error loading data. <br> ${spEscapeHtml(err.message)}</td></tr>`;
         }
     };
 

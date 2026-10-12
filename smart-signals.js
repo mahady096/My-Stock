@@ -230,7 +230,7 @@ async function loadSmartSignalsPage() {
 
     } catch (error) {
         console.error('Smart signals error:', error);
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:40px; color:red;">❌ Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:40px; color:red;">❌ Error: ${spEscapeHtml(error.message)}</td></tr>`;
     }
 }
 

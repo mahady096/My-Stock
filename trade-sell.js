@@ -268,6 +268,10 @@
                 if (typeof showToast === 'function') showToast("Please select a share", "warning");
                 return;
             }
+            if (!/^[A-Z0-9._&-]{1,20}$/.test(ticker)) {
+                if (typeof showToast === 'function') showToast("Invalid share code. Use letters and numbers only.", "warning");
+                return;
+            }
             if (currentActiveLots.length === 0) {
                 if (typeof showToast === 'function') showToast("No sellable lots available!", "warning");
                 return;
@@ -814,7 +818,7 @@
             if (footer) footer.style.display = 'table-footer-group';
         } catch (error) {
             console.error('Sell history error:', error);
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 20px; color: red;">Error loading data. ${error.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 20px; color: red;">Error loading data. ${spEscapeHtml(error.message)}</td></tr>`;
             if (footer) footer.style.display = 'none';
         }
     }

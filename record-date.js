@@ -93,7 +93,7 @@ async function loadAllRecordData() {
         console.error('Error loading record dates:', err);
         allRecordData = [];
         const tbody = document.getElementById('sec-record-date-tbody');
-        if (tbody) tbody.innerHTML = `<tr><td colspan="4">Error loading data: ${err.message}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4">Error loading data: ${spEscapeHtml(err.message)}</td></tr>`;
     }
 }
 

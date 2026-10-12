@@ -79,7 +79,7 @@
       const condition = String(row.market_status || (positive ? 'BULLISH' : 'BEARISH')).toUpperCase();
 
       // Canonical live DSEX source is market_summary, matching the authenticated dashboard.
-      // dsex_index remains the historical chart source.
+      // All DSEX chart/history/benchmark views use market_summary as the canonical source.
       setText('landing-dsex', fmt(row.dsex, 2));
       setText('landing-change', `${signed(change, 2)} pts`);
       setText('landing-percent', `${signed(pct, 2)}%`);
@@ -149,23 +149,33 @@
     if (!canvas || !client) return;
 
     try {
+      // Use the same canonical source as the market snapshot: public.market_summary.
+      // The dsex_index table may contain differently scaled or stale values, which
+      // caused the public chart to show million-sized values and zero-point spikes.
       const { data, error } = await client
-        .from('dsex_index')
-        .select('value, date, updated_at')
-        .eq('index_name', 'DSEX')
-        .order('date', { ascending: false })
+        .from('market_summary')
+        .select('dsex, market_date, scraped_at')
+        .not('dsex', 'is', null)
+        .order('market_date', { ascending: false })
         .limit(30);
 
       if (error) throw error;
-      const rows = (data || []).reverse();
+      // Do not scale values heuristically. Accept only plausible DSEX index values;
+      // discard zero, missing, and malformed rows instead of plotting them as crashes.
+      const rows = (data || []).map(r => ({
+        ...r,
+        chartValue: Number(r.dsex),
+        chartDate: r.market_date || r.scraped_at
+      })).filter(r => Number.isFinite(r.chartValue) && r.chartValue >= 1000 && r.chartValue <= 10000)
+        .reverse();
       if (!rows.length || typeof Chart === 'undefined') return;
 
       const labels = rows.map(r => {
-        const raw = r.date || r.updated_at;
+        const raw = r.chartDate;
         const d = new Date(raw);
         return Number.isNaN(d.getTime()) ? String(raw || '') : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       });
-      const values = rows.map(r => Number(r.value)).filter(Number.isFinite);
+      const values = rows.map(r => r.chartValue);
       if (!values.length) return;
 
       if (window.__stockpulseLandingChart) window.__stockpulseLandingChart.destroy();
@@ -175,7 +185,7 @@
           labels,
           datasets: [{
             label: 'DSEX',
-            data: rows.map(r => Number(r.value)),
+            data: values,
             borderWidth: 2.5,
             tension: 0.35,
             pointRadius: 2,

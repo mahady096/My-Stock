@@ -213,7 +213,7 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
                 for (const chunk of metaChunks) {
                     const { data, error } = await supabase
                         .from('stock_metadata')
-                        .select('ticker,indicators,rsi,psar,last_updated')
+                        .select('ticker,indicators,rsi,psar,ath,atl,ath_date,atl_date,last_updated')
                         .in('ticker', chunk);
                     if (!error && data) {
                         data.forEach(row => indicatorMetaMap.set(String(row.ticker ?? '').trim().toUpperCase(), row));
@@ -339,16 +339,17 @@ async function loadAllScannerData(forceRefresh = false, onProgress = null) {
                         category = live.category || 'N/A';
                     }
 
-                    // ATH/ATL ক্যালকুলেট
-                    let ath = 0, atl = Infinity;
-                    for (const item of priceData) {
-                        const ltp = item.ltp;
-                        if (ltp > ath) ath = ltp;
-                        if (ltp > 0 && ltp < atl) atl = ltp;
-                        if (item.high > ath) ath = item.high;
-                        if (item.low > 0 && item.low < atl) atl = item.low;
-                    }
-                    if (atl === Infinity) atl = 0;
+                    // ATH/ATL: use the canonical all-time values from stock_metadata.
+                    // Do NOT calculate from the 30-day scanner history here; that would
+                    // turn ATH/ATL into 30-day high/low and produce values such as
+                    // WALTONHIL ATH 397.60 instead of the canonical ATH 750.00.
+                    let ath = Number(meta?.ath);
+                    let atl = Number(meta?.atl);
+
+                    // If metadata is unavailable, leave the values blank rather than
+                    // presenting a misleading 30-day high/low as an all-time value.
+                    if (!Number.isFinite(ath) || ath <= 0) ath = 0;
+                    if (!Number.isFinite(atl) || atl <= 0) atl = 0;
 
                     return {
                         ticker: ticker,
@@ -922,7 +923,7 @@ async function loadScreenerData(tab = 'buy', portfolioId = null) {
         if (updateTime) updateTime.innerText = new Date().toLocaleString();
     } catch (error) {
         console.error('Screener error:', error);
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:red;">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:red;">Error: ${spEscapeHtml(error.message)}</td></tr>`;
     }
 }
 
