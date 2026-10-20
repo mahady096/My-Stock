@@ -71,3 +71,11 @@
 - Filtered invalid/out-of-range DSEX points (including zero values) and de-duplicated multiple rows by trading date in the affected data paths.
 - Corrected the scraper-admin allowlist email typo so both configured admins are `admin.stockpulse@gmail.com` and `mahady0069@gmail.com`.
 - Static checks only; live Supabase, Firebase/RLS, and browser/Acode workflows still require deployment-side verification.
+
+
+## Maintenance patch — 2026-10-20
+
+- Renamed page-specific sort-indicator helpers to avoid global function-name collisions across classic scripts.
+- Deep Analysis now fetches historical high/low as single-row ordered queries and limits RSI/PSAR input to the latest 30 trading records, reducing returned history payload.
+- Bumped service-worker cache identifiers to v6.3.5 so clients can receive the updated scripts.
+- Validation: JavaScript syntax checks and scraper offline parser tests passed. Live Supabase and live DSE source validation still require deployment credentials/network runtime.

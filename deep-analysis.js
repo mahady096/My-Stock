@@ -115,28 +115,30 @@ async function loadDeepAnalysisPage() {
                 // ---------- ৪.ক ATH/ATL/RSI/PSAR → history_dse (Supabase) ----------
                 if (typeof supabase !== 'undefined' && supabase) {
                     try {
-                        const { data, error } = await supabase
-                            .from('history_dse')
-                            .select('date, ltp, high, low')
-                            .eq('ticker', ticker)
-                            .order('date', { ascending: true });
+                        // Keep the payload bounded: all-time extremes are fetched as one-row
+                        // ordered queries; indicators only need the latest 30 trading records.
+                        const [highResult, lowResult, recentResult] = await Promise.all([
+                            supabase.from('history_dse').select('high, ltp').eq('ticker', ticker)
+                                .order('high', { ascending: false, nullsFirst: false }).limit(1),
+                            supabase.from('history_dse').select('low, ltp').eq('ticker', ticker)
+                                .order('low', { ascending: true, nullsFirst: false }).limit(1),
+                            supabase.from('history_dse').select('date, ltp, high, low').eq('ticker', ticker)
+                                .order('date', { ascending: false }).limit(30)
+                        ]);
+                        const error = highResult.error || lowResult.error || recentResult.error;
+                        const data = (recentResult.data || []).slice().reverse();
 
-                        if (!error && data && data.length > 0) {
-                            // ATH/ATL ক্যালকুলেট
-                            data.forEach(d => {
-                                const ltp = parseFloat(d.ltp);
-                                const high = parseFloat(d.high) || ltp;
-                                const low = parseFloat(d.low) || ltp;
-                                if (ltp > ath) ath = ltp;
-                                if (ltp > 0 && ltp < atl) atl = ltp;
-                                if (high > ath) ath = high;
-                                if (low > 0 && low < atl) atl = low;
-                            });
-                            if (atl === Infinity) atl = 0;
+                        if (!error && data.length > 0) {
+                            const historicalHigh = highResult.data?.[0];
+                            const historicalLow = lowResult.data?.[0];
+                            const highValue = parseFloat(historicalHigh?.high) || parseFloat(historicalHigh?.ltp) || 0;
+                            const lowValue = parseFloat(historicalLow?.low) || parseFloat(historicalLow?.ltp) || 0;
+                            ath = Math.max(ath, highValue);
+                            atl = lowValue > 0 ? Math.min(atl, lowValue) : atl;
 
-                            // RSI ও PSAR (শেষ ৩০ দিন) - indicators.js থেকে কল
+                            // RSI ও PSAR-এর জন্য শুধু সর্বশেষ ৩০টি trading record লাগে
                             if (data.length >= 15) {
-                                const priceData = data.slice(-30).map(d => ({
+                                const priceData = data.map(d => ({
                                     date: d.date,
                                     ltp: parseFloat(d.ltp),
                                     high: parseFloat(d.high) || parseFloat(d.ltp),
@@ -389,7 +391,7 @@ function sortDeepTable(colIndex) {
     deepAnalysisData = sorted;
     currentPage = 1; // সর্ট করলে পেজ ১ এ চলে যাবে
     applyDeepFiltersAndRender();
-    updateSortIndicators(colIndex);
+    updateDeepAnalysisSortIndicators(colIndex);
 }
 
 // ==========================================
@@ -634,7 +636,7 @@ function changeLotPage(ticker, delta) {
 // ==========================================
 // 🧭 সর্ট ইন্ডিকেটর
 // ==========================================
-function updateSortIndicators(colIndex) {
+function updateDeepAnalysisSortIndicators(colIndex) {
     const headers = document.querySelectorAll('#deep-analysis-header-row th');
     headers.forEach((th, idx) => {
         const existing = th.querySelector('.sort-arrow');

@@ -300,10 +300,10 @@ function sortTable(columnIndex) {
         return currentSortDirection === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
     });
     dataRows.forEach(row => tableBody.appendChild(row));
-    updateSortIndicators(columnIndex);
+    updateTradeStockSortIndicators(columnIndex);
 }
 
-function updateSortIndicators(columnIndex) {
+function updateTradeStockSortIndicators(columnIndex) {
     const headers = document.querySelectorAll('#sec-table th');
     headers.forEach((header, index) => {
         const existing = header.querySelector('.sort-indicator');

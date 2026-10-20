@@ -345,10 +345,10 @@ function sortFullView(columnIndex) {
     });
 
     renderMarketTable(sorted, 'fullview-table-body', false);
-    updateSortIndicators(columnIndex);
+    updateMarketWatchSortIndicators(columnIndex);
 }
 
-function updateSortIndicators(columnIndex) {
+function updateMarketWatchSortIndicators(columnIndex) {
     const headers = document.querySelectorAll('#fullview-table thead th');
     headers.forEach((th, idx) => {
         const existing = th.querySelector('.sort-arrow');
