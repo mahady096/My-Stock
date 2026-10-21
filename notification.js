@@ -801,7 +801,7 @@ async function triggerScraperDirect() {
 
     btn.disabled = true;
     btn.innerText = '⏳ Running...';
-    status.innerText = '⏳ Sending request...';
+    status.innerText = '⏳ Requesting full scraper refresh...';
 
     try {
         // Pipedream-এ POST রিকোয়েস্ট
@@ -815,8 +815,8 @@ async function triggerScraperDirect() {
         });
 
         if (response.ok) {
-            status.innerText = '✅ Scraper started!';
-            showToast('✅ Scraper triggered successfully!', 'success');
+            status.innerText = '✅ Full refresh workflow requested. Check GitHub Actions for progress.';
+            showToast('✅ Full refresh requested. Check GitHub Actions for completion.', 'success');
         } else {
             const errorText = await response.text();
             throw new Error(errorText || `HTTP ${response.status}`);
@@ -826,7 +826,7 @@ async function triggerScraperDirect() {
         showToast('❌ Trigger failed: ' + error.message, 'error');
     } finally {
         btn.disabled = false;
-        btn.innerText = '🔄 Run Scraper Now';
+        btn.innerText = '🔄 Run Full Refresh';
         setTimeout(() => { status.innerText = 'Ready'; }, 5000);
     }
 }
