@@ -1189,7 +1189,11 @@ const dseStocks = [
     "WMSHIPYARD",
     "YPL",
     "ZAHEENSPIN",
-    "ZAHINTEX"
+    "ZAHINTEX",
+    "DUTCHBANGL",
+    "BERGERPBL",
+    "UNILEVERCL",
+    "UPGDCL"
 ];
 
 // ==========================================
