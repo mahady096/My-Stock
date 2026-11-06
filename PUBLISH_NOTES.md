@@ -1,3 +1,13 @@
+StockPulse v6.4.4 — Dynamic tickers, Trade History search fix, Transfer commission fix
+
+- New DSE/CSE codes saved by the scrapers now reach search, Market Watch, Scanner, Smart Signals, Advanced Charts and trade validation automatically (list refreshed from Supabase after login, cached up to 6 hours; built-in list stays as fallback).
+- Trade History (Buy and Sell) search: suggestions now come from the user's own shares first, then the market list; any typed code can be searched with Enter; matching is case-insensitive; "Main Portfolio" now includes older rows with an empty portfolio_id and "Grand Portfolio" shows all; Sell History now reads its own portfolio selector and reacts to changing it.
+- Share Transfer (Sidebar > Manage Portfolios > Transfer Shares): commission now moves with the transferred shares, so the source lot no longer keeps the full commission.
+- Empty Trade History results now explain why: the same code exists in another portfolio, or similar codes you own (e.g. BDTHAI vs BDTHAIFOOD).
+- New file history-search-helpers.js; service-worker cache v6.4.4.
+- Menu > Trade History (date-range page) now reads from Supabase (Firebase is backup-only and does not receive new buys, which is why it showed "No transactions in this period"). Each row shows its portfolio; Edit/Delete work on Supabase records; default range is the last 30 days and is no longer reset after an edit.
+- Trade History (Buy and Sell) now opens on Grand Portfolio by default, so a share bought in any portfolio shows up; in that view each record is labelled with its portfolio name.
+
 StockPulse v6.1.7 — Advanced Charts Touch/Cache Fix
 
 - Bumped the service-worker cache namespace so mobile browsers receive the current chart scripts instead of stale cached code.

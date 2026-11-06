@@ -264,10 +264,12 @@
         }
     }
 
-    async function updateSupabaseLot(userId, lot, oldQty, newQty) {
+    async function updateSupabaseLot(userId, lot, oldQty, newQty, newCommission) {
+        const patch = { quantity: newQty };
+        if (newCommission !== undefined) patch.commission = newCommission;
         let query = supabase
             .from('portfolios')
-            .update({ quantity: newQty })
+            .update(patch)
             .eq('user_id', String(userId))
             .eq('share_name', String(lot.shareName || '').trim().toUpperCase())
             .eq('quantity', oldQty)
@@ -338,13 +340,16 @@
 
         const oldQty = safeNum(lot.quantity);
         const newQty = oldQty - quantity;
-        const commissionPart = oldQty > 0 ? safeNum(lot.commission) * (quantity / oldQty) : 0;
+        const oldCommission = safeNum(lot.commission);
+        const commissionPart = oldQty > 0 ? Math.round(oldCommission * (quantity / oldQty) * 10000) / 10000 : 0;
+        // The commission moves with the shares: the source lot keeps only its remaining share of it.
+        const newCommission = Math.max(0, Math.round((oldCommission - commissionPart) * 10000) / 10000);
         const insertedAt = new Date().toISOString();
         let sourceChanged = false;
 
         try {
             // 1) Reduce ONLY the selected lot.
-            await updateSupabaseLot(userId, lot, oldQty, newQty);
+            await updateSupabaseLot(userId, lot, oldQty, newQty, newCommission);
             sourceChanged = true;
 
             // 2) Create the same lot in the destination portfolio.
@@ -353,7 +358,7 @@
             // If destination insert fails, restore the exact source lot.
             if (sourceChanged) {
                 try {
-                    await updateSupabaseLot(userId, { ...lot, quantity: newQty }, newQty, oldQty);
+                    await updateSupabaseLot(userId, { ...lot, quantity: newQty }, newQty, oldQty, oldCommission);
                 } catch (rollbackError) {
                     console.error('Source lot rollback failed:', rollbackError);
                 }
@@ -400,13 +405,15 @@
             const batch = db.batch();
             const oldQty = safeNum(doc.data.quantity);
             const newQty = oldQty - quantity;
-            batch.update(db.collection('portfolios').doc(doc.id), { quantity: newQty });
+            const fbOldCommission = safeNum(doc.data.commission);
+            const fbPart = oldQty > 0 ? fbOldCommission * (quantity / oldQty) : 0;
+            batch.update(db.collection('portfolios').doc(doc.id), { quantity: newQty, commission: Math.max(0, fbOldCommission - fbPart) });
             batch.set(db.collection('portfolios').doc(), {
                 userId,
                 shareName: lot.shareName,
                 quantity,
                 buyPrice: safeNum(lot.buyPrice),
-                commission: oldQty > 0 ? safeNum(doc.data.commission) * (quantity / oldQty) : 0,
+                commission: fbPart,
                 commissionPercent: safeNum(lot.commissionPercent),
                 portfolioId: toId,
                 date: doc.data.date || new Date(),

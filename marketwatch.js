@@ -585,3 +585,9 @@ window.refreshWatchList = refreshWatchList;
 window.sortFullView = sortFullView;
 
 console.log('✅ marketwatch.js loaded successfully');
+
+// When new tickers are discovered after startup, drop the cached full-market snapshot so the
+// next Market Watch load / refresh includes them (no forced re-render, so the open tab is not reset).
+window.addEventListener('stockpulse:ticker-universe-updated', () => {
+    try { sessionStorage.removeItem(MARKET_DATA_CACHE_KEY); } catch (e) { /* ignore */ }
+});
