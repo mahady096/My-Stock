@@ -1189,11 +1189,7 @@ const dseStocks = [
     "WMSHIPYARD",
     "YPL",
     "ZAHEENSPIN",
-    "ZAHINTEX",
-    "DUTCHBANGL",
-    "BERGERPBL",
-    "UNILEVERCL",
-    "UPGDCL"
+    "ZAHINTEX"
 ];
 
 // ==========================================
@@ -2177,7 +2173,172 @@ window.resetUnifiedPriceCache = resetUnifiedPriceCache;
 window.resetUnifiedCache = resetUnifiedCache;
 window.clearAllScannerCache = clearAllScannerCache;
 window.debounce = debounce;
+// One canonical ticker universe for all app features. Keep codes exactly as published
+// by the data sources (including legitimate suffixes such as A); only normalize case,
+// whitespace and duplicates. Search/scanner/market-watch modules read this shared list.
+const stockPulseTickerUniverse = [...new Set(
+    dseStocks.map(ticker => String(ticker ?? '').trim().toUpperCase()).filter(Boolean)
+)];
+dseStocks.splice(0, dseStocks.length, ...stockPulseTickerUniverse);
 window.dseStocks = dseStocks;
+window.getStockPulseTickerUniverse = () => [...window.dseStocks];
+
+// ==========================================
+// 🔄 Dynamic ticker universe
+// The hardcoded list above is only the offline/first-load fallback. New DSE/CSE codes that
+// the scrapers have saved to Supabase are merged into the SAME array (in place), so every
+// module that already holds a reference to dseStocks sees them without code changes.
+// Codes are only ever added here, never removed, and a source with too few rows is ignored.
+// ==========================================
+(function () {
+    const CACHE_KEY = 'stockpulse_ticker_universe_v1';
+    const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+    const MIN_SOURCE_SIZE = 50;
+    const CODE_RE = /^[A-Z0-9][A-Z0-9._&()\-]{0,24}$/;
+    const baseUniverse = [...dseStocks];
+    let inFlight = null;
+
+    const clean = list => [...new Set((list || [])
+        .map(t => String(t ?? '').trim().toUpperCase())
+        .filter(t => CODE_RE.test(t)))];
+
+    function applyExtra(extra) {
+        const before = new Set(dseStocks);
+        const merged = clean([...baseUniverse, ...(extra || [])]).sort();
+        dseStocks.splice(0, dseStocks.length, ...merged);
+        window.dseStocks = dseStocks;
+        const added = merged.filter(t => !before.has(t));
+        if (added.length) {
+            try { window.dispatchEvent(new CustomEvent('stockpulse:tickers-updated', { detail: { added, total: merged.length } })); } catch (_) {}
+            console.log(`🆕 Ticker universe updated: +${added.length} (${added.slice(0, 10).join(', ')}${added.length > 10 ? '…' : ''})`);
+        }
+        return added;
+    }
+
+    function readCache() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+            if (raw && Array.isArray(raw.extra)) return raw;
+        } catch (_) {}
+        return null;
+    }
+    function writeCache(extra) {
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), extra })); } catch (_) {}
+    }
+
+    async function latestCodes(table, column) {
+        const client = window.supabase;
+        const latest = await client.from(table).select('date').order('date', { ascending: false }).limit(1);
+        const date = latest?.data?.[0]?.date;
+        if (latest?.error || !date) return new Set();
+        const out = new Set();
+        for (let from = 0; from < 5000; from += 1000) {
+            const { data, error } = await client.from(table).select(column).eq('date', date).range(from, from + 999);
+            if (error) break;
+            (data || []).forEach(r => out.add(String(r[column] ?? '').trim().toUpperCase()));
+            if (!data || data.length < 1000) break;
+        }
+        return out;
+    }
+
+    async function refresh(force) {
+        const cached = readCache();
+        if (!force && cached && Date.now() - cached.t < CACHE_TTL_MS) return [];
+        if (!window.supabase || typeof window.supabase.from !== 'function') return [];
+        if (inFlight) return inFlight;
+        inFlight = (async () => {
+            try {
+                const found = new Set();
+                for (const [table, column] of [['dse_live_data', 'ticker'], ['cse_market_data', 'code']]) {
+                    try {
+                        const codes = await latestCodes(table, column);
+                        if (codes.size >= MIN_SOURCE_SIZE) codes.forEach(c => found.add(c));
+                    } catch (e) { console.warn(`Ticker universe: ${table} skipped`, e); }
+                }
+                const baseSet = new Set(baseUniverse);
+                const extra = clean([...found]).filter(t => !baseSet.has(t));
+                if (!found.size) return [];          // nothing trustworthy fetched: keep the current list
+                writeCache(extra);
+                return applyExtra(extra);
+            } catch (e) {
+                console.warn('Ticker universe refresh failed; keeping current list', e);
+                return [];
+            } finally { inFlight = null; }
+        })();
+        return inFlight;
+    }
+
+    window.refreshStockPulseTickerUniverse = refresh;
+    const cachedAtStart = readCache();
+    if (cachedAtStart) applyExtra(cachedAtStart.extra);
+    window.addEventListener('stockpulse:auth-ready', () => { refresh(false); });
+    setTimeout(() => { refresh(false); }, 3000);
+})();
+
+// Automatically merge newly listed instruments found in the latest live DSE/CSE market rows.
+// The static list remains the offline fallback; market tables are the discovery source.
+// Lightweight by design: only the rows of each table's most recent trading date are read (about one
+// row per instrument) instead of paging through the whole history. Only syntactically valid codes are
+// added, government securities (treasury bonds/bills, no EPS/dividends/company page) are skipped, and
+// existing entries are never removed. Mutual funds and debentures are kept.
+const STOCKPULSE_GOVT_SECURITY_CODE = /^(?:T(?:B)?\d{1,2}Y\d{3,4}|BGTB.*)$/;
+window.refreshStockPulseTickerUniverse = async function refreshStockPulseTickerUniverse() {
+    const client = window.supabase;
+    if (!client || typeof client.from !== 'function') return { added: 0, total: dseStocks.length, skipped: 'supabase-unavailable' };
+    const before = new Set(dseStocks.map(x => String(x).trim().toUpperCase()));
+    const discovered = new Set();
+    const sources = [
+        { table: 'dse_live_data', column: 'ticker' },
+        { table: 'cse_market_data', column: 'code' }
+    ];
+    for (const source of sources) {
+        try {
+            // 1) latest trading date present in this table
+            const { data: latestRows, error: latestError } = await client.from(source.table)
+                .select('date')
+                .order('date', { ascending: false })
+                .limit(1);
+            if (latestError) throw latestError;
+            const latestDate = latestRows && latestRows[0] && latestRows[0].date;
+            if (!latestDate) continue;
+            // 2) only that day's instruments
+            let from = 0;
+            const pageSize = 1000;
+            while (true) {
+                const { data, error } = await client.from(source.table)
+                    .select(source.column)
+                    .eq('date', latestDate)
+                    .order(source.column, { ascending: true })
+                    .range(from, from + pageSize - 1);
+                if (error) throw error;
+                for (const row of (data || [])) {
+                    const code = String(row[source.column] ?? '').trim().toUpperCase();
+                    // Reject blanks, labels, malformed symbols and government securities.
+                    if (/^[A-Z0-9&().-]{1,30}$/.test(code) && !STOCKPULSE_GOVT_SECURITY_CODE.test(code)) discovered.add(code);
+                }
+                if (!data || data.length < pageSize) break;
+                from += pageSize;
+            }
+        } catch (error) {
+            console.warn(`[Ticker Universe] ${source.table} discovery failed:`, error?.message || error);
+        }
+    }
+    for (const code of discovered) if (!before.has(code)) dseStocks.push(code);
+    const added = dseStocks.length - before.size;
+    if (added > 0) {
+        console.info(`[Ticker Universe] Added ${added} newly discovered ticker(s); total ${dseStocks.length}.`);
+        window.dispatchEvent(new CustomEvent('stockpulse:ticker-universe-updated', { detail: { added, total: dseStocks.length } }));
+    }
+    return { added, total: dseStocks.length };
+};
+// Refresh once after startup and periodically; failures leave the offline list intact.
+if (!window.__stockPulseTickerRefreshScheduled) {
+    window.__stockPulseTickerRefreshScheduled = true;
+    const refresh = () => window.refreshStockPulseTickerUniverse().catch(error => console.warn('[Ticker Universe] Refresh failed:', error?.message || error));
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', refresh, { once: true });
+    else setTimeout(refresh, 0);
+    window.setInterval(refresh, 6 * 60 * 60 * 1000);
+}
 window.firebaseDataManager = firebaseDataManager;
 window.commissionManager = commissionManager;
 window.apiLimiter = apiLimiter;
