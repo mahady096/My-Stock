@@ -73,19 +73,22 @@
 
         try {
             let buyData = [];
+            let buyAllRows = [];   // same code, every portfolio (used for the empty-result hint)
 
             // Supabase
             if (typeof supabase !== 'undefined' && supabase) {
                 try {
-                    let query = supabase
+                    const H = window.StockPulseHistorySearch;
+                    const { data, error } = await supabase
                         .from('portfolios')
                         .select('*')
                         .eq('user_id', user.uid)
-                        .eq('share_name', ticker)
+                        .ilike('share_name', H ? H.escapeLike(ticker) : ticker)
                         .order('date', { ascending: false });
-                    if (portfolioId) query = query.eq('portfolio_id', portfolioId);
-                    const { data } = await query;
-                    if (data) buyData = data;
+                    if (error) throw error;
+                    // "main" also covers older rows whose portfolio_id is empty; "grand" = every portfolio.
+                    buyAllRows = data || [];
+                    buyData = buyAllRows.filter(item => H ? H.portfolioMatches(item.portfolio_id, portfolioId) : true);
                 } catch (e) {
                     console.warn('Supabase buy history fetch failed, trying Firebase...', e);
                 }
@@ -98,7 +101,7 @@
                         .where('userId', '==', user.uid)
                         .where('shareName', '==', ticker)
                         .orderBy('date', 'desc');
-                    if (portfolioId) query = query.where('portfolioId', '==', portfolioId);
+                    if (portfolioId && String(portfolioId).toLowerCase() !== 'grand') query = query.where('portfolioId', '==', portfolioId);
                     const buySnapshot = await query.get();
                     buySnapshot.forEach(doc => {
                         const data = doc.data();
@@ -119,7 +122,8 @@
             }
 
             if (buyData.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 30px; color: var(--text-muted);">No buy history found for ${ticker}.</td></tr>`;
+                const hint = window.StockPulseHistorySearch ? await window.StockPulseHistorySearch.emptyHint(ticker, 'portfolios', buyAllRows) : '';
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 30px; color: var(--text-muted);">No buy history found for ${escapeHtmlTH(ticker)} in this portfolio.${hint}</td></tr>`;
                 if (footer) footer.style.display = 'none';
                 if (avgEl) avgEl.innerHTML = '📊 Avg Buy: -';
                 if (totalQtyEl) totalQtyEl.innerHTML = '📦 Total Qty: -';
@@ -130,6 +134,10 @@
             let html = '';
             let totalQty = 0;
             let totalCost = 0;
+
+            // Grand Portfolio view: show which portfolio each record belongs to.
+            const wantsAll = !portfolioId || String(portfolioId).toLowerCase() === 'grand';
+            const pfNames = (wantsAll && window.StockPulseHistorySearch) ? await window.StockPulseHistorySearch.portfolioNames() : null;
 
             buyData.forEach(item => {
                 const date = safeParseDate(item.date) || new Date();
@@ -145,7 +153,7 @@
 
                 html += `<tr>
                     <td style="padding: 8px;">${dateStr}</td>
-                    <td style="padding: 8px; font-weight: bold;">${escapeHtmlTH(item.share_name)}</td>
+                    <td style="padding: 8px; font-weight: bold;">${escapeHtmlTH(item.share_name)}${pfNames ? `<div style="font-size:10px; font-weight:normal; color:var(--text-muted);">📂 ${escapeHtmlTH(pfNames[String(item.portfolio_id || 'main')] || item.portfolio_id || 'main')}</div>` : ''}</td>
                     <td style="padding: 8px;">${qty}</td>
                     <td style="padding: 8px;">৳${price.toFixed(2)}</td>
                     <td style="padding: 8px;">৳${total.toFixed(2)}</td>
@@ -310,58 +318,16 @@
         }
     };
 
-    // Buy History সার্চ
+    // Buy History সার্চ (shared helper: own shares first, any typed code can be searched)
     function initBuyHistorySearch() {
-        const searchInput = document.getElementById('buy-history-search');
-        const suggestionBox = document.getElementById('buy-history-suggestion-box');
-        if (!searchInput || !suggestionBox) return;
-
-        const debouncedBuyHist = debounce(function(query) {
-            suggestionBox.innerHTML = '';
-            suggestionBox.classList.add('hidden');
-            if (!query) {
-                loadBuyHistory('');
-                return;
-            }
-            const filtered = dseStocks.filter(stock => stock.startsWith(query));
-            if (filtered.length > 0) {
-                suggestionBox.classList.remove('hidden');
-                const limited = filtered.slice(0, 15);
-                limited.forEach(stock => {
-                    const div = document.createElement('div');
-                    div.classList.add('suggestion-item');
-                    div.innerText = stock;
-                    div.addEventListener('click', function() {
-                        searchInput.value = stock;
-                        suggestionBox.classList.add('hidden');
-                        const portfolioId = document.getElementById('buy-history-portfolio-select')?.value || null;
-                        loadBuyHistory(stock, portfolioId);
-                    });
-                    suggestionBox.appendChild(div);
-                });
-            } else {
-                suggestionBox.classList.add('hidden');
-                loadBuyHistory('');
-            }
-        }, 300);
-
-        searchInput.addEventListener('input', function() {
-            const query = this.value.trim().toUpperCase();
-            debouncedBuyHist(query);
-        });
-
-        searchInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                const ticker = this.value.trim().toUpperCase();
-                suggestionBox.classList.add('hidden');
-                if (ticker && dseStocks.includes(ticker)) {
-                    const portfolioId = document.getElementById('buy-history-portfolio-select')?.value || null;
-                    loadBuyHistory(ticker, portfolioId);
-                } else {
-                    loadBuyHistory('');
-                }
-            }
+        const H = window.StockPulseHistorySearch;
+        if (!H) { console.warn('history-search-helpers.js not loaded'); return; }
+        H.bindSearch({
+            inputId: 'buy-history-search',
+            boxId: 'buy-history-suggestion-box',
+            portfolioSelectId: 'buy-history-portfolio-select',
+            table: 'portfolios',
+            loader: (ticker, portfolioId) => loadBuyHistory(ticker, portfolioId || null)
         });
     }
 
@@ -432,16 +398,7 @@
         if (typeof initBuyTabs === 'function') initBuyTabs();
         if (typeof initBuyHistorySearch === 'function') initBuyHistorySearch();
 
-        // Buy History Portfolio Selector
-        const buyHistoryPortfolioSelect = document.getElementById('buy-history-portfolio-select');
-        if (buyHistoryPortfolioSelect) {
-            buyHistoryPortfolioSelect.addEventListener('change', function() {
-                const ticker = document.getElementById('buy-history-search')?.value.trim().toUpperCase();
-                if (ticker) {
-                    loadBuyHistory(ticker, this.value);
-                }
-            });
-        }
+        // Buy History Portfolio Selector change is wired inside StockPulseHistorySearch.bindSearch
     });
 
     // ==========================================

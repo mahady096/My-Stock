@@ -1662,6 +1662,38 @@ window.urlBase64ToUint8Array = urlBase64ToUint8Array;
 
 let allTransactions = [];
 
+let tradeHistoryRangeReady = false;
+
+function tradeLocalISO(d) {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function tradeParseDate(v) {
+    if (!v) return new Date();
+    if (v.toDate) return v.toDate();
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        const [y, m, d] = v.split('-').map(Number);
+        return new Date(y, m - 1, d);          // local midnight, no UTC shift
+    }
+    const dt = new Date(v);
+    return isNaN(dt) ? new Date() : dt;
+}
+
+async function fetchAllSupabaseRows(table, uid) {
+    const out = [];
+    for (let from = 0; from < 20000; from += 1000) {
+        const { data, error } = await supabase.from(table).select('*').eq('user_id', uid)
+            .order('date', { ascending: false }).order('id', { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        out.push(...(data || []));
+        if (!data || data.length < 1000) break;
+    }
+    return out;
+}
+
+// Supabase is the primary database (Firebase is backup-only), so read Supabase first.
+// Firebase is used only if Supabase is unavailable or has nothing at all.
 async function loadTradeHistory() {
     const user = auth && auth.currentUser ? auth.currentUser : null;
     if (!user) return;
@@ -1670,54 +1702,68 @@ async function loadTradeHistory() {
     tbody.innerHTML = '<tr><td colspan="6">Loading transactions...</td></tr>';
 
     try {
-        if (typeof db === 'undefined') {
-            tbody.innerHTML = '<tr><td colspan="6">Firebase not available</td></tr>';
-            return;
-        }
-        const buySnapshot = await db.collection('portfolios')
-            .where('userId', '==', user.uid)
-            .get();
-        const sellSnapshot = await db.collection('sales_history')
-            .where('userId', '==', user.uid)
-            .get();
-
+        const num = v => Number(v) || 0;
         const transactions = [];
-        buySnapshot.forEach(doc => {
-            const data = doc.data();
-            let dateObj = data.date ? (data.date.toDate ? data.date.toDate() : new Date(data.date)) : new Date();
-            transactions.push({
-                id: doc.id,
-                date: dateObj,
-                shareName: data.shareName,
-                quantity: data.quantity,
-                price: data.buyPrice,
-                type: 'BUY',
-                commission: data.commission || 0
+        const hasSupabase = typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function';
+
+        if (hasSupabase) {
+            try {
+                const [buys, sells] = await Promise.all([
+                    fetchAllSupabaseRows('portfolios', user.uid),
+                    fetchAllSupabaseRows('sales_history', user.uid)
+                ]);
+                buys.forEach(r => transactions.push({
+                    id: r.id, source: 'supabase', date: tradeParseDate(r.date || r.created_at),
+                    shareName: r.share_name, quantity: num(r.quantity), price: num(r.buy_price),
+                    type: 'BUY', commission: num(r.commission), portfolioId: String(r.portfolio_id || '').trim() || 'main'
+                }));
+                sells.forEach(r => transactions.push({
+                    id: r.id, source: 'supabase', date: tradeParseDate(r.date || r.created_at),
+                    shareName: r.share_name, quantity: num(r.quantity_sold), price: num(r.sell_price),
+                    type: 'SELL', profitOrLoss: num(r.profit_or_loss), portfolioId: String(r.portfolio_id || '').trim() || 'main'
+                }));
+            } catch (e) {
+                console.warn('Trade history: Supabase read failed, trying Firebase backup', e);
+                transactions.length = 0;
+            }
+        }
+
+        if (!transactions.length && typeof db !== 'undefined' && db) {
+            const buySnapshot = await db.collection('portfolios').where('userId', '==', user.uid).get();
+            const sellSnapshot = await db.collection('sales_history').where('userId', '==', user.uid).get();
+            buySnapshot.forEach(doc => {
+                const data = doc.data();
+                transactions.push({ id: doc.id, source: 'firebase', date: tradeParseDate(data.date), shareName: data.shareName,
+                    quantity: num(data.quantity), price: num(data.buyPrice), type: 'BUY', commission: num(data.commission),
+                    portfolioId: String(data.portfolioId || '').trim() || 'main' });
             });
-        });
-        sellSnapshot.forEach(doc => {
-            const data = doc.data();
-            let dateObj = data.date ? (data.date.toDate ? data.date.toDate() : new Date(data.date)) : new Date();
-            transactions.push({
-                id: doc.id,
-                date: dateObj,
-                shareName: data.shareName,
-                quantity: data.quantitySold,
-                price: data.sellPrice,
-                type: 'SELL',
-                profitOrLoss: data.profitOrLoss
+            sellSnapshot.forEach(doc => {
+                const data = doc.data();
+                transactions.push({ id: doc.id, source: 'firebase', date: tradeParseDate(data.date), shareName: data.shareName,
+                    quantity: num(data.quantitySold), price: num(data.sellPrice), type: 'SELL', profitOrLoss: num(data.profitOrLoss),
+                    portfolioId: String(data.portfolioId || '').trim() || 'main' });
             });
-        });
+        }
+
+        // Portfolio names, so every row shows which portfolio it belongs to.
+        let names = { main: 'Main Portfolio' };
+        try { if (window.StockPulseHistorySearch) names = await window.StockPulseHistorySearch.portfolioNames(); } catch (_) {}
+        transactions.forEach(tx => { tx.portfolioName = names[tx.portfolioId] || tx.portfolioId; });
+
         transactions.sort((a, b) => b.date - a.date);
         allTransactions = transactions;
 
-        const today = new Date();
-        const threeDaysAgo = new Date();
-        threeDaysAgo.setDate(today.getDate() - 3);
+        // Default range (last 30 days) is set once; later reloads keep the range the user chose.
         const startInput = document.getElementById('trade-history-start');
         const endInput = document.getElementById('trade-history-end');
-        if (startInput) startInput.value = threeDaysAgo.toISOString().split('T')[0];
-        if (endInput) endInput.value = today.toISOString().split('T')[0];
+        if (!tradeHistoryRangeReady) {
+            const today = new Date();
+            const from = new Date();
+            from.setDate(today.getDate() - 30);
+            if (startInput) startInput.value = tradeLocalISO(from);
+            if (endInput) endInput.value = tradeLocalISO(today);
+            tradeHistoryRangeReady = true;
+        }
 
         applyTradeFilter();
         const applyBtn = document.getElementById('apply-trade-filter');
@@ -1779,13 +1825,13 @@ function renderTradeTable(transactions) {
         const safeType = escapeHtmlUI(tx.type);
         html += `<tr>
             <td style="padding: 8px;">${dateStr}</td>
-            <td style="padding: 8px;">${escapeHtmlUI(tx.shareName)}</td>
+            <td style="padding: 8px;">${escapeHtmlUI(tx.shareName)}${tx.portfolioName ? `<div style="font-size:10px; color:var(--text-muted);">📂 ${escapeHtmlUI(tx.portfolioName)}</div>` : ''}</td>
             <td style="padding: 8px;">${tx.quantity}</td>
             <td style="padding: 8px;">৳${tx.price.toFixed(2)}</td>
             <td style="padding: 8px;" class="${typeClass}">${tx.type}</td>
             <td style="padding: 8px;">
-                <button onclick="editTrade('${safeId}', '${safeType}')" style="background:#0284c7; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">✏️</button>
-                <button onclick="deleteTrade('${safeId}', '${safeType}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">🗑️</button>
+                <button onclick="editTrade('${safeId}', '${safeType}', '${escapeHtmlUI(tx.source || 'firebase')}')" style="background:#0284c7; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; margin-right:4px;">✏️</button>
+                <button onclick="deleteTrade('${safeId}', '${safeType}', '${escapeHtmlUI(tx.source || 'firebase')}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">🗑️</button>
             </td>
         </tr>`;
     }
@@ -1796,7 +1842,7 @@ function renderTradeTable(transactions) {
 // - isNaN() ভ্যালিডেশন (আগে শুধু truthy-string চেক হতো, "abc" টাইপ করলেও NaN সেভ হয়ে যেত)
 // - Firebase-এ update-এর আগে ownership ভেরিফাই (userId চেক) — IDOR প্রতিরোধ,
 //   কারণ এই কালেকশনগুলোতে RLS নেই (Firestore Security Rules-এর উপর নির্ভরশীল)
-window.editTrade = async function(id, type) {
+async function editTradeFirebase(id, type) {
     if (!id || !String(id).trim()) {
         if (typeof showToast === 'function') showToast('❌ Record ID missing. Cannot edit.', 'error');
         return;
@@ -1875,7 +1921,7 @@ window.editTrade = async function(id, type) {
 };
 
 // ✅ ফিক্স v2: delete-এর আগে ownership ভেরিফাই (IDOR প্রতিরোধ)
-window.deleteTrade = async function(id, type) {
+async function deleteTradeFirebase(id, type) {
     if (!id || !String(id).trim()) {
         if (typeof showToast === 'function') showToast('❌ Record ID missing. Cannot delete.', 'error');
         return;
@@ -1909,6 +1955,67 @@ window.deleteTrade = async function(id, type) {
 };
 
 // গ্লোবালি এক্সপোজ
+function tradeToast(msg, type) { if (typeof showToast === 'function') showToast(msg, type); }
+
+function tradeRefreshCaches() {
+    try { if (typeof resetUnifiedCache === 'function') resetUnifiedCache(); } catch (_) {}
+    try { if (typeof resetUnifiedPriceCache === 'function') resetUnifiedPriceCache(); } catch (_) {}
+    try { window.dispatchEvent(new CustomEvent('stockpulse:data-changed')); } catch (_) {}
+}
+
+window.editTrade = async function(id, type, source) {
+    if (source !== 'supabase') return editTradeFirebase(id, type);
+    const user = auth && auth.currentUser ? auth.currentUser : null;
+    if (!user) { tradeToast('Please login first', 'error'); return; }
+    const isBuy = type === 'BUY';
+    const qtyRaw = prompt(isBuy ? 'Enter new quantity:' : 'Enter new quantity sold:');
+    if (qtyRaw === null) return;
+    const priceRaw = prompt(isBuy ? 'Enter new price:' : 'Enter new sell price:');
+    if (priceRaw === null) return;
+    const newQty = parseInt(qtyRaw);
+    const newPrice = parseFloat(priceRaw);
+    if (isNaN(newQty) || newQty <= 0 || isNaN(newPrice) || newPrice <= 0) {
+        tradeToast('Please enter valid quantity and price (numbers > 0).', 'error');
+        return;
+    }
+    try {
+        let patch;
+        if (isBuy) {
+            patch = { quantity: newQty, buy_price: newPrice };
+        } else {
+            const { data: row, error: rowErr } = await supabase.from('sales_history').select('buy_price')
+                .eq('id', id).eq('user_id', user.uid).limit(1);
+            if (rowErr || !row || !row.length) { tradeToast('Record not found or access denied', 'error'); return; }
+            patch = { quantity_sold: newQty, sell_price: newPrice, profit_or_loss: (newPrice - (Number(row[0].buy_price) || 0)) * newQty };
+        }
+        const { data, error } = await supabase.from(isBuy ? 'portfolios' : 'sales_history')
+            .update(patch).eq('id', id).eq('user_id', user.uid).select();
+        if (error || !data || !data.length) { tradeToast('Update failed or record not found', 'error'); return; }
+        tradeToast('Updated successfully!', 'success');
+        tradeRefreshCaches();
+        loadTradeHistory();
+    } catch (err) {
+        tradeToast('Update failed: ' + err.message, 'error');
+    }
+};
+
+window.deleteTrade = async function(id, type, source) {
+    if (source !== 'supabase') return deleteTradeFirebase(id, type);
+    if (!confirm('Are you sure you want to delete this transaction?')) return;
+    const user = auth && auth.currentUser ? auth.currentUser : null;
+    if (!user) { tradeToast('Please login first', 'error'); return; }
+    try {
+        const { data, error } = await supabase.from(type === 'BUY' ? 'portfolios' : 'sales_history')
+            .delete().eq('id', id).eq('user_id', user.uid).select();
+        if (error || !data || !data.length) { tradeToast('Delete failed or record not found', 'error'); return; }
+        tradeToast('Deleted successfully!', 'info');
+        tradeRefreshCaches();
+        loadTradeHistory();
+    } catch (err) {
+        tradeToast('Delete failed: ' + err.message, 'error');
+    }
+};
+
 window.loadTradeHistory = loadTradeHistory;
 window.applyTradeFilter = applyTradeFilter;
 window.resetTradeFilter = resetTradeFilter;
