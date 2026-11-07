@@ -200,7 +200,10 @@ jobs:
 
                   refresh = SwipeRefreshLayout(this)
                   webView = WebView(this)
-                  refresh.addView(webView)
+                  // MATCH_PARENT is essential: a WebView whose layout params are WRAP_CONTENT makes CSS "100vh" evaluate to 0
+                  // (this was the cause of the blank dashboard).
+                  refresh.addView(webView, android.view.ViewGroup.LayoutParams(
+                      android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
                   refresh.isEnabled = false   // pull-to-refresh off: it clashes with in-page scrolling and charts
 
                   // Small red bar that shows JavaScript errors (tap to hide). Helps to find problems inside the app.
