@@ -184,6 +184,7 @@ jobs:
               private lateinit var webView: WebView
               private lateinit var refresh: SwipeRefreshLayout
               private lateinit var banner: TextView
+              private val logs = ArrayDeque<String>()
               private var fileCallback: ValueCallback<Array<Uri>>? = null
               private val appHost: String = Uri.parse(BuildConfig.APP_URL).host ?: ""
 
@@ -207,7 +208,7 @@ jobs:
                       setBackgroundColor(Color.parseColor("#CCB71C1C"))
                       setTextColor(Color.WHITE)
                       textSize = 10f
-                      maxLines = 14
+                      maxLines = 18
                       setPadding(16, 12, 16, 12)
                       visibility = android.view.View.GONE
                       setOnClickListener { visibility = android.view.View.GONE; text = "" }
@@ -237,6 +238,11 @@ jobs:
                   if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                       val dbg = """(function(){
                         if(window.__spDbg)return;window.__spDbg=1;
+                        // The PWA service worker breaks Supabase requests inside Android WebView -> switch it off in the app.
+                        try{if(navigator.serviceWorker){
+                          navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister();});});
+                          navigator.serviceWorker.register=function(){return Promise.resolve({scope:'/',update:function(){return Promise.resolve();},unregister:function(){return Promise.resolve(true);},addEventListener:function(){}});};
+                        }}catch(e){}
                         function s(x){try{if(x&&typeof x==='object'){var o={};Object.getOwnPropertyNames(x).forEach(function(k){o[k]=x[k]});return JSON.stringify(o).slice(0,260);}return String(x);}catch(e){return String(x);}}
                         var oe=console.error;console.error=function(){oe.call(console,[].slice.call(arguments).map(s).join(' '));};
                         var of=window.fetch;
@@ -272,6 +278,8 @@ jobs:
 
                   webView.webChromeClient = object : WebChromeClient() {
                       override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                          logs.addLast(m.messageLevel().name.take(1) + " " + m.message().take(110).replace("\n", " "))
+                          if (logs.size > 14) logs.removeFirst()
                           if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
                               val line = "• " + m.message().take(240) + "  (" + m.sourceId().substringAfterLast('/') + ":" + m.lineNumber() + ")"
                               val cur = banner.text.toString().lines().takeLast(6)
@@ -347,20 +355,26 @@ jobs:
               // Press VOLUME UP while the app is open to see what the page looks like inside (debug helper).
               override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
                   if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) { runDiag(); return true }
+                  if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                      banner.text = "LOG (last " + logs.size + ")\n" + logs.joinToString("\n")
+                      banner.visibility = android.view.View.VISIBLE
+                      return true
+                  }
                   return super.onKeyDown(keyCode, event)
               }
 
               private fun runDiag() {
                   val js = """(function(){try{
-                    var a=document.getElementById('app-container');var cs=a?getComputedStyle(a):null;
-                    var kids=a?Array.prototype.slice.call(a.children,0,8).map(function(e){var c=getComputedStyle(e);
-                      return e.tagName+'#'+e.id+' '+c.display+'/'+c.visibility+'/'+c.opacity+' h='+e.offsetHeight;}):[];
-                    return JSON.stringify({appCls:a&&a.className,disp:cs&&cs.display,vis:cs&&cs.visibility,op:cs&&cs.opacity,
-                      h:a&&a.offsetHeight,kids:a&&a.children.length,iw:innerWidth,ih:innerHeight,sy:scrollY,
-                      sh:document.documentElement.scrollHeight,body:document.body.className,first:kids});
+                    var a=document.getElementById('app-container');
+                    var mn=a&&a.querySelector('main');
+                    function d(e){var c=getComputedStyle(e);return e.tagName+'#'+e.id+'.'+String(e.className).slice(0,25)+' '+c.display+'/'+c.position+' h='+e.offsetHeight+' w='+e.offsetWidth+' kids='+e.children.length;}
+                    var mk=mn?Array.prototype.slice.call(mn.children,0,9).map(d):[];
+                    var t=(document.body.innerText||'').replace(/\s+/g,' ');
+                    return JSON.stringify({main:mn?d(mn):null,mainKids:mk,aside:d(a.querySelector('aside')),textLen:t.length,text:t.slice(0,160),
+                      fb:typeof firebase,sb:typeof supabase,ls:localStorage.length,scripts:document.scripts.length,ua:navigator.userAgent.slice(0,90)});
                   }catch(e){return 'ERR '+e;}})()"""
                   webView.evaluateJavascript(js) { r ->
-                      banner.text = banner.text.toString() + "\nDIAG " + (r ?: "null").replace("\\\"", "'").take(400)
+                      banner.text = "DIAG " + (r ?: "null").replace("\\\"", "'").take(900)
                       banner.visibility = android.view.View.VISIBLE
                   }
               }
