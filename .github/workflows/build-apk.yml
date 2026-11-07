@@ -1,0 +1,322 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Generate Android project files
+        run: |
+          set -e
+          mkdir -p /tmp/sp/app/src/main/java/com/stockpulse/bd /tmp/sp/app/src/main/res/values /tmp/sp/app/src/main/res/xml
+          cd /tmp/sp
+          cat > settings.gradle.kts <<'STOCKPULSE_EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "StockPulse"
+          include(":app")
+          STOCKPULSE_EOF
+          cat > build.gradle.kts <<'STOCKPULSE_EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          STOCKPULSE_EOF
+          cat > gradle.properties <<'STOCKPULSE_EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          STOCKPULSE_EOF
+          cat > app/build.gradle.kts <<'STOCKPULSE_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.stockpulse.bd"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.stockpulse.bd"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 644
+                  versionName = "6.4.4"
+                  // The web app that is shown inside the Android app.
+                  buildConfigField("String", "APP_URL", "\"https://stockpulse.appbd.workers.dev/\"")
+              }
+
+              buildFeatures { buildConfig = true }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      // Sign with your own keystore before publishing to Play Store (see README).
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+          }
+          STOCKPULSE_EOF
+          cat > app/src/main/AndroidManifest.xml <<'STOCKPULSE_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:usesCleartextTraffic="false"
+                  android:networkSecurityConfig="@xml/network_security_config"
+                  android:theme="@style/Theme.StockPulse">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter android:autoVerify="false">
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data android:scheme="https" android:host="stockpulse.appbd.workers.dev" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          STOCKPULSE_EOF
+          cat > app/src/main/res/values/strings.xml <<'STOCKPULSE_EOF'
+          <resources>
+              <string name="app_name">StockPulse</string>
+          </resources>
+          STOCKPULSE_EOF
+          cat > app/src/main/res/values/themes.xml <<'STOCKPULSE_EOF'
+          <resources>
+              <style name="Theme.StockPulse" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="android:statusBarColor">#667eea</item>
+                  <item name="android:navigationBarColor">#FFFFFF</item>
+                  <item name="android:windowLightNavigationBar">true</item>
+                  <item name="android:windowBackground">#FFFFFF</item>
+              </style>
+          </resources>
+          STOCKPULSE_EOF
+          cat > app/src/main/res/xml/network_security_config.xml <<'STOCKPULSE_EOF'
+          <network-security-config>
+              <base-config cleartextTrafficPermitted="false" />
+          </network-security-config>
+          STOCKPULSE_EOF
+          cat > app/src/main/java/com/stockpulse/bd/MainActivity.kt <<'STOCKPULSE_EOF'
+          package com.stockpulse.bd
+
+          import android.annotation.SuppressLint
+          import android.app.DownloadManager
+          import android.content.Context
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.os.Environment
+          import android.webkit.CookieManager
+          import android.webkit.URLUtil
+          import android.webkit.ValueCallback
+          import android.webkit.WebChromeClient
+          import android.webkit.WebResourceError
+          import android.webkit.WebResourceRequest
+          import android.webkit.WebSettings
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import android.widget.Toast
+          import androidx.activity.OnBackPressedCallback
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var webView: WebView
+              private lateinit var refresh: SwipeRefreshLayout
+              private var fileCallback: ValueCallback<Array<Uri>>? = null
+              private val appHost: String = Uri.parse(BuildConfig.APP_URL).host ?: ""
+
+              // Hosts the web app itself needs (login, database, libraries). Everything else opens in the browser.
+              private val allowedHosts = listOf(
+                  appHost, "supabase.co", "firebaseapp.com", "googleapis.com",
+                  "gstatic.com", "firebaseio.com", "jsdelivr.net", "vercel.app", "workers.dev"
+              )
+
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  refresh = SwipeRefreshLayout(this)
+                  webView = WebView(this)
+                  refresh.addView(webView)
+                  setContentView(refresh)
+
+                  webView.settings.apply {
+                      javaScriptEnabled = true
+                      domStorageEnabled = true            // localStorage / IndexedDB (localForage, Firebase, Supabase)
+                      cacheMode = WebSettings.LOAD_DEFAULT
+                      allowFileAccess = false
+                      allowContentAccess = true
+                      mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                      setSupportZoom(false)
+                      builtInZoomControls = false
+                      userAgentString = userAgentString + " StockPulseAndroid/" + BuildConfig.VERSION_NAME
+                  }
+                  CookieManager.getInstance().setAcceptCookie(true)
+                  CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+
+                  webView.webViewClient = object : WebViewClient() {
+                      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                          val uri = request.url
+                          val host = uri.host
+                          if ((uri.scheme == "http" || uri.scheme == "https") && host != null &&
+                              allowedHosts.any { host == it || host.endsWith(".$it") }
+                          ) return false
+                          return try {
+                              startActivity(Intent(Intent.ACTION_VIEW, uri))   // mailto:, tel:, facebook, linkedin ...
+                              true
+                          } catch (e: Exception) { false }
+                      }
+
+                      override fun onPageFinished(view: WebView, url: String) { refresh.isRefreshing = false }
+
+                      override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                          if (request.isForMainFrame) {
+                              refresh.isRefreshing = false
+                              view.loadDataWithBaseURL(null, offlineHtml(), "text/html", "utf-8", null)
+                          }
+                      }
+                  }
+
+                  webView.webChromeClient = object : WebChromeClient() {
+                      // Needed for <input type="file"> (portfolio import etc.)
+                      override fun onShowFileChooser(
+                          webView: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams
+                      ): Boolean {
+                          fileCallback?.onReceiveValue(null)
+                          fileCallback = callback
+                          return try {
+                              @Suppress("DEPRECATION")
+                              startActivityForResult(params.createIntent(), FILE_CHOOSER)
+                              true
+                          } catch (e: Exception) { fileCallback = null; false }
+                      }
+                  }
+
+                  webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+                      try {
+                          val req = DownloadManager.Request(Uri.parse(url))
+                              .setMimeType(mimeType)
+                              .addRequestHeader("User-Agent", userAgent)
+                              .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                              .setDestinationInExternalPublicDir(
+                                  Environment.DIRECTORY_DOWNLOADS,
+                                  URLUtil.guessFileName(url, contentDisposition, mimeType)
+                              )
+                          (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
+                          Toast.makeText(this, "Downloading…", Toast.LENGTH_SHORT).show()
+                      } catch (e: Exception) {
+                          startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                      }
+                  }
+
+                  refresh.setColorSchemeColors(0xFF667EEA.toInt())
+                  refresh.setOnRefreshListener { webView.reload() }
+                  // Pull-to-refresh only when the page is scrolled to the very top.
+                  refresh.setOnChildScrollUpCallback { _, _ -> webView.scrollY > 0 }
+
+                  onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                      override fun handleOnBackPressed() {
+                          if (webView.canGoBack()) webView.goBack() else finish()
+                      }
+                  })
+
+                  if (savedInstanceState != null) webView.restoreState(savedInstanceState)
+                  else webView.loadUrl(intent?.data?.toString() ?: BuildConfig.APP_URL)
+              }
+
+              @Deprecated("Deprecated in Java")
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  if (requestCode == FILE_CHOOSER) {
+                      fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data))
+                      fileCallback = null
+                  } else {
+                      @Suppress("DEPRECATION")
+                      super.onActivityResult(requestCode, resultCode, data)
+                  }
+              }
+
+              override fun onSaveInstanceState(outState: Bundle) {
+                  super.onSaveInstanceState(outState)
+                  webView.saveState(outState)
+              }
+
+              override fun onResume() { super.onResume(); webView.onResume() }
+              override fun onPause() { webView.onPause(); CookieManager.getInstance().flush(); super.onPause() }
+
+              private fun offlineHtml() = """
+                  <html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                  <body style="font-family:sans-serif;text-align:center;padding:48px 24px;color:#333">
+                  <h2 style="color:#667eea">StockPulse</h2>
+                  <p>ইন্টারনেট সংযোগ পাওয়া যাচ্ছে না।<br>No internet connection.</p>
+                  <button style="padding:12px 28px;border:0;border-radius:10px;background:#667eea;color:#fff;font-size:16px"
+                          onclick="location.href='${BuildConfig.APP_URL}'">আবার চেষ্টা করুন / Retry</button>
+                  </body></html>
+              """.trimIndent()
+
+              companion object { private const val FILE_CHOOSER = 1001 }
+          }
+          STOCKPULSE_EOF
+          # launcher icons from the app's own icon
+          ICON=$(find "$GITHUB_WORKSPACE" -name icon-512x512.png | head -1)
+          echo "Using icon: $ICON"
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            n=${d%%:*}; s=${d##*:}
+            mkdir -p app/src/main/res/mipmap-$n
+            convert "$ICON" -resize ${s}x${s} app/src/main/res/mipmap-$n/ic_launcher.png
+          done
+
+      - name: Build debug APK
+        working-directory: /tmp/sp
+        run: gradle assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StockPulse-debug-apk
+          path: /tmp/sp/app/build/outputs/apk/debug/*.apk
