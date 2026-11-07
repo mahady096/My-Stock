@@ -309,6 +309,8 @@ jobs:
           }
           STOCKPULSE_EOF
           # launcher icons from the app's own icon
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq imagemagick
           ICON=$(find "$GITHUB_WORKSPACE" -name icon-512x512.png | head -1)
           echo "Using icon: $ICON"
           for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
