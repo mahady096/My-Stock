@@ -165,7 +165,12 @@ jobs:
           import android.webkit.WebSettings
           import android.webkit.WebView
           import android.webkit.WebViewClient
+          import android.widget.FrameLayout
+          import android.widget.TextView
           import android.widget.Toast
+          import android.graphics.Color
+          import android.view.Gravity
+          import android.webkit.ConsoleMessage
           import androidx.activity.OnBackPressedCallback
           import androidx.appcompat.app.AppCompatActivity
           import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -174,6 +179,7 @@ jobs:
 
               private lateinit var webView: WebView
               private lateinit var refresh: SwipeRefreshLayout
+              private lateinit var banner: TextView
               private var fileCallback: ValueCallback<Array<Uri>>? = null
               private val appHost: String = Uri.parse(BuildConfig.APP_URL).host ?: ""
 
@@ -190,7 +196,22 @@ jobs:
                   refresh = SwipeRefreshLayout(this)
                   webView = WebView(this)
                   refresh.addView(webView)
-                  setContentView(refresh)
+                  refresh.isEnabled = false   // pull-to-refresh off: it clashes with in-page scrolling and charts
+
+                  // Small red bar that shows JavaScript errors (tap to hide). Helps to find problems inside the app.
+                  banner = TextView(this).apply {
+                      setBackgroundColor(Color.parseColor("#CCB71C1C"))
+                      setTextColor(Color.WHITE)
+                      textSize = 11f
+                      setPadding(16, 12, 16, 12)
+                      visibility = android.view.View.GONE
+                      setOnClickListener { visibility = android.view.View.GONE; text = "" }
+                  }
+                  val root = FrameLayout(this)
+                  root.addView(refresh, FrameLayout.LayoutParams(-1, -1))
+                  root.addView(banner, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+                  setContentView(root)
+                  WebView.setWebContentsDebuggingEnabled(true)
 
                   webView.settings.apply {
                       javaScriptEnabled = true
@@ -230,6 +251,16 @@ jobs:
                   }
 
                   webView.webChromeClient = object : WebChromeClient() {
+                      override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                          if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                              val line = "• " + m.message().take(200) + "  (" + m.sourceId().substringAfterLast('/') + ":" + m.lineNumber() + ")"
+                              val cur = banner.text.toString().lines().takeLast(3)
+                              banner.text = (cur + line).filter { it.isNotBlank() }.joinToString("\n")
+                              banner.visibility = android.view.View.VISIBLE
+                          }
+                          return true
+                      }
+
                       // Needed for <input type="file"> (portfolio import etc.)
                       override fun onShowFileChooser(
                           webView: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams
@@ -262,9 +293,6 @@ jobs:
                   }
 
                   refresh.setColorSchemeColors(0xFF667EEA.toInt())
-                  refresh.setOnRefreshListener { webView.reload() }
-                  // Pull-to-refresh only when the page is scrolled to the very top.
-                  refresh.setOnChildScrollUpCallback { _, _ -> webView.scrollY > 0 }
 
                   onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
                       override fun handleOnBackPressed() {
