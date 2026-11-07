@@ -206,7 +206,8 @@ jobs:
                   banner = TextView(this).apply {
                       setBackgroundColor(Color.parseColor("#CCB71C1C"))
                       setTextColor(Color.WHITE)
-                      textSize = 11f
+                      textSize = 10f
+                      maxLines = 14
                       setPadding(16, 12, 16, 12)
                       visibility = android.view.View.GONE
                       setOnClickListener { visibility = android.view.View.GONE; text = "" }
@@ -272,8 +273,8 @@ jobs:
                   webView.webChromeClient = object : WebChromeClient() {
                       override fun onConsoleMessage(m: ConsoleMessage): Boolean {
                           if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
-                              val line = "• " + m.message().take(200) + "  (" + m.sourceId().substringAfterLast('/') + ":" + m.lineNumber() + ")"
-                              val cur = banner.text.toString().lines().takeLast(3)
+                              val line = "• " + m.message().take(240) + "  (" + m.sourceId().substringAfterLast('/') + ":" + m.lineNumber() + ")"
+                              val cur = banner.text.toString().lines().takeLast(6)
                               banner.text = (cur + line).filter { it.isNotBlank() }.joinToString("\n")
                               banner.visibility = android.view.View.VISIBLE
                           }
@@ -359,7 +360,7 @@ jobs:
                       sh:document.documentElement.scrollHeight,body:document.body.className,first:kids});
                   }catch(e){return 'ERR '+e;}})()"""
                   webView.evaluateJavascript(js) { r ->
-                      banner.text = "DIAG " + (r ?: "null").take(1200)
+                      banner.text = banner.text.toString() + "\nDIAG " + (r ?: "null").replace("\\\"", "'").take(400)
                       banner.visibility = android.view.View.VISIBLE
                   }
               }
