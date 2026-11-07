@@ -88,6 +88,7 @@ jobs:
               implementation("androidx.core:core-ktx:1.13.1")
               implementation("androidx.appcompat:appcompat:1.7.0")
               implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+              implementation("androidx.webkit:webkit:1.11.0")
           }
           STOCKPULSE_EOF
           cat > app/src/main/AndroidManifest.xml <<'STOCKPULSE_EOF'
@@ -165,11 +166,14 @@ jobs:
           import android.webkit.WebSettings
           import android.webkit.WebView
           import android.webkit.WebViewClient
+          import androidx.webkit.WebViewCompat
+          import androidx.webkit.WebViewFeature
           import android.widget.FrameLayout
           import android.widget.TextView
           import android.widget.Toast
           import android.graphics.Color
           import android.view.Gravity
+          import android.view.KeyEvent
           import android.webkit.ConsoleMessage
           import androidx.activity.OnBackPressedCallback
           import androidx.appcompat.app.AppCompatActivity
@@ -226,6 +230,21 @@ jobs:
                   }
                   CookieManager.getInstance().setAcceptCookie(true)
                   CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+
+                  // Debug helper: runs before the page's own scripts. Makes console errors readable
+                  // (objects -> text) and reports failed network requests, so they show in the red bar.
+                  if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                      val dbg = """(function(){
+                        if(window.__spDbg)return;window.__spDbg=1;
+                        function s(x){try{if(x&&typeof x==='object'){var o={};Object.getOwnPropertyNames(x).forEach(function(k){o[k]=x[k]});return JSON.stringify(o).slice(0,260);}return String(x);}catch(e){return String(x);}}
+                        var oe=console.error;console.error=function(){oe.call(console,[].slice.call(arguments).map(s).join(' '));};
+                        var of=window.fetch;
+                        if(of){window.fetch=function(i){var u=(typeof i==='string'?i:(i&&i.url))||'';
+                          return of.apply(this,arguments).then(function(r){if(!r.ok)console.error('HTTP '+r.status+' '+u.slice(0,110));return r;},
+                            function(e){console.error('FETCHFAIL '+u.slice(0,110)+' '+e);throw e;});};}
+                      })();"""
+                      WebViewCompat.addDocumentStartJavaScript(webView, dbg, setOf("*"))
+                  }
 
                   webView.webViewClient = object : WebViewClient() {
                       override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -322,6 +341,28 @@ jobs:
 
               override fun onResume() { super.onResume(); webView.onResume() }
               override fun onPause() { webView.onPause(); CookieManager.getInstance().flush(); super.onPause() }
+
+
+              // Press VOLUME UP while the app is open to see what the page looks like inside (debug helper).
+              override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+                  if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) { runDiag(); return true }
+                  return super.onKeyDown(keyCode, event)
+              }
+
+              private fun runDiag() {
+                  val js = """(function(){try{
+                    var a=document.getElementById('app-container');var cs=a?getComputedStyle(a):null;
+                    var kids=a?Array.prototype.slice.call(a.children,0,8).map(function(e){var c=getComputedStyle(e);
+                      return e.tagName+'#'+e.id+' '+c.display+'/'+c.visibility+'/'+c.opacity+' h='+e.offsetHeight;}):[];
+                    return JSON.stringify({appCls:a&&a.className,disp:cs&&cs.display,vis:cs&&cs.visibility,op:cs&&cs.opacity,
+                      h:a&&a.offsetHeight,kids:a&&a.children.length,iw:innerWidth,ih:innerHeight,sy:scrollY,
+                      sh:document.documentElement.scrollHeight,body:document.body.className,first:kids});
+                  }catch(e){return 'ERR '+e;}})()"""
+                  webView.evaluateJavascript(js) { r ->
+                      banner.text = "DIAG " + (r ?: "null").take(1200)
+                      banner.visibility = android.view.View.VISIBLE
+                  }
+              }
 
               private fun offlineHtml() = """
                   <html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
