@@ -1,0 +1,26 @@
+StockPulse User Activity + Forgot Password patch
+================================================
+
+Included:
+- auth-activity.js (NEW FILE)
+- admin.html (REPLACE existing)
+- admin.js (REPLACE existing)
+
+index.html change (one line only):
+Find:
+<script src="ui-helpers.js" defer></script>
+
+Add immediately AFTER:
+<script src="auth-activity.js" defer></script>
+
+Do NOT replace ui-helpers.js or the whole index.html.
+
+Then deploy the web app. Ensure the complete Firestore Rules from the chat are published first.
+
+Expected:
+- Forgot Password sends Firebase reset email to the entered email.
+- Activity heartbeat writes user_activity/{uid} on login and every 60 seconds while visible.
+- Admin shows Online for last_seen within 2 minutes, Active Today for older activity today, otherwise Offline.
+- Activity errors do not block login/dashboard.
+
+Online status is heartbeat-based, not a guaranteed live socket presence indicator.
