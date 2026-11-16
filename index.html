@@ -845,6 +845,30 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
                     <span>StockPulse provides portfolio tracking and technical signals. Data can be delayed or unavailable. Signals are informational and are not financial advice.</span>
                 </div>
 
+                <!-- StockPulse compact advertisement and admin notice area -->
+                <section id="sp-promo-center" class="sp-promo-center" aria-label="Sponsored advertisements and notices" hidden>
+                    <div id="sp-ad-slot" class="sp-ad-slot" aria-label="Sponsored advertisement">
+                        <div class="sp-ad-copy">
+                            <span class="sp-ad-kicker">SPONSORED</span>
+                            <strong id="sp-ad-title">Advertisement</strong>
+                            <span id="sp-ad-description"></span>
+                            <a id="sp-ad-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Learn more ↗</a>
+                        </div>
+                        <a id="sp-ad-image-link" class="sp-ad-image-link" href="#" target="_blank" rel="noopener noreferrer" hidden>
+                            <img id="sp-ad-image" alt="Advertisement" loading="lazy">
+                        </a>
+                        <div class="sp-ad-controls">
+                            <button id="sp-ad-prev" type="button" aria-label="Previous advertisement">‹</button>
+                            <span id="sp-ad-dots" aria-live="polite"></span>
+                            <button id="sp-ad-next" type="button" aria-label="Next advertisement">›</button>
+                        </div>
+                    </div>
+                    <div id="sp-notice-bar" class="sp-notice-bar" hidden>
+                        <span class="sp-notice-label">📢 NOTICE</span>
+                        <div class="sp-notice-viewport"><div id="sp-notice-track" class="sp-notice-track"></div></div>
+                    </div>
+                </section>
+
                 <div class="dashboard-action-toolbar" aria-label="Dashboard controls">
                     <div class="dashboard-action-title">
                         <span class="dashboard-action-eyebrow">MARKET DATA</span>
@@ -2960,6 +2984,7 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
 <script src="ui-charts.js" defer></script>
 <script src="sync-metadata.js" defer></script>
 <script src="market-landing.js" defer></script>
+<script src="ads-notice.js" defer></script>
 
     <script>
         // Screener Dropdown

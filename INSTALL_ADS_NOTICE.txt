@@ -1,0 +1,51 @@
+STOCKPULSE ADS & NOTICE CENTER — INSTALLATION
+
+WHAT'S INCLUDED
+- ads-notice.js: compact swipeable ad slider and scrolling notice bar in the app.
+- ads-admin.js: Admin Dashboard controls to add/edit/delete/activate ads and notices.
+- SUPABASE_ADS_NOTICE_SETUP.sql: database tables, RLS policies and image bucket.
+- index.html, admin.html, style.css, sw.js: integrated UI and cache updates.
+
+IMPORTANT: DATABASE SETUP IS REQUIRED BEFORE DEPLOYING
+1. Open Supabase Dashboard -> SQL Editor.
+2. Run SUPABASE_ADS_NOTICE_SETUP.sql.
+3. Confirm tables app_ads and app_notices exist.
+4. Confirm Storage bucket stockpulse-ads exists.
+5. Ensure the Firebase-to-Supabase auth-hook JWT contains an "email" claim. The SQL RLS policies check auth.jwt()->>'email'.
+6. Approved admin emails in this setup:
+   - admin.stockpulse@gmail.com
+   - mahady0069@gmail.com
+   - mahady096@gmail.com
+   If the third address should not be an administrator, remove it from every policy in the SQL before running it.
+
+DEPLOY
+1. Back up your current GitHub repository first.
+2. Upload/replace all files from this ZIP, preserving folder structure.
+3. Publish the updated web app to the same hosting origin.
+4. Open the app while logged in; active ads/notices appear under the dashboard financial disclaimer.
+5. Open admin.html and sign in with an approved admin account. Use "Ads & Notice Management".
+
+AD FORMAT
+- Compact banner with text and optional image (PNG/JPG/WebP, max 3 MB).
+- Swipe left/right; arrow controls; auto-advance every 7 seconds.
+- Optional click-through URL.
+- Start/end schedule and display order.
+- Multiple notices scroll below the ad; urgent notices display red.
+
+SAFETY / LIMITATIONS
+- Ads are text, image and URL only; no third-party ad scripts or HTML are executed.
+- This patch does not add ad analytics or impression/click tracking.
+- Users must be authenticated to load app ads/notices, matching the current authenticated dashboard.
+- The Supabase custom JWT must contain email claim for the RLS admin policies. If the auth-hook uses a different claim format, adjust the SQL policies accordingly.
+- No backend service-role key is included or exposed in browser code.
+- This patch has not been connected to your live Supabase project or deployed. Run the SQL and test on a staging copy before production release.
+
+TEST CHECKLIST
+[ ] Admin can create an ad with image and target URL.
+[ ] Non-admin cannot create/edit/delete ads or notices.
+[ ] Logged-in app user sees active ads only.
+[ ] Swipe left/right and auto-advance work.
+[ ] Scheduled ads/notices appear only within their date range.
+[ ] Notice bar appears under the ad and scrolls.
+[ ] Pausing/deleting an ad removes it from the app after refresh.
+[ ] Test on Android WebView and desktop browser.
