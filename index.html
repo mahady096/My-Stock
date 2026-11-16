@@ -445,6 +445,9 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
           <div class="eyebrow">Bangladesh Stock Market</div>
           <h2>Know the market before you make your move.</h2>
           <p>Real-time market summary and DSEX trend from the StockPulse database, presented in a clean and simple view.</p>
+          <div class="public-hero-actions" data-app-download>
+            <a class="public-download-btn" href="https://apkpure.com/p/com.stockpulse.bd" target="_blank" rel="noopener noreferrer" aria-label="Download the StockPulse Android app from APKPure">📲 Download Android App</a>
+          </div>
           <div class="public-status-row">
             <div id="landing-condition-badge" class="public-badge is-positive"><span id="landing-condition">--</span></div>
             <div class="public-badge">📅 <span id="landing-market-date">--</span></div>
@@ -556,6 +559,19 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
           </article>
         </section>
 
+        <section class="public-section" id="download-app" data-app-download>
+          <article class="public-card public-download-card">
+            <div class="public-download-icon" aria-hidden="true">📲</div>
+            <div class="public-download-text">
+              <div class="public-cta-kicker">StockPulse for Android</div>
+              <h2>Get the StockPulse app</h2>
+              <p>Track your DSE &amp; CSE portfolio from your phone. Download the Android app from APKPure. It needs Android 7.0 or newer, and your phone may ask you to allow installs from your browser or file manager.</p>
+              <p class="public-download-note">Prefer not to install? StockPulse also works right here in your browser.</p>
+            </div>
+            <a class="public-primary-btn public-download-btn" href="https://apkpure.com/p/com.stockpulse.bd" target="_blank" rel="noopener noreferrer">⬇ Download from APKPure</a>
+          </article>
+        </section>
+
         <section class="public-section">
           <article class="public-cta-card">
             <div>
@@ -592,12 +608,23 @@ canvas { touch-action: none !important; -webkit-user-select: none !important; us
         </section>
 
         <footer class="public-footer">
-          <div class="public-footer-links"><button data-open-login>Login</button><a href="about.html">About</a><a href="user-guide.html">User Guide</a></div>
+          <div class="public-footer-links"><button data-open-login>Login</button><a href="about.html">About</a><a href="user-guide.html">User Guide</a><a href="https://apkpure.com/p/com.stockpulse.bd" target="_blank" rel="noopener noreferrer" data-app-download>Download App</a></div>
           <div>© 2026 StockPulse. All rights reserved.</div>
           <div style="margin-top:5px;">Market information is provided for informational purposes and is not investment advice.</div>
         </footer>
       </div>
     </section>
+    <script>
+      // No download prompts inside the Android app (its user agent contains StockPulseAndroid/) or an installed PWA.
+      (function () {
+        try {
+          var inApp = /StockPulseAndroid\//.test(navigator.userAgent || '') ||
+            (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+            navigator.standalone === true;
+          if (inApp) document.querySelectorAll('[data-app-download]').forEach(function (el) { el.style.display = 'none'; });
+        } catch (_) {}
+      })();
+    </script>
 
     <div id="login-container" class="auth-box">
         <h2 id="auth-title">Portfolio Login</h2>

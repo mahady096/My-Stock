@@ -637,3 +637,30 @@ body:not(.public-landing-active):not(.public-login-active) #login-container { di
 .sp-sidebar-brand { cursor: pointer; user-select: none; }
 .sp-sidebar-brand:hover { opacity: .96; transform: translateY(-1px); }
 .sp-sidebar-brand:focus-visible { outline: 2px solid #818cf8; outline-offset: 4px; border-radius: 10px; }
+
+
+/* ---- App download (Android) ---- */
+.public-hero-actions { display:flex; justify-content:center; margin-top:22px; }
+.public-download-btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;
+  border-radius:12px; padding:12px 22px; font-weight:800; font-size:14px; color:#fff;
+  background:linear-gradient(135deg,#6366f1,#4f46e5); box-shadow:0 10px 24px rgba(99,102,241,.28);
+}
+.public-hero-actions .public-download-btn:hover, .public-download-card .public-download-btn:hover { filter:brightness(1.08); }
+.public-download-card { display:flex; align-items:center; gap:18px; padding:22px; }
+.public-download-icon {
+  flex:0 0 52px; width:52px; height:52px; border-radius:15px; display:grid; place-items:center; font-size:26px;
+  background:linear-gradient(135deg,rgba(99,102,241,.18),rgba(79,70,229,.1)); border:1px solid var(--border-color);
+}
+.public-download-text { flex:1 1 auto; min-width:0; }
+.public-download-text .public-cta-kicker { color:var(--primary-color); font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.public-download-text h2 { margin:4px 0 6px; font-size:22px; letter-spacing:-.02em; }
+.public-download-text p { margin:0; color:var(--text-secondary); font-size:13px; line-height:1.65; }
+.public-download-text .public-download-note { margin-top:6px; color:var(--text-muted); font-size:12px; }
+.public-download-card .public-download-btn { flex:0 0 auto; white-space:nowrap; }
+@media (max-width: 640px) {
+  .public-download-card { flex-direction:column; align-items:stretch; text-align:left; gap:14px; padding:18px 16px; }
+  .public-download-card .public-download-btn { width:100%; box-sizing:border-box; }
+  .public-hero-actions .public-download-btn { width:100%; max-width:320px; box-sizing:border-box; }
+  .public-download-text h2 { font-size:19px; }
+}
