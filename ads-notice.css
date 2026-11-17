@@ -1,0 +1,215 @@
+/* StockPulse Ads & Notice Center — responsive, theme-aware UI */
+#sp-promo-center {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 14px 0 18px;
+  color: var(--text-primary, #0f172a);
+  font-family: inherit;
+}
+#sp-promo-center[hidden],
+#sp-promo-center [hidden] { display: none !important; }
+#sp-promo-center * { box-sizing: border-box; }
+
+#sp-promo-center .sp-ad-slot {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 148px;
+  grid-template-areas: "copy image" "controls controls";
+  align-items: center;
+  gap: 8px 14px;
+  width: 100%;
+  min-width: 0;
+  min-height: 150px;
+  padding: 14px 16px 8px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 22px;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #0f172a);
+  box-shadow: var(--card-shadow, 0 8px 25px rgba(15,23,42,.07));
+  touch-action: pan-y;
+}
+#sp-promo-center .sp-ad-copy {
+  grid-area: copy;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#sp-promo-center .sp-ad-kicker {
+  color: var(--text-muted, #64748b);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  line-height: 1.2;
+}
+#sp-promo-center #sp-ad-title {
+  display: block;
+  max-width: 100%;
+  color: var(--text-primary, #0f172a);
+  font-size: clamp(14px, 2.1vw, 17px);
+  font-weight: 800;
+  line-height: 1.35;
+}
+#sp-promo-center #sp-ad-description {
+  display: block;
+  max-width: 100%;
+  color: var(--text-secondary, #475569);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+#sp-promo-center #sp-ad-link,
+#sp-promo-center #sp-ad-link:visited {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 2px;
+  color: var(--primary-color, #6366f1);
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: none;
+}
+#sp-promo-center .sp-ad-image-link {
+  grid-area: image;
+  display: block;
+  width: 100%;
+  max-width: 148px;
+  height: 94px;
+  justify-self: end;
+  overflow: hidden;
+  border-radius: 15px;
+  background: var(--bg-tertiary, #f1f5f9);
+}
+#sp-promo-center .sp-ad-image-link img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 94px;
+  object-fit: cover;
+  object-position: center;
+  border: 0;
+}
+#sp-promo-center .sp-ad-controls {
+  grid-area: controls;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 24px;
+}
+#sp-promo-center .sp-ad-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  font-size: 23px;
+  line-height: 1;
+  cursor: pointer;
+}
+#sp-promo-center .sp-ad-controls button:active { background: var(--bg-tertiary, #f1f5f9); }
+#sp-promo-center #sp-ad-dots { display: inline-flex; align-items: center; gap: 7px; color: var(--border-color, #cbd5e1); font-size: 10px; }
+#sp-promo-center #sp-ad-dots .active { color: var(--primary-color, #6366f1); }
+
+#sp-promo-center .sp-notice-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 13px;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #0f172a);
+  box-shadow: var(--card-shadow, 0 4px 14px rgba(15,23,42,.04));
+}
+#sp-promo-center .sp-notice-label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding-right: 9px;
+  border-right: 1px solid var(--border-color, #e2e8f0);
+  color: var(--primary-color, #6366f1);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+#sp-promo-center .sp-notice-viewport {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 2%, #000 98%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 2%, #000 98%, transparent);
+}
+#sp-promo-center .sp-notice-track {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  max-width: none;
+  gap: 42px;
+  animation: sp-notice-marquee 24s linear infinite;
+  will-change: transform;
+}
+#sp-promo-center .sp-notice-item,
+#sp-promo-center .sp-notice-item:visited {
+  display: inline-block;
+  flex: 0 0 auto;
+  max-width: none;
+  color: var(--text-secondary, #334155);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+}
+#sp-promo-center .sp-notice-item.sp-urgent { color: #dc2626; font-weight: 800; }
+#sp-promo-center .sp-notice-viewport:hover .sp-notice-track,
+#sp-promo-center .sp-notice-viewport:focus-within .sp-notice-track { animation-play-state: paused; }
+@keyframes sp-notice-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+@media (max-width: 520px) {
+  #sp-promo-center { gap: 8px; margin: 12px 0 15px; }
+  #sp-promo-center .sp-ad-slot {
+    grid-template-columns: minmax(0, 1fr) 112px;
+    min-height: 136px;
+    gap: 7px 10px;
+    padding: 12px 12px 6px;
+    border-radius: 19px;
+  }
+  #sp-promo-center .sp-ad-image-link { max-width: 112px; height: 82px; border-radius: 12px; }
+  #sp-promo-center .sp-ad-image-link img { max-height: 82px; }
+  #sp-promo-center #sp-ad-description { font-size: 12px; line-height: 1.42; }
+  #sp-promo-center #sp-ad-link { font-size: 12px; }
+  #sp-promo-center .sp-notice-bar { min-height: 44px; gap: 8px; padding: 0 9px; border-radius: 11px; }
+  #sp-promo-center .sp-notice-label { padding-right: 7px; font-size: 10px; }
+  #sp-promo-center .sp-notice-item { font-size: 12px; }
+}
+@media (max-width: 350px) {
+  #sp-promo-center .sp-ad-slot { grid-template-columns: minmax(0, 1fr) 88px; }
+  #sp-promo-center .sp-ad-image-link { max-width: 88px; height: 72px; }
+  #sp-promo-center .sp-ad-image-link img { max-height: 72px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #sp-promo-center .sp-notice-track { animation-duration: 60s !important; }
+}
